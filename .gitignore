@@ -1,0 +1,116 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Environment variables and secrets
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+*.env
+
+# API Keys and Tokens
+*_config.json
+*_token.json
+*_key.json
+discord_config.json
+qroq_config.json
+openai_api_config.json
+kokoro_tts_config.json
+edge_tts_config.json
+brave_search_config.json
+voice_chat_integration_config.json
+voice_transcriber_config.json
+audio_device_config.json
+
+# Database files (optional - uncomment if you don't want to track them)
+# *.db
+# *.db-shm
+# *.db-wal
+
+# Cache directories
+cache/
+.cache/
+memory_cache/
+streaming_cache/
+tts_cache/
+camera_cache/
+
+# Model files (large model files excluded)
+*.pt
+*.pkl
+*.safetensors
+*.bin
+
+# Logs
+*.log
+logs/
+training_log.json
+performance_optimization_results.json
+
+# Temporary files
+*.tmp
+*.temp
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Backup files
+*.bak
+*.backup
+*_backup.*
+
+# Lock files
+*.lock
+luna_gui.lock
+luna_gui.pid
+
+# Compressed memories (optional - uncomment if you don't want to track them)
+# compressed_memories/
+
+# Sound files (optional - uncomment if you don't want to track them)
+# sounds/
+
+# VRM viewer files
+vrm viewer completed/
+
+# VTS Plugin files
+VTS_Desktop_Audio_Plugin_1.1/
+
+# Unity build files
+Luna Waifu/

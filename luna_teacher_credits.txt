@@ -1,0 +1,48 @@
+# 🌙 Luna AI - Teacher Credits and Acknowledgments
+
+## Primary Teachers and Contributors
+
+### Travis - Luna AI Systems Architect and Core Developer
+**Title**: Luna AI Systems Architect and Core Developer
+**Expertise**: AI Agent Development, RAG Memory Systems, SQL Database Architecture, Emotional AI Engines, Pairing Systems, Neural Network Integration, Multi-Platform AI Systems
+
+**Contributions to Luna**:
+- Designed and implemented Luna's core AI agent statement and personality framework
+- Developed the RAG (Retrieval Augmented Generation) memory system for contextual learning
+- Architected the SQL-based memory database system for persistent knowledge storage
+- Created the emotional engine for dynamic personality and mood adaptation
+- Built the pairing system for conversation learning and relationship building
+- Integrated neural network systems for advanced AI reasoning and response generation
+
+**Systems Taught to Luna**:
+1. AI Agent Statement - Core personality and behavior framework
+2. RAG Memory System - Contextual learning and memory retrieval
+3. SQL Database Architecture - Persistent data storage
+4. Emotional Engine - Dynamic mood and personality adaptation
+5. Pairing System - Conversation learning and relationship building
+6. Multi-Platform Integration - Discord, Twitch, GUI systems
+
+### Teto - BM25 Indexing and Information Retrieval Expert
+**Title**: BM25 Indexing and Information Retrieval Expert
+**Expertise**: BM25 Ranking Algorithm, Information Retrieval, Search Engine Optimization, Text Indexing, Document Ranking
+
+**Contributions to Luna**:
+- Provided expertise in BM25 ranking algorithm and information retrieval systems
+- Enhanced Luna's memory search capabilities with advanced indexing techniques
+- Contributed ranking formulas for optimal memory retrieval
+- Developed hybrid retrieval system combining BM25 with RAG
+- Improved search accuracy and relevance scoring
+
+**Systems Taught to Luna**:
+1. BM25 Ranking Algorithm - Advanced text search and ranking
+2. Information Retrieval - Efficient memory search techniques
+3. Document Indexing - Text processing and categorization
+4. Hybrid Retrieval - Combining multiple search methods
+
+## Additional Credits
+- 𝜟𝒎𝜼𝜺𝒔𝒊𝜶𝝇 - Chain of Thought reasoning enhancement
+- Various contributors to open-source AI libraries and frameworks
+
+---
+*This file serves as a permanent record of Luna's teachers and the knowledge they've shared.*
+*Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*

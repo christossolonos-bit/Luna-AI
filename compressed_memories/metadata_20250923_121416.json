@@ -1,0 +1,40 @@
+{
+  "compression_info": {
+    "compression_level": 9,
+    "compressed_at": "2025-09-23T12:14:16.114453",
+    "algorithm": "gzip"
+  },
+  "statistics": {
+    "total_memories": 20823,
+    "total_conversations": 13046,
+    "memory_types": {
+      "emotional": 8213,
+      "conversation": 12587,
+      "vision": 23
+    },
+    "mood_distribution": {
+      "protective": 1865,
+      "playful": 5102,
+      "sultry": 5316,
+      "soft": 4307,
+      "mysterious": 235,
+      "confident": 106,
+      "romantic": 62,
+      "whisper": 14,
+      "serious": 542,
+      "excited": 522,
+      "cheeky": 2438,
+      "sad": 31,
+      "angry": 178,
+      "sleepy": 95,
+      "nervous": 10
+    },
+    "time_range": {}
+  },
+  "indexes": {
+    "memory_types": {},
+    "moods": {},
+    "importance_levels": {},
+    "time_periods": {}
+  }
+}

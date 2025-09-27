@@ -1,0 +1,12 @@
+# Luna OpenAI-Compatible API Requirements
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+requests>=2.31.0
+pydantic>=2.0.0
+
+# Optional: For OpenAI SDK examples
+# openai>=1.0.0
+
+# Optional: For LangChain examples  
+# langchain>=0.1.0
+# langchain-openai>=0.1.0

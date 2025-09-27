@@ -1,0 +1,22 @@
+{
+  "solonaras": {
+    "first_seen": 1758679025.8693638,
+    "last_seen": 1758732163.2629833,
+    "message_count": 18,
+    "channels": [
+      "chris-chat"
+    ],
+    "guilds": [],
+    "recent_messages": []
+  },
+  "Travis": {
+    "first_seen": 1758732207.1795733,
+    "last_seen": 1758733165.642485,
+    "message_count": 10,
+    "channels": [
+      "chris-chat"
+    ],
+    "guilds": [],
+    "recent_messages": []
+  }
+}

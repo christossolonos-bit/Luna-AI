@@ -1,0 +1,79 @@
+ESSENTIAL LUNA AI FILES FOR COMPLETE FUNCTIONALITY
+
+=== CORE SYSTEM (REQUIRED) ===
+main.py                           # Main application - GUI, AI logic, all integrations
+voice_engine.py                   # Text-to-speech engine with Kokoro/Edge TTS
+enhanced_self_talk.py             # Self-talk system and personality
+bm25_memory_system.py             # BM25 memory search and retrieval
+
+=== AI INTEGRATIONS (REQUIRED) ===
+luna_qroq_integration.py          # Qroq API (Groq) - Primary LLM brain
+luna_brave_search.py              # Brave Search - Real-time information
+luna_kokoro_integration.py        # Kokoro TTS - High-quality voice synthesis
+edge_tts_integration.py           # Edge TTS - Fallback voice system
+
+=== CONFIGURATION FILES (REQUIRED) ===
+qroq_config.json                  # Qroq API settings (API key, model)
+brave_search_config.json          # Brave Search API settings
+kokoro_tts_config.json            # Kokoro TTS settings (enabled, voice)
+edge_tts_config.json              # Edge TTS settings
+discord_config.json               # Discord bot configuration
+audio_device_config.json          # Audio device settings
+
+=== MEMORY DATABASES (CRITICAL) ===
+luna_consciousness.db             # Core memories and personality (28KB)
+luna_memories.db                  # Conversation history (126MB - MAIN DATABASE)
+luna_reasoning.db                 # Thought processes (94KB)
+luna_news.db                      # News and current events (20KB)
+discord_users.json                # Discord user tracking
+twitch_users.json                 # Twitch user tracking
+
+=== DOCUMENTATION (HIGHLY RECOMMENDED) ===
+README.md                         # Main documentation and setup
+kokoro_tts_setup.md               # Kokoro TTS installation guide
+DISCORD_SETUP.md                  # Discord bot setup guide
+
+=== OPTIONAL INTEGRATIONS ===
+luna_discord.py                   # Discord bot functionality
+twitch_chat.py                    # Twitch chat integration
+luna_dictionary.py                # Dictionary system
+expressions.py                    # Facial expression system
+virtual_audio.py                  # Audio routing
+voice_modulation.py               # Voice effects
+
+=== DEPENDENCIES ===
+requirements.txt                  # Python package requirements
+
+=== CACHE DIRECTORIES (OPTIONAL) ===
+tts_cache/                        # Cached TTS audio files
+memory_cache/                     # Memory system cache
+compressed_memories/              # Compressed memory archives
+
+=== MINIMUM VIABLE PACKAGE (20-30MB) ===
+- All Python files from CORE SYSTEM and AI INTEGRATIONS
+- All JSON files from CONFIGURATION FILES
+- README.md and kokoro_tts_setup.md
+- requirements.txt
+
+=== COMPLETE PACKAGE (150-200MB) ===
+- Everything above
+- All memory databases (luna_memories.db is 126MB)
+- All cache directories
+- All optional integrations
+
+=== WHAT YOUR FRIEND NEEDS TO DO ===
+1. Install Python dependencies: pip install -r requirements.txt
+2. Set up API keys in config files (Qroq, Brave Search)
+3. Install Kokoro TTS server (optional, for voice)
+4. Run: python main.py
+
+=== TOTAL FILE COUNT ===
+Essential files: ~25 files
+Complete package: ~50+ files
+Main database: 27,123 conversations with Luna
+
+=== PACKAGE SIZES ===
+Minimal (core only): ~20MB
+Standard (with docs): ~30MB  
+Complete (with all data): ~200MB
+
