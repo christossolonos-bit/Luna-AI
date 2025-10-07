@@ -11,6 +11,7 @@ import sqlite3
 import math
 import re
 import json
+import threading
 from collections import defaultdict, Counter
 from typing import List, Dict, Tuple, Optional
 import time
@@ -47,6 +48,15 @@ class BM25MemorySystem:
         self.is_indexed = False
         self.last_index_update = 0
         
+        # OPTIMIZATION: Add caching for faster repeated queries
+        self.query_cache = {}  # query -> results cache
+        self.cache_max_size = 100  # Maximum cached queries
+        self.cache_ttl = 300  # Cache time-to-live in seconds (5 minutes)
+        
+        # OPTIMIZATION: Add incremental indexing
+        self.pending_updates = set()  # Track documents that need reindexing
+        self.index_lock = threading.Lock()  # Thread safety for index updates
+        
         print("🧠 BM25 Memory System initialized")
         print(f"📚 Credits: {self.teacher_name} - BM25 Indexing and Information Retrieval Expert")
     
@@ -73,38 +83,67 @@ class BM25MemorySystem:
         
         return stemmed_words
     
-    def _build_index(self):
-        """Build BM25 index from database"""
-        print("🔍 Building BM25 index from memory database...")
+    def _build_index(self, incremental: bool = False):
+        """Build BM25 index from database (optimized with incremental updates)"""
+        if incremental:
+            print("🔄 Updating BM25 index incrementally...")
+        else:
+            print("🔍 Building BM25 index from memory database...")
         start_time = time.time()
         
         try:
-            conn = sqlite3.connect(self.db_path)
+            conn = sqlite3.connect(self.db_path, timeout=10.0)  # OPTIMIZATION: Reduced timeout
             cursor = conn.cursor()
             
-            # Get all memories and conversations
-            cursor.execute("""
-                SELECT id, content, memory_type, importance, timestamp 
-                FROM memories 
-                WHERE content IS NOT NULL AND content != ''
-            """)
-            memories = cursor.fetchall()
-            
-            cursor.execute("""
-                SELECT id, user_message, luna_response, mood, timestamp
-                FROM conversations 
-                WHERE (user_message IS NOT NULL AND user_message != '') 
-                OR (luna_response IS NOT NULL AND luna_response != '')
-            """)
-            conversations = cursor.fetchall()
+            # OPTIMIZATION: Limit results for faster indexing
+            if incremental and self.pending_updates:
+                # Only process pending updates
+                pending_ids = list(self.pending_updates)
+                placeholders = ','.join('?' * len(pending_ids))
+                
+                cursor.execute(f"""
+                    SELECT id, content, memory_type, importance, timestamp 
+                    FROM memories 
+                    WHERE id IN ({placeholders}) AND content IS NOT NULL AND content != ''
+                """, pending_ids)
+                memories = cursor.fetchall()
+                
+                cursor.execute(f"""
+                    SELECT id, user_message, luna_response, mood, timestamp
+                    FROM conversations 
+                    WHERE id IN ({placeholders}) AND ((user_message IS NOT NULL AND user_message != '') 
+                    OR (luna_response IS NOT NULL AND luna_response != ''))
+                """, pending_ids)
+                conversations = cursor.fetchall()
+                
+                self.pending_updates.clear()
+            else:
+                # OPTIMIZATION: Limit to recent items for faster initial indexing
+                cursor.execute("""
+                    SELECT id, content, memory_type, importance, timestamp 
+                    FROM memories 
+                    WHERE content IS NOT NULL AND content != ''
+                    ORDER BY timestamp DESC LIMIT 1000
+                """)
+                memories = cursor.fetchall()
+                
+                cursor.execute("""
+                    SELECT id, user_message, luna_response, mood, timestamp
+                    FROM conversations 
+                    WHERE (user_message IS NOT NULL AND user_message != '') 
+                    OR (luna_response IS NOT NULL AND luna_response != '')
+                    ORDER BY timestamp DESC LIMIT 1000
+                """)
+                conversations = cursor.fetchall()
             
             conn.close()
             
-            # Clear existing index
-            self.documents.clear()
-            self.document_lengths.clear()
-            self.term_frequencies.clear()
-            self.document_frequencies.clear()
+            # OPTIMIZATION: Only clear index if not incremental
+            if not incremental:
+                self.documents.clear()
+                self.document_lengths.clear()
+                self.term_frequencies.clear()
+                self.document_frequencies.clear()
             
             doc_id = 0
             
@@ -213,7 +252,7 @@ class BM25MemorySystem:
     
     def search(self, query: str, limit: int = 10, min_score: float = 0.1) -> List[Dict]:
         """
-        Search for relevant documents using BM25 ranking
+        Search for relevant documents using BM25 ranking (optimized with caching)
         
         Args:
             query: Search query
@@ -223,6 +262,14 @@ class BM25MemorySystem:
         Returns:
             List of relevant documents with scores
         """
+        # OPTIMIZATION: Check cache first
+        cache_key = f"{query}:{limit}:{min_score}"
+        if cache_key in self.query_cache:
+            cached_result, timestamp = self.query_cache[cache_key]
+            if time.time() - timestamp < self.cache_ttl:
+                print(f"🚀 BM25 cache hit for: '{query}'")
+                return cached_result
+        
         if not self.is_indexed:
             print("⚠️ BM25 index not built, building now...")
             self._build_index()
@@ -260,6 +307,10 @@ class BM25MemorySystem:
             })
         
         print(f"📊 BM25 search returned {len(results)} results")
+        
+        # OPTIMIZATION: Cache results
+        self._cache_result(cache_key, results)
+        
         return results
     
     def get_relevant_memories(self, query: str, limit: int = 5) -> List[str]:
@@ -277,10 +328,36 @@ class BM25MemorySystem:
                 conversations.append(result['content'])
         return conversations[:limit]
     
-    def update_index(self):
-        """Update the BM25 index (rebuild if needed)"""
-        print("🔄 Updating BM25 index...")
-        self._build_index()
+    def update_index(self, incremental: bool = True):
+        """Update the BM25 index (optimized with incremental updates)"""
+        if incremental and self.pending_updates:
+            print("🔄 Updating BM25 index incrementally...")
+            self._build_index(incremental=True)
+        else:
+            print("🔄 Rebuilding BM25 index...")
+            self._build_index(incremental=False)
+        
+        # Clear cache after update
+        self.query_cache.clear()
+    
+    def _cache_result(self, cache_key: str, results: List[Dict]):
+        """Cache search results with size management"""
+        # Remove oldest entries if cache is full
+        if len(self.query_cache) >= self.cache_max_size:
+            oldest_key = min(self.query_cache.keys(), 
+                           key=lambda k: self.query_cache[k][1])
+            del self.query_cache[oldest_key]
+        
+        self.query_cache[cache_key] = (results, time.time())
+    
+    def mark_for_update(self, doc_id: int):
+        """Mark a document for incremental update"""
+        with self.index_lock:
+            self.pending_updates.add(doc_id)
+    
+    def clear_cache(self):
+        """Clear the query cache"""
+        self.query_cache.clear()
     
     def get_index_stats(self) -> Dict:
         """Get statistics about the BM25 index"""

@@ -41,6 +41,14 @@ class TwitchUserTracker:
                     # Ensure recent_messages is a list
                     if "recent_messages" not in user_data:
                         user_data["recent_messages"] = []
+                    
+                    # Ensure interaction_count exists (for backward compatibility)
+                    if "interaction_count" not in user_data:
+                        user_data["interaction_count"] = user_data.get("message_count", 0)
+                    
+                    # Ensure favorite_topics exists
+                    if "favorite_topics" not in user_data:
+                        user_data["favorite_topics"] = []
                 
                 print(f"📊 Loaded {len(self.users)} Twitch users from {self.data_file}")
             else:

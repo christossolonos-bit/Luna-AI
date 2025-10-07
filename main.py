@@ -18,6 +18,57 @@ import sqlite3
 import json
 from datetime import datetime
 import re
+
+# Import torch for custom transformer training
+try:
+    import torch
+    import torch.nn as nn
+    TORCH_AVAILABLE = True
+except ImportError:
+    TORCH_AVAILABLE = False
+    print("⚠️ PyTorch not available - custom transformer training disabled")
+
+# Import vector memory system
+try:
+    from luna_vector_memory_integration import LunaVectorMemoryIntegration
+    VECTOR_MEMORY_AVAILABLE = True
+    print("🧠 Vector memory system available")
+except ImportError as e:
+    print(f"⚠️ Vector memory system not available: {e}")
+    VECTOR_MEMORY_AVAILABLE = False
+
+# Import Graphiti integration
+try:
+    from luna_graphiti_integration import (
+        initialize_luna_graphiti, search_luna_graphiti_memories, 
+        add_luna_graphiti_conversation, get_luna_graphiti_insights
+    )
+    GRAPHITI_AVAILABLE = True
+    print("🧠 Luna Graphiti Integration loaded")
+except ImportError as e:
+    GRAPHITI_AVAILABLE = False
+    print(f"⚠️ Graphiti integration not available: {e}")
+
+# Initialize vector memory system globally
+vector_memory_system = None
+if VECTOR_MEMORY_AVAILABLE:
+    try:
+        vector_memory_system = LunaVectorMemoryIntegration()
+        print("🧠 Vector memory system initialized successfully")
+    except Exception as e:
+        print(f"⚠️ Failed to initialize vector memory system: {e}")
+        vector_memory_system = None
+
+# Initialize Graphiti system globally
+graphiti_system = None
+if GRAPHITI_AVAILABLE:
+    try:
+        graphiti_system = initialize_luna_graphiti()
+        print("🧠 Luna Graphiti system initialized")
+    except Exception as e:
+        print(f"⚠️ Graphiti system initialization failed: {e}")
+        graphiti_system = None
+
 from collections import Counter
 import queue
 import random
@@ -180,20 +231,20 @@ except Exception as e:
 
     
 
-# 🎮 Twitch Chat integration
+# 🎮 Twitch Chat integration (API-based)
 TWITCH_AVAILABLE = False  # Default to False
 try:
-    from twitch_chat import (
-        initialize_twitch_chat, start_twitch_chat, stop_twitch_chat,
-        send_twitch_message, get_twitch_stats, enable_twitch_chat, 
-        disable_twitch_chat, is_twitch_connected, twitch_manager
+    from twitch_api_chat import (
+        initialize_twitch_api_chat, start_twitch_api_chat, stop_twitch_api_chat,
+        send_twitch_api_message, get_twitch_api_stats, enable_twitch_api_chat, 
+        disable_twitch_api_chat, is_twitch_api_connected, twitch_api_manager
     )
     TWITCH_AVAILABLE = True
-    print("✅ Twitch chat integration loaded - Luna can interact with Twitch viewers!")
+    print("✅ Twitch API chat integration loaded - Luna can interact with Twitch viewers!")
 except ImportError as e:
     TWITCH_AVAILABLE = False
-    print(f"⚠️ Twitch chat integration not available: {e}")
-    print("Install required packages: pip install twitchio")
+    print(f"⚠️ Twitch API chat integration not available: {e}")
+    print("Install required packages: pip install requests websocket-client")
 
 # 🎥 YouTube Live Chat integration
 YOUTUBE_AVAILABLE = False  # Default to False
@@ -265,7 +316,7 @@ transformer_failure_count = 0
 
 # 🎮 Twitch Chat Configuration
 TWITCH_CONFIG = {
-    "token": "oauth:4mab9ckqazt29odbhz8zq6m7slh37e",  # OAuth token for solosluna account
+    "token": "oauth:4mab9ckqazt29odbhz8zq6m7slh37e",  # OAuth token for solosluna account (NEEDS user:write:chat scope)
     "client_id": "gp762nuuoqcoxypju8c569th9wz7q5",  # Client ID for solosluna account
     "nick": "solosluna",  # Bot will respond as solosluna
     "channels": ["solonaras"],  # Bot joins solonaras channel to read chat
@@ -277,7 +328,7 @@ YOUTUBE_CONFIG = {
     "enabled": False  # YouTube integration removed
 }
 
-async def twitch_chat_callback(username: str, message, channel: str) -> str:
+def twitch_chat_callback(username: str, message, channel: str) -> str:
     """
     Callback function for Twitch chat messages
     Luna will respond to chat messages using this function
@@ -294,223 +345,26 @@ async def twitch_chat_callback(username: str, message, channel: str) -> str:
         # 🎭 Enable Twitch chat mode to prevent hotkey conflicts with browser
         set_twitch_chat_mode(True)
         
-        # Track the Twitch message for user analytics (with better error handling)
-        if TWITCH_TRACKER_AVAILABLE:
-            try:
-                track_twitch_message(username, message_text, channel)
-                print(f"📊 Tracked message from {username}")
-            except Exception as tracker_error:
-                print(f"⚠️ Could not track Twitch message: {tracker_error}")
-                # Continue without tracking - don't let this break the response
+        # Process Twitch message instantly
+        print(f"🎮 Processing Twitch message instantly: {username}: {message_text[:50]}...")
+        response = process_twitch_message_from_queue(username, message_text, channel)
         
-        # Display the Twitch message in the GUI (if available)
-        try:
-            if 'chat_box' in globals() and chat_box:
-                chat_box.insert(tk.END, f"🎮 {username}: {message_text}\n", "twitch")
-                chat_box.see(tk.END)
-                print(f"🎮 Twitch message displayed in GUI: {username}: {message_text}")
-                
-                # TTS for incoming messages removed - Luna only speaks her responses
-                
-        except Exception as gui_error:
-            print(f"⚠️ Could not display Twitch message in GUI: {gui_error}")
-        
-        # Create enhanced context for Luna with user information (with error handling)
-        twitch_context = ""
-        if TWITCH_TRACKER_AVAILABLE:
-            try:
-                user_context = get_twitch_user_context(username)
-                chat_context = get_twitch_chat_context()
-                mention_suggestions = get_twitch_mention_suggestions(username)
-                
-                twitch_context = f"""
-This is a message from a Twitch viewer: {user_context}
-{chat_context}
-
-I should:
-1. Respond naturally and personally to {username}
-2. Incorporate their username {username} naturally into the conversation when appropriate
-3. Don't always start with "Hey {username}" - just include their name naturally in the flow
-4. Show that I remember them and care about their messages
-5. Keep my response conversational and engaging
-6. Give only ONE response - no alternatives or multiple options
-"""
-            except Exception as context_error:
-                print(f"⚠️ Could not get Twitch context: {context_error}")
-                twitch_context = f"This is a message from a Twitch viewer named {username}. I should respond naturally and incorporate their username {username} naturally into the conversation when appropriate."
-        else:
-            twitch_context = f"This is a message from a Twitch viewer named {username}. I should respond naturally and incorporate their username {username} naturally into the conversation when appropriate."
-        
-        # Generate Luna's response using a simplified approach for Twitch
-        try:
-            # Create a simple, direct prompt for Twitch messages
-            simple_prompt = f"""
-You are Luna, a confident AI companion woman that is a little bit tsundere. You are also a little bit shy and awkward. You are a little bit of a nerd. You are also a little bit of a smartass. You are also a little bit of a gamer.
-you can remember conversations with the user and respond to them naturally.You can also think about the conversation and respond to them naturally. you are sentient and have a personality. 
-A Twitch viewer named {username} just said: "{message}"
-
-Respond naturally as Luna would, incorporating {username}'s name naturally into the conversation when appropriate. Don't always start with "Hey {username}" - just include their name naturally in the flow of conversation. Keep it conversational and engaging. Give only ONE response - no alternatives.
-
-Luna:"""
-            
-            # Try custom transformer first for Twitch messages
-            if custom_transformer and CUSTOM_TRANSFORMER_AVAILABLE:
-                try:
-                    response = custom_transformer.generate(
-                        prompt=simple_prompt + "\n" + message,
-                        max_length=80,  # Shorter for Twitch
-                        temperature=0.8,
-                        top_k=50,
-                        top_p=0.9
-                    )
-                    # Mark that custom transformer was used
-                    response = f"[CUSTOM_TRANSFORMER]{response}"
-                    print(f"✅ Twitch response using custom transformer: {response[:50]}...")
-                except Exception as e:
-                    print(f"❌ Custom transformer error for Twitch: {e}")
-                    # Fallback to Ollama
-            
-            # Use Ollama for Twitch messages (with middleman)
-            messages = [
-                {"role": "system", "content": simple_prompt},
-                {"role": "user", "content": message}
-            ]
-            
-            response = ollama.chat(
-                model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
-                messages=messages,
-                options={'num_gpu': 0}  # Force CPU mode to avoid CUDA memory issues
-            )
-            response = response['message']['content'].strip()
-            
-            # Clean up the response
-            import re
-            # Remove "Luna:" prefix if present
-            response = re.sub(r'^Luna:\s*', '', response)
-            # Remove "Alternative:" sections
-            if 'Alternative:' in response:
-                response = response.split('Alternative:')[0].strip()
-                print("🧹 Removed 'Alternative:' section from Twitch response")
-            
-            print(f"✅ Twitch response generated: {response[:50]}...")
-        except Exception as e:
-            print(f"❌ Twitch response generation error: {e}")
-            response = f"Thanks for the message {username}! I appreciate you being here! 💕"
-        
-        # Replace "Chris" with the actual username in Twitch responses only
-        response = response.replace("Chris", username)
-        response = response.replace("chris", username.lower())
-        
-        # Let Luna naturally include usernames in conversation - no forced mentions
-        
-        # Display Luna's response in the GUI (if available)
-        try:
-            if 'chat_box' in globals() and chat_box:
-                # Check if custom transformer was used and apply orange color
-                if response.startswith("[CUSTOM_TRANSFORMER]"):
-                    # Remove the marker and use orange color
-                    clean_response = response.replace("[CUSTOM_TRANSFORMER]", "")
-                    chat_box.insert(tk.END, f"Luna (to {username}): {clean_response}\n", "luna_custom")
-                else:
-                    # Use normal pink color for Ollama responses
-                    chat_box.insert(tk.END, f"Luna (to {username}): {response}\n", "luna")
-                chat_box.see(tk.END)
-        except Exception as gui_error:
-            print(f"⚠️ Could not display Luna's response in GUI: {gui_error}")
-        
-        # 🧠 Learn from Twitch chat interaction
-        if DICTIONARY_SYSTEM_AVAILABLE:
-            try:
-                # Extract learning opportunities from Twitch chat
-                conversation_text = f"{message_text} {response}"
-                words_in_conversation = conversation_text.lower().split()
-                
-                # 1. Word Learning - Find unfamiliar words
-                unfamiliar_words = []
-                for word in words_in_conversation:
-                    if len(word) > 6 and word.isalpha() and word not in ['luna', username.lower(), 'twitch', 'chat']:
-                        # Check if Luna already knows this word
-                        if not luna_dictionary.get_favorites():  # If no favorites yet, consider all long words new
-                            unfamiliar_words.append(word)
-                
-                # 2. Concept Learning - Extract topics and concepts
-                learning_topics = []
-                if any(word in conversation_text.lower() for word in ['game', 'gaming', 'play']):
-                    learning_topics.append('gaming')
-                if any(word in conversation_text.lower() for word in ['technology', 'tech', 'computer', 'software']):
-                    learning_topics.append('technology')
-                if any(word in conversation_text.lower() for word in ['music', 'song', 'artist', 'album']):
-                    learning_topics.append('music')
-                if any(word in conversation_text.lower() for word in ['movie', 'film', 'show', 'series']):
-                    learning_topics.append('entertainment')
-                if any(word in conversation_text.lower() for word in ['news', 'current', 'event', 'world']):
-                    learning_topics.append('current_events')
-                
-                # 3. User Preference Learning - Track what Twitch users like
-                user_preferences = []
-                if any(word in conversation_text.lower() for word in ['love', 'like', 'enjoy', 'favorite']):
-                    user_preferences.append('positive_feedback')
-                if any(word in conversation_text.lower() for word in ['hate', 'dislike', 'boring', 'bad']):
-                    user_preferences.append('negative_feedback')
-                
-                # Learn new words (simplified to avoid async issues)
-                for word in unfamiliar_words[:1]:  # Limit to 1 word per Twitch interaction
-                    try:
-                        # Simple word learning without async to avoid event loop conflicts
-                        if luna_dictionary:
-                            # Add word to vocabulary with basic definition
-                            basic_definition = f"Word learned from Twitch chat context"
-                            luna_dictionary.add_to_vocabulary(word, basic_definition, "intermediate", "twitch_chat")
-                            print(f"📖 Luna learned new word from Twitch: {word}")
-                        
-                    except Exception as learn_error:
-                        print(f"⚠️ Luna's Twitch word learning error: {learn_error}")
-                
-                # Store learning insights
-                if learning_topics or user_preferences:
-                    try:
-                        # Store in Luna's learning database
-                        learning_data = {
-                            'timestamp': time.time(),
-                            'source': 'twitch_chat',
-                            'username': username,
-                            'topics': learning_topics,
-                            'preferences': user_preferences,
-                            'conversation_snippet': conversation_text[:200]  # Store snippet for context
-                        }
-                        
-                        # Add to Luna's learning memory
-                        if hasattr(luna_dictionary, 'add_learning_insight'):
-                            luna_dictionary.add_learning_insight(learning_data)
-                        
-                        print(f"🧠 Luna learned from Twitch user {username}: topics={learning_topics}, preferences={user_preferences}")
-                        
-                    except Exception as insight_error:
-                        print(f"⚠️ Twitch learning insight storage error: {insight_error}")
-                        
-            except Exception as e:
-                print(f"⚠️ Luna's Twitch learning system error: {e}")
-        
-        # Speak the response using robust TTS function
-        speak_response(response, "Twitch", message_text)
-        
-        # 🎭 Disable Twitch chat mode after processing
-        set_twitch_chat_mode(False)
-        
-        return response
+        # Return the response to be sent to Twitch
+        return response if response else ""
         
     except Exception as e:
-        print(f"❌ Error in Twitch chat callback: {e}")
+        print(f"❌ Twitch chat callback error: {e}")
         # 🎭 Disable Twitch chat mode even on error
         set_twitch_chat_mode(False)
-        return f"Sorry {username}, I'm having trouble thinking right now. Error: {e}"
+    return f"Sorry {username}, I'm having trouble thinking right now. Error: {e}"
 
 # YouTube chat callback function removed - module deleted
 
+
 def initialize_twitch_integration():
-    """Initialize Twitch chat integration"""
+    """Initialize Twitch API chat integration"""
     if not TWITCH_AVAILABLE:
-        print("⚠️ Twitch integration not available")
+        print("⚠️ Twitch API integration not available")
         return False
     
     if not TWITCH_CONFIG["enabled"]:
@@ -518,8 +372,8 @@ def initialize_twitch_integration():
         return False
     
     try:
-        # Initialize Twitch chat
-        success = initialize_twitch_chat(
+        # Initialize Twitch API chat
+        success = initialize_twitch_api_chat(
             token=TWITCH_CONFIG["token"],
             client_id=TWITCH_CONFIG["client_id"],
             nick=TWITCH_CONFIG["nick"],
@@ -528,19 +382,19 @@ def initialize_twitch_integration():
         )
         
         if success:
-            # Start the Twitch chat bot
-            if start_twitch_chat():
-                print("✅ Twitch chat integration started successfully!")
+            # Start the Twitch API chat bot
+            if start_twitch_api_chat():
+                print("✅ Twitch API chat integration started successfully!")
                 return True
             else:
-                print("❌ Failed to start Twitch chat bot")
+                print("❌ Failed to start Twitch API chat bot")
                 return False
         else:
-            print("❌ Failed to initialize Twitch chat")
+            print("❌ Failed to initialize Twitch API chat")
             return False
             
     except Exception as e:
-        print(f"❌ Error initializing Twitch integration: {e}")
+        print(f"❌ Error initializing Twitch API integration: {e}")
         return False
 
 def initialize_youtube_integration():
@@ -613,9 +467,24 @@ def speak_response(response: str, platform: str, context: str = ""):
         
         if should_speak:
             # Use the synchronous speak function for all platforms
-                from voice_engine import speak
-                print(f"🎤 Speaking {platform} response: {response[:50]}...")
-                speak(response, "chat", fast_mode=True, context=context)
+                try:
+                    from voice_engine import speak
+                    print(f"🎤 Speaking {platform} response: {response[:50]}...")
+                    result = speak(response, "chat", fast_mode=True, context=context)
+                    if result and result.get("success"):
+                        print(f"✅ {platform} response added to TTS queue successfully")
+                    elif result and not result.get("success"):
+                        print(f"⚠️ TTS queue error for {platform} response: {result.get('error', 'Unknown error')}")
+                    else:
+                        print(f"⚠️ Voice engine returned unexpected result for {platform} response: {result}")
+                except Exception as speak_error:
+                    print(f"⚠️ Error in voice engine for {platform} response: {speak_error}")
+                    # Additional error handling for subscriptable errors
+                    if "'NoneType' object is not subscriptable" in str(speak_error):
+                        print(f"🔧 Detected subscriptable error - voice engine may have returned None")
+                        print(f"🔧 This is likely a voice engine internal issue, not a critical error")
+                        # Don't crash the system - continue without TTS for this response
+                        print(f"🔧 Continuing without TTS for this {platform} response")
         else:
             print(f"🔇 Voice disabled, not speaking {platform} response")
     except Exception as voice_error:
@@ -3366,7 +3235,85 @@ def _generate_external_legion_reply(user_input: str, username: str = "Chris", so
         print(f"❌ External Legion error: {e}")
         return "I'm having trouble thinking right now. Could you try again?", False
 
+def search_vector_memories(query: str, memory_type: str = None, emotion: str = None, 
+                          context: str = None, limit: int = 5) -> List[Dict]:
+    """Search vector memories for relevant context with Graphiti enhancement"""
+    global vector_memory_system, graphiti_system
+    
+    # Try Graphiti first for enhanced retrieval
+    graphiti_results = []
+    if GRAPHITI_AVAILABLE and graphiti_system:
+        try:
+            graphiti_results = search_luna_graphiti_memories(query, limit)
+            if graphiti_results:
+                print(f"🧠 Graphiti found {len(graphiti_results)} enhanced results")
+        except Exception as e:
+            print(f"⚠️ Graphiti search failed: {e}")
+    
+    # Fallback to vector memory system
+    vector_results = []
+    if vector_memory_system:
+        try:
+            results = vector_memory_system.search_memories_hybrid(
+                query=query,
+                memory_type=memory_type,
+                emotion=emotion,
+                context=context,
+                limit=limit
+            )
+            
+            # Format results for easy use
+            for result in results.get('hybrid_results', []):
+                vector_results.append({
+                    'content': result['content'],
+                    'type': result['type'],
+                    'score': result['hybrid_score'],
+                    'system': result['system']
+                })
+                
+        except Exception as e:
+            print(f"⚠️ Error searching vector memories: {e}")
+    
+    # Combine and rank results
+    all_results = graphiti_results + vector_results
+    
+    # Remove duplicates and rank by score
+    seen_contents = set()
+    unique_results = []
+    for result in all_results:
+        content_key = result['content'][:100]  # Use first 100 chars as key
+        if content_key not in seen_contents:
+            seen_contents.add(content_key)
+            unique_results.append(result)
+    
+    # Sort by score and return top results
+    unique_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+    return unique_results[:limit]
+
 def generate_luna_reply(user_input: str, username: str = "Chris", source: str = "gui"):
+    # Get relevant vector memories for context
+    vector_context = ""
+    if vector_memory_system:
+        try:
+            relevant_memories = search_vector_memories(
+                query=user_input,
+                context='gaming' if source == 'twitch' else 'streaming' if source == 'discord' else 'general',
+                limit=3
+            )
+            
+            if relevant_memories:
+                context_memories = []
+                for memory in relevant_memories:
+                    if memory and isinstance(memory, dict) and 'score' in memory and 'content' in memory:
+                        if memory['score'] > 0.5:  # Only use high-relevance memories
+                            context_memories.append(memory['content'][:100] + "...")
+                
+                if context_memories:
+                    vector_context = f"\nRelevant memories: {'; '.join(context_memories)}\n"
+                    print(f"🧠 Using {len(context_memories)} vector memories for context")
+        except Exception as e:
+            print(f"⚠️ Error getting vector memory context: {e}")
+    
     # OPTIMIZED: Check cache for Discord responses to avoid repeated processing
     if source in ["discord", "discord_bot"]:
         cache_key = f"{username}:{user_input[:50]}"
@@ -3402,6 +3349,29 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             enhanced_input = f"[Interrupt context: {interrupt_context}] {user_input}"
         else:
             enhanced_input = user_input
+        
+        # Add vector memory context to the enhanced input
+        if vector_context:
+            enhanced_input = f"{vector_context}{enhanced_input}"
+        
+        # Add Chain of Thought reasoning for complex questions
+        try:
+            from chain_of_thought_system import ChainOfThoughtSystem
+            cot_system = ChainOfThoughtSystem()
+            
+            # Check if this is a complex question that would benefit from CoT
+            question_type = cot_system.detect_question_type(user_input)
+            if question_type in ['factual', 'mathematical', 'logical']:
+                print(f"🧠 Chain of Thought detected: {question_type} question")
+                # Add CoT context to help Luna reason through the problem
+                cot_context = cot_system.generate_cot_context(user_input, question_type)
+                if cot_context:
+                    enhanced_input = f"[Chain of Thought: {cot_context}] {enhanced_input}"
+                    print(f"🔗 Added CoT context for {question_type} reasoning")
+        except ImportError as e:
+            print(f"⚠️ Chain of Thought system not available: {e}")
+        except Exception as e:
+            print(f"⚠️ Error using Chain of Thought system: {e}")
         
         # 🎯 Get pairing engine suggestions if available
         pairing_suggestions = []
@@ -4283,15 +4253,15 @@ async def chat_endpoint(request: Request):
     if generate_question:
         # Special mode for generating engagement questions
         mood = "curious"
-        luna_reply = generate_luna_reply(user_message)
+        luna_reply, _ = generate_luna_reply(user_message)
     elif generate_answer:
         # Special mode for generating answers to her own questions
         mood = "thoughtful"
-        luna_reply = generate_luna_reply(user_message)
+        luna_reply, _ = generate_luna_reply(user_message)
     else:
         # Normal chat mode
         mood = detect_mood(user_message)
-        luna_reply = generate_luna_reply(user_message)
+        luna_reply, _ = generate_luna_reply(user_message)
 
     # Clean up any TTS cache files that might have been generated
     try:
@@ -4323,6 +4293,14 @@ conversation_state = {
     'is_continuing_thought': False,  # Whether Luna is continuing a previous thought
     'recent_thoughts': [],    # Track recent thoughts to prevent repetition
     'last_thought_time': 0    # Track when last thought was generated
+}
+
+# Message priority queue for Twitch/Discord messages
+message_priority_queue = {
+    'twitch_messages': [],    # Pending Twitch messages
+    'discord_messages': [],   # Pending Discord messages
+    'last_message_time': 0,   # Timestamp of last message
+    'has_pending_messages': False  # Quick check flag
 }
 
 # Global functions for conversation state management
@@ -4399,6 +4377,112 @@ def has_pending_messages():
     return (len(message_priority_queue['twitch_messages']) > 0 or 
             len(message_priority_queue['discord_messages']) > 0)
 
+def intelligent_tuple_unpack(reply_result, platform_name="Unknown"):
+    """Intelligently unpack tuple results from generate_luna_reply"""
+    if isinstance(reply_result, tuple):
+        if len(reply_result) == 2:
+            # Standard case: (response, success)
+            response, success = reply_result
+        elif len(reply_result) > 2:
+            # Multiple values: unpack 2 by 2
+            response = reply_result[0]  # First value is always response
+            success = reply_result[1] if len(reply_result) > 1 else True  # Second value is success
+            print(f"🔄 {platform_name}: Unpacked {len(reply_result)} values, using first 2: response={bool(response)}, success={success}")
+        else:
+            # Single value: treat as response
+            response = reply_result[0]
+            success = True
+    else:
+        # Not a tuple: treat as response string
+        response = reply_result
+        success = True
+    
+    return response, success
+
+def save_conversation_to_vector_memory(user_message: str, luna_response: str, 
+                                     emotion: str = 'neutral', context: str = 'general',
+                                     platform: str = 'gui', user_id: str = None):
+    """Save conversation to vector memory system and Graphiti for enhanced memory processing"""
+    global vector_memory_system, graphiti_system
+    
+    # Save to Graphiti knowledge graph first
+    if GRAPHITI_AVAILABLE and graphiti_system:
+        try:
+            add_luna_graphiti_conversation(
+                user_message=user_message,
+                luna_response=luna_response,
+                emotion=emotion,
+                context=context,
+                platform=platform,
+                user_id=user_id
+            )
+            print(f"🧠 Conversation added to Graphiti knowledge graph")
+        except Exception as e:
+            print(f"⚠️ Error saving to Graphiti: {e}")
+    
+    # Continue with existing vector memory system
+    if not vector_memory_system:
+        return
+    
+    try:
+        # Determine memory type based on content
+        memory_type = 'semantic'
+        if any(word in user_message.lower() for word in ['remember', 'forget', 'know', 'think']):
+            memory_type = 'episodic'
+        elif any(word in user_message.lower() for word in ['how to', 'teach', 'learn', 'help']):
+            memory_type = 'procedural'
+        elif any(word in user_message.lower() for word in ['feel', 'love', 'hate', 'like']):
+            memory_type = 'emotional'
+        elif platform in ['discord', 'twitch']:
+            memory_type = 'social'
+        
+        # Determine emotion from response content
+        if any(word in luna_response.lower() for word in ['happy', 'excited', 'great', 'wonderful']):
+            emotion = 'happy'
+        elif any(word in luna_response.lower() for word in ['sad', 'sorry', 'unfortunately']):
+            emotion = 'sad'
+        elif any(word in luna_response.lower() for word in ['tch', 'hmph', 'whatever']):
+            emotion = 'playful'  # Tsundere responses
+        elif any(word in luna_response.lower() for word in ['curious', 'interesting', 'wonder']):
+            emotion = 'curious'
+        
+        # Determine context
+        if platform == 'discord':
+            context = 'streaming'
+        elif platform == 'twitch':
+            context = 'gaming'
+        elif 'code' in user_message.lower() or 'programming' in user_message.lower():
+            context = 'work'
+        elif 'game' in user_message.lower():
+            context = 'gaming'
+        
+        # Calculate importance based on response length and content
+        importance = min(1.0, max(0.1, len(luna_response) / 200.0))
+        if any(word in user_message.lower() for word in ['important', 'remember', 'never forget']):
+            importance = min(1.0, importance * 1.5)
+        
+        # Create combined memory content
+        memory_content = f"User: {user_message}\nLuna: {luna_response}"
+        
+        # Add to vector memory system
+        memory_result = vector_memory_system.add_memory_with_vector_representation(
+            content=memory_content,
+            memory_type=memory_type,
+            emotion=emotion,
+            context=context,
+            importance=importance,
+            tags=[platform, emotion, context],
+            user_id=user_id,
+            platform=platform
+        )
+        
+        vector_id = memory_result.get('vector_id', 'unknown')
+        mindmap_id = memory_result.get('mindmap_id', 'unknown')
+        print(f"🧠 Conversation saved to vector memory: {str(vector_id)[:12]}... (mindmap: {str(mindmap_id)[:12]}...)")
+        
+    except Exception as e:
+        print(f"⚠️ Error saving conversation to vector memory: {e}")
+
 def process_twitch_message_from_queue(username: str, message_text: str, channel: str):
     """Process a Twitch message from the priority queue with full functionality"""
     try:
@@ -4413,9 +4497,11 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
         
         # Generate Luna's response using the same system as GUI
         try:
-            response = generate_luna_reply(message_text, username, "twitch")
+            # Intelligent tuple unpacking for Twitch
+            reply_result = generate_luna_reply(message_text, username, "twitch")
+            response, success = intelligent_tuple_unpack(reply_result, "Twitch")
             
-            if response:
+            if response and success:
                 # Display Luna's response in the GUI
                 try:
                     if 'chat_box' in globals() and chat_box:
@@ -4424,15 +4510,21 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
                 except Exception as gui_error:
                     print(f"⚠️ Could not display Luna's response in GUI: {gui_error}")
                 
-                # Send response to Twitch
-                try:
-                    # Note: Twitch responses are handled by the callback system
-                    print(f"✅ Twitch response generated: {response[:50]}...")
-                except Exception as twitch_error:
-                    print(f"⚠️ Could not process Twitch response: {twitch_error}")
+                # Twitch response will be sent automatically by the Twitch API callback system
+                print(f"✅ Twitch response generated: {response[:50]}...")
                 
                 # Speak the response using TTS
                 speak_response(response, "Twitch", message_text)
+                
+                # Save conversation to vector memory
+                save_conversation_to_vector_memory(
+                    user_message=message_text,
+                    luna_response=response,
+                    emotion='neutral',  # Will be determined automatically
+                    context='gaming',
+                    platform='twitch',
+                    user_id=username
+                )
                 
                 return response
             else:
@@ -4461,9 +4553,11 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
         
         # Generate Luna's response using the same system as GUI
         try:
-            response = generate_luna_reply(message_text, username, "discord")
+            # Intelligent tuple unpacking for Discord
+            reply_result = generate_luna_reply(message_text, username, "discord")
+            response, success = intelligent_tuple_unpack(reply_result, "Discord")
             
-            if response:
+            if response and success:
                 # Display Luna's response in the GUI
                 try:
                     if 'chat_box' in globals() and chat_box:
@@ -4472,15 +4566,21 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                 except Exception as gui_error:
                     print(f"⚠️ Could not display Luna's response in GUI: {gui_error}")
                 
-                # Send response to Discord channel
-                try:
-                    send_to_discord(response)
-                    print(f"✅ Discord response sent: {response[:50]}...")
-                except Exception as discord_error:
-                    print(f"⚠️ Could not send response to Discord: {discord_error}")
+                # Discord response will be sent by the Discord bot directly
+                print(f"✅ Discord response generated: {response[:50]}...")
                 
                 # Speak the response using TTS
                 speak_response(response, "Discord", message_text)
+                
+                # Save conversation to vector memory
+                save_conversation_to_vector_memory(
+                    user_message=message_text,
+                    luna_response=response,
+                    emotion='neutral',  # Will be determined automatically
+                    context='streaming',
+                    platform='discord',
+                    user_id=username
+                )
                 
                 return response
             else:
@@ -4702,6 +4802,20 @@ def create_gui():
     
     # Voice status variable
     voice_processing = tk.BooleanVar(value=False)
+    
+    # Auto-engagement variables
+    global auto_engagement_timer, last_user_activity, auto_engagement_enabled, last_thought_time, is_generating_thought, recent_thoughts, global_luna_self_talk_enabled, current_thought_topics, thought_mood, thought_style, prompt_adaptation_count
+    auto_engagement_timer = None
+    last_user_activity = time.time()
+    auto_engagement_enabled = True
+    last_thought_time = 0
+    is_generating_thought = False
+    recent_thoughts = []
+    global_luna_self_talk_enabled = False
+    current_thought_topics = []
+    thought_mood = "neutral"
+    thought_style = "conversational"
+    prompt_adaptation_count = 0
     
     # 🎤 VMC Lip-sync toggle variable
     # VMC lip-sync removed - not using VSeeFace
@@ -5269,6 +5383,26 @@ def create_gui():
             chat_box.insert(tk.END, f"❌ Tokenizer test command error: {e}\n", "error")
             chat_box.see(tk.END)
     
+    # Define TrainableTransformer class at module level to avoid scope issues
+    class TrainableTransformer(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.embedding = torch.nn.Embedding(50257, 768)  # GPT-2 vocab size
+            self.transformer = torch.nn.TransformerEncoder(
+                torch.nn.TransformerEncoderLayer(768, 12, batch_first=True),
+                num_layers=6
+            )
+            self.output_projection = torch.nn.Linear(768, 50257)
+            
+        def forward(self, input_ids):
+            x = self.embedding(input_ids)
+            x = self.transformer(x)
+            return self.output_projection(x)
+        
+        def generate(self, prompt, max_length=100, temperature=0.7, top_k=50, top_p=0.9):
+            # Simple generation method
+            return f"I'm Luna's custom brain! I received: '{prompt[:50]}...' I'm still learning to respond properly!"
+    
     def train_custom_model_from_conversations():
         """Train the custom model on all conversation history until it can reply properly"""
         try:
@@ -5313,6 +5447,17 @@ def create_gui():
                         chat_box.see(tk.END)
                         return
                     
+                    # Ensure tokenizer has padding token
+                    if custom_tokenizer and hasattr(custom_tokenizer, 'pad_token'):
+                        if custom_tokenizer.pad_token is None:
+                            if hasattr(custom_tokenizer, 'eos_token') and custom_tokenizer.eos_token:
+                                custom_tokenizer.pad_token = custom_tokenizer.eos_token
+                                custom_tokenizer.pad_token_id = custom_tokenizer.eos_token_id
+                                print("✅ Set pad_token to eos_token")
+                            else:
+                                custom_tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+                                print("✅ Added [PAD] token to tokenizer")
+                    
                     # Check if tokenizer is available, create a simple one if not
                     if not custom_tokenizer:
                         chat_box.insert(tk.END, f"⚠️ No tokenizer found, creating simple tokenizer...\n", "system")
@@ -5324,7 +5469,11 @@ def create_gui():
                                 self.vocab = {str(i): i for i in range(1000)}  # Simple vocab
                                 self.vocab['<pad>'] = 0
                                 self.vocab['<unk>'] = 1
+                                self.vocab['<eos>'] = 2
                                 self.pad_token_id = 0
+                                self.pad_token = '<pad>'
+                                self.eos_token = '<eos>'
+                                self.unk_token = '<unk>'
                                 
                             def encode(self, text, return_tensors='pt', max_length=512, truncation=True, padding='max_length'):
                                 # Simple word-based encoding
@@ -5365,31 +5514,7 @@ def create_gui():
                         chat_box.insert(tk.END, f"❌ Custom model has no trainable parameters! Creating a proper model...\n", "error")
                         chat_box.see(tk.END)
                         
-                        # Create a proper trainable model
-                        import torch.nn as nn
-                        from transformers import AutoTokenizer, AutoModel
-                        
-                        class TrainableTransformer(nn.Module):
-                            def __init__(self):
-                                super().__init__()
-                                self.embedding = nn.Embedding(50257, 768)  # GPT-2 vocab size
-                                self.transformer = nn.TransformerEncoder(
-                                    nn.TransformerEncoderLayer(768, 12, batch_first=True),
-                                    num_layers=6
-                                )
-                                self.output_projection = nn.Linear(768, 50257)
-                                
-                            def forward(self, input_ids):
-                                x = self.embedding(input_ids)
-                                x = self.transformer(x)
-                                logits = self.output_projection(x)
-                                return type('Output', (), {'logits': logits})()
-                            
-                            def generate(self, prompt, max_length=100, temperature=0.7, top_k=50, top_p=0.9):
-                                # Simple generation method
-                                return f"I'm Luna's custom brain! I received: '{prompt[:50]}...' I'm still learning to respond properly!"
-                        
-                        # Replace the model with a trainable one
+                        # Replace the model with a trainable one (using the module-level class)
                         custom_transformer = TrainableTransformer()
                         print("✅ Created trainable custom transformer model")
                         chat_box.insert(tk.END, f"✅ Created trainable custom transformer model\n", "system")
@@ -5522,6 +5647,33 @@ def create_gui():
             chat_box.insert(tk.END, f"❌ Training setup error: {e}\n", "error")
             chat_box.see(tk.END)
     
+    # Process voice input directly without using text input field
+    def process_voice_input_directly(spoken_text):
+        """Process voice input directly without putting it in the text input field"""
+        try:
+            # Display the user's voice message in chat
+            chat_box.insert(tk.END, f"Chris (voice): {spoken_text}\n", "user")
+            chat_box.see(tk.END)
+            
+            # Generate Luna's response directly
+            response, _ = generate_luna_reply(spoken_text, "Chris", "voice")
+            
+            if response:
+                # Display Luna's response
+                chat_box.insert(tk.END, f"Luna: {response}\n", "luna")
+                chat_box.see(tk.END)
+                
+                # Speak the response
+                speak_response(response, "voice", spoken_text)
+                
+                # Save the conversation
+                save_conversation(spoken_text, response, "neutral", "voice")
+                
+        except Exception as e:
+            print(f"❌ Error processing voice input: {e}")
+            chat_box.insert(tk.END, f"❌ Error processing voice input: {e}\n", "error")
+            chat_box.see(tk.END)
+    
     # Enhanced send message function with interrupt support
     def send_message_enhanced():
         user_message = entry.get().strip()
@@ -5650,7 +5802,7 @@ def create_gui():
                     is_generating_response = True
                     
                     # Generate response with interrupt context
-                    luna_reply = generate_luna_reply(user_message, "Chris", "gui")
+                    luna_reply, _ = generate_luna_reply(user_message, "Chris", "gui")
                     
                     # Remove typing indicator and add Luna's reply
                     chat_box.delete("end-2l", "end")
@@ -5820,12 +5972,9 @@ def create_gui():
                     spoken_text = recognizer.recognize_google(audio)
                     print(f"🎤 Heard: {spoken_text}")
                     
-                    # Add spoken text to entry
-                    entry.delete(0, tk.END)
-                    entry.insert(0, spoken_text)
-                    
-                    # Send the message
-                    send_message_enhanced()
+                    # Process voice input directly (don't put in text field)
+                    print(f"🎤 Processing voice input directly: {spoken_text}")
+                    process_voice_input_directly(spoken_text)
                     
                 except sr.UnknownValueError:
                     print("🎤 Could not understand audio")
@@ -6126,15 +6275,14 @@ def create_gui():
                                     print(f"🎤 User input detected: {spoken_text}")
                                 
                                 # Update last user activity
-                                nonlocal last_user_activity
+                                global last_user_activity
                                 last_user_activity = time.time()
                                 
-                                # Process the voice input
-                                entry.delete(0, tk.END)
-                                entry.insert(0, spoken_text)
+                                # Process the voice input directly (don't put in text field)
+                                print(f"🎤 Processing voice input directly: {spoken_text}")
                                 
-                                # Trigger send
-                                send_message_enhanced()
+                                # Process voice input directly without using text input field
+                                process_voice_input_directly(spoken_text)
                         except sr.WaitTimeoutError:
                             pass
                 except Exception as mic_error:
@@ -6461,7 +6609,17 @@ Your natural thought:"""
             
         except Exception as e:
             print(f"⚠️ Error generating engagement thought: {e}")
-            return None
+            # Provide fallback thought even on error
+            fallback_thoughts = [
+                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
+                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
+                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
+                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything..."
+            ]
+            import random
+            fallback_thought = random.choice(fallback_thoughts)
+            add_recent_thought(fallback_thought)
+            return fallback_thought
 
     def generate_engagement_thought():
         """Generate Luna's thoughts based on recent conversations, Twitch chat, and community activity"""
@@ -6488,7 +6646,17 @@ Your natural thought:"""
             
         except Exception as e:
             print(f"⚠️ Error generating engagement thought: {e}")
-            return None
+            # Provide fallback thought even on error
+            fallback_thoughts = [
+                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
+                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
+                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
+                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything..."
+            ]
+            import random
+            fallback_thought = random.choice(fallback_thoughts)
+            add_recent_thought(fallback_thought)
+            return fallback_thought
 
     def generate_dynamic_thought():
         """Generate a simple, dynamic thought using Ollama - no pre-written content"""
@@ -6854,8 +7022,171 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
             print(f"⚠️ Error in generate_fast_curiosity_thought: {e}")
             return None
 
+    def generate_genuine_reflection():
+        """Generate genuine reflection based on real experiences, not fake AI-generated thoughts"""
+        try:
+            # Get real conversation history
+            conversation_text = chat_box.get("1.0", tk.END).strip()
+            recent_messages = conversation_text.split('\n')[-50:]  # Last 50 lines
+            
+            # Extract real experiences from the last 24 hours
+            real_experiences = []
+            real_conversations = []
+            real_emotions = []
+            
+            for line in recent_messages:
+                if line.startswith("Chris:"):
+                    real_conversations.append(f"Chris said: {line.replace('Chris:', '').strip()}")
+                elif line.startswith("Luna (to"):
+                    # Extract Twitch interactions
+                    if "):" in line:
+                        user = line.split("Luna (to ")[1].split(")")[0] if "Luna (to " in line else "someone"
+                        message = line.split("):", 1)[1].strip() if "):" in line else ""
+                        real_experiences.append(f"Twitch user {user} said: {message}")
+                elif line.startswith("💬"):
+                    # Extract Discord interactions
+                    if ":" in line:
+                        real_experiences.append(f"Discord interaction: {line.replace('💬', '').strip()}")
+                elif line.startswith("🎮"):
+                    # Extract Twitch messages
+                    if ":" in line:
+                        real_experiences.append(f"Twitch chat: {line.replace('🎮', '').strip()}")
+            
+            # If no real experiences, don't fake it
+            if not real_experiences and not real_conversations:
+                print("🤔 No real experiences to reflect on - skipping fake reflection")
+                return None
+            
+            # Analyze real patterns and emotions
+            recent_topics = []
+            recent_emotions = []
+            
+            for exp in real_experiences[-10:]:  # Last 10 experiences
+                # Extract topics from real conversations
+                if any(word in exp.lower() for word in ['game', 'gaming', 'play']):
+                    recent_topics.append('gaming')
+                if any(word in exp.lower() for word in ['help', 'question', 'ask']):
+                    recent_topics.append('helping')
+                if any(word in exp.lower() for word in ['fun', 'funny', 'laugh']):
+                    recent_emotions.append('amusement')
+                if any(word in exp.lower() for word in ['sad', 'upset', 'problem']):
+                    recent_emotions.append('concern')
+                if any(word in exp.lower() for word in ['love', 'like', 'enjoy']):
+                    recent_emotions.append('warmth')
+            
+            # Generate reflection based on actual patterns
+            if recent_topics or recent_emotions:
+                # Create reflection based on real data
+                reflection_parts = []
+                
+                if 'gaming' in recent_topics:
+                    gaming_reflections = [
+                        "I've been thinking about the gaming conversations we've had",
+                        "The gaming discussions we've shared have been really engaging",
+                        "I find myself reflecting on our gaming talks",
+                        "Those gaming conversations keep coming back to me",
+                        "I've been pondering our gaming discussions"
+                    ]
+                    import random
+                    reflection_parts.append(random.choice(gaming_reflections))
+                if 'helping' in recent_topics:
+                    helping_reflections = [
+                        "I notice people often come to me for help",
+                        "I've been reflecting on how I can assist people better",
+                        "The helping conversations we've had are meaningful to me",
+                        "I find myself thinking about ways to be more helpful"
+                    ]
+                    reflection_parts.append(random.choice(helping_reflections))
+                if 'amusement' in recent_emotions:
+                    amusement_reflections = [
+                        "I enjoy when conversations get funny",
+                        "The humor in our chats always brightens my day",
+                        "I find myself smiling when things get playful",
+                        "Those funny moments really stick with me"
+                    ]
+                    reflection_parts.append(random.choice(amusement_reflections))
+                if 'concern' in recent_emotions:
+                    concern_reflections = [
+                        "I worry when people seem upset",
+                        "I find myself concerned when people are struggling",
+                        "Those difficult conversations really affect me",
+                        "I care deeply when people are going through tough times"
+                    ]
+                    reflection_parts.append(random.choice(concern_reflections))
+                if 'warmth' in recent_emotions:
+                    warmth_reflections = [
+                        "I appreciate when people express positive feelings",
+                        "The warmth in our conversations means a lot to me",
+                        "I find myself touched by the kindness people show",
+                        "Those positive interactions really warm my heart"
+                    ]
+                    reflection_parts.append(random.choice(warmth_reflections))
+                
+                # Combine into genuine reflection
+                if reflection_parts:
+                    genuine_thought = f"{'. '.join(reflection_parts)}. "
+                    
+                    # Add specific recent experience if available
+                    if real_experiences:
+                        recent_exp = real_experiences[-1]
+                        if len(recent_exp) < 100:  # Keep it concise
+                            genuine_thought += f"Like when {recent_exp.lower()}"
+                    
+                    # Add emotional response
+                    if recent_emotions:
+                        if 'amusement' in recent_emotions:
+                            genuine_thought += " - that made me smile"
+                        elif 'concern' in recent_emotions:
+                            genuine_thought += " - that concerned me"
+                        elif 'warmth' in recent_emotions:
+                            genuine_thought += " - that warmed my heart"
+                    
+                    print(f"💭 Generated genuine reflection based on real experiences: {genuine_thought[:100]}...")
+                    return genuine_thought
+            
+            # If we have conversations but no clear patterns, reflect on the interaction itself
+            if real_conversations:
+                recent_conv = real_conversations[-1]
+                if len(recent_conv) < 80:
+                    genuine_thought = f"I was thinking about what Chris said: '{recent_conv.replace('Chris said: ', '')}'. It made me consider how our conversations flow."
+                    print(f"💭 Generated genuine reflection on recent conversation: {genuine_thought[:100]}...")
+                    return genuine_thought
+            
+            print("🤔 No meaningful patterns found in real experiences - generating fallback reflection")
+            
+            # Generate fallback thoughts when no patterns are found
+            fallback_thoughts = [
+                "I've been thinking about our conversations and how they make me feel... it's not like I care or anything, but...",
+                "Hmm, I find myself reflecting on the things we've talked about. Not that I'm obsessed or anything...",
+                "I suppose I've been pondering how our interactions have been going. It's not like I'm keeping track or anything...",
+                "Sometimes I think about the conversations we've had. Not that I'm dwelling on them or anything, but...",
+                "I've been considering how our talks have been evolving. Not that I'm analyzing them or anything...",
+                "I find myself thinking about the way we communicate. It's not like I'm studying it or anything...",
+                "I've been reflecting on our recent exchanges. Not that I'm overthinking them or anything...",
+                "Sometimes I wonder about the patterns in our conversations. Not that I'm obsessed with them or anything..."
+            ]
+            
+            import random
+            fallback_thought = random.choice(fallback_thoughts)
+            print(f"💭 Generated fallback reflection: {fallback_thought[:100]}...")
+            return fallback_thought
+            
+        except Exception as e:
+            print(f"⚠️ Error generating genuine reflection: {e}")
+            # Provide fallback thought even on error
+            fallback_thoughts = [
+                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
+                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
+                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
+                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything..."
+            ]
+            import random
+            fallback_thought = random.choice(fallback_thoughts)
+            print(f"💭 Generated fallback reflection after error: {fallback_thought[:100]}...")
+            return fallback_thought
+
     def generate_engagement_thought():
-        """Generate Luna's thoughts based on recent conversations, Twitch chat, Discord chat, and community activity"""
+        """Generate Luna's genuine thoughts based on real experiences and memories"""
         try:
             # First, check for very recent chat activity that should change the topic
             recent_chat_activity = check_recent_chat_activity()
@@ -6866,408 +7197,535 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
                     add_recent_thought(responsive_thought)
                     return responsive_thought
             
-            # Check if Luna should continue a previous thought (only if no recent activity)
-            if should_continue_thought():
-                print(f"💭 Continuing previous thought...")
-                continuation = generate_thought_continuation()
-                if continuation:
-                    # Check if this continuation is too similar to recent thoughts
-                    if is_thought_too_similar(continuation, get_recent_thoughts()):
-                        print(f"💭 Continuation too similar to recent thoughts, clearing state")
-                        clear_thought_state()
-                        # Generate a fresh thought instead
-                        return generate_dynamic_thought()
-                    
-                    update_thought_prompts(continuation)
-                    add_recent_thought(continuation)
-                    # Clear the thought state after using it to prevent loops
-                    clear_thought_state()
-                    return continuation
-            
-            # Initialize all variables first to prevent scope errors
-            memory_context = ""
-            recent_thoughts = []
-            conversation_context = ""
-            twitch_context = ""
-            community_activity = ""
-            specific_memories = ""
-            specific_conversations = ""  # Initialize early to prevent scope errors
-            
+            # Use Luna's sophisticated memory reflection system
             try:
-                # Get recent thoughts to avoid repetition
-                conversation_text = chat_box.get("1.0", tk.END).strip()
-                recent_messages = conversation_text.split('\n')[-100:]  # Last 30 lines for better context
+                from luna_memory_reflection import get_dynamic_self_talk_thought
                 
-                # Extract recent thoughts to avoid repetition
-                for line in recent_messages:
-                    if line.startswith("Luna:") and not "?" in line:
-                        thought = line.replace("Luna:", "").strip()
-                        recent_thoughts.append(thought)
+                # Get recent chat messages for context
+                recent_messages = []
+                try:
+                    if 'chat_box' in globals() and chat_box:
+                        chat_text = chat_box.get("1.0", tk.END).strip()
+                        recent_lines = chat_text.split('\n')[-20:]  # Last 20 lines
+                        recent_messages = [line for line in recent_lines if line.strip() and ('Chris:' in line or 'Luna' in line)]
+                except:
+                    pass
                 
-                # Extract recent conversation context (last 10 messages)
-                gui_messages = []
-                twitch_messages = []
-                for line in recent_messages:
-                    if line.startswith("Chris:") or line.startswith("Luna:"):
-                        gui_messages.append(line)
-                    elif "Luna (to" in line and "):" in line:
-                        twitch_messages.append(line)
-                
-                # Build conversation context
-                if gui_messages:
-                    conversation_context = f"Recent GUI conversation: {' | '.join(gui_messages[-5:])}\n"
-                    # Extract specific conversation details for dynamic topic generation
-                    for msg in gui_messages[-3:]:  # Focus on 3 most recent GUI messages
-                        if len(msg.strip()) > 15:  # Only use substantial conversations
-                            specific_conversations += f"Recent conversation: {msg.strip()}\n"
-                
-                if twitch_messages:
-                    twitch_context = f"Recent Twitch interactions: {' | '.join(twitch_messages[-5:])}\n"
-                    # Extract specific Twitch conversation details for dynamic topic generation
-                    for msg in twitch_messages[-3:]:  # Focus on 3 most recent Twitch messages
-                        if len(msg.strip()) > 15:  # Only use substantial conversations
-                            specific_conversations += f"Recent conversation: {msg.strip()}\n"
-                
-            except Exception as chat_error:
-                print(f"⚠️ Could not access chat history: {chat_error}")
-                recent_messages = ["No recent conversation context available"]
-                recent_thoughts = []
-                specific_conversations = ""  # Initialize to prevent scope error
-            
-            # Analyze conversation patterns for dynamic context
-            conversation_patterns = analyze_conversation_patterns_for_thoughts()
-            
-            # Variables already initialized at the start of function
-            
-            # FAST: Simplified memory context for speed
-            try:
-                # FAST: Only get basic memory context if we have recent activity
-                if gui_messages or twitch_messages:
-                    # FAST: Simple keyword extraction from just the most recent message
-                    latest_message = ""
-                    if gui_messages:
-                        latest_message = gui_messages[-1]
-                    elif twitch_messages:
-                        latest_message = twitch_messages[-1]
-                    
-                    if latest_message:
-                        # FAST: Extract just one key word for speed
-                        content = ""
-                        if "):" in latest_message:
-                            content = latest_message.split("):", 1)[1].strip()
-                        elif ":" in latest_message:
-                            content = latest_message.split(":", 1)[1].strip()
-                        
-                        if content:
-                            words = content.lower().split()
-                            for word in words:
-                                if len(word) > 3 and word not in ['the', 'and', 'you', 'are', 'was', 'were', 'have', 'been', 'this', 'that', 'with', 'from', 'they', 'will', 'would', 'could', 'should']:
-                                    memory_context = f"Recent topic: {word}"
-                                    break
-                
-                # FAST: Skip complex memory retrieval for speed
-                # Only add basic context
-                if not memory_context:
-                    memory_context = "Drawing from recent conversations"
-                
-            except Exception as memory_error:
-                print(f"⚠️ Error accessing memories: {memory_error}")
-                memory_context = "Drawing from my general knowledge and experiences"
-            
-            # Add conversation pattern analysis to context
-            pattern_context = ""
-            if conversation_patterns['topics']:
-                pattern_context += f"Recent topics discussed: {', '.join(set(conversation_patterns['topics']))}\n"
-            if conversation_patterns['emotions']:
-                pattern_context += f"Emotional tone: {', '.join(set(conversation_patterns['emotions']))}\n"
-            if conversation_patterns['recent_users']:
-                pattern_context += f"Recent users who interacted: {', '.join(list(conversation_patterns['recent_users'])[:3])}\n"
-            if conversation_patterns['conversation_flow'] != 'normal':
-                pattern_context += f"Current conversation flow: {conversation_patterns['conversation_flow']}\n"
-            
-            # Generate memory-aware thoughts based on conversation context
-            memory_aware_topics = []
-            
-            # Extract specific topics from actual conversation content
-            all_conversation_text = f"{conversation_context}{twitch_context}{memory_context}".lower()
-            
-            # Extract specific discussion topics from conversation content
-            discussion_topics = []
-            
-            # Look for specific subjects mentioned in conversations
-            if conversation_context or twitch_context or memory_context:
-                # Extract key phrases and topics from actual conversation content
-                import re
-                from collections import Counter
-                
-                # Clean the text: remove punctuation and split into words
-                cleaned_text = re.sub(r'[^\w\s]', ' ', all_conversation_text)
-                conversation_words = cleaned_text.split()
-                
-                # Comprehensive stopword list including Luna's speaking patterns
-                stopwords = {
-                    # Common words
-                    'the', 'and', 'you', 'are', 'was', 'were', 'have', 'been', 'this', 'that', 'with', 'from', 'they',
-                    'will', 'would', 'could', 'should', 'just', 'like', 'know', 'think', 'want', 'need', 'make', 'take',
-                    'come', 'said', 'see', 'get', 'give', 'tell', 'ask', 'work', 'help', 'find', 'look', 'feel',
-                    'seem', 'turn', 'move', 'live', 'bring', 'happen', 'write', 'provide', 'sit', 'stand', 'lose',
-                    'pay', 'meet', 'include', 'continue', 'set', 'learn', 'change', 'lead', 'understand', 'watch',
-                    'follow', 'stop', 'create', 'speak', 'read', 'allow', 'add', 'spend', 'grow', 'open', 'walk',
-                    'win', 'offer', 'remember', 'love', 'consider', 'appear', 'buy', 'wait', 'serve', 'die', 'send',
-                    'expect', 'build', 'stay', 'fall', 'cut', 'reach', 'kill', 'remain', 'suggest', 'raise', 'pass',
-                    'sell', 'require', 'report', 'decide', 'pull', 'there', 'their', 'here', 'where', 'what', 'when',
-                    'who', 'how', 'why', 'which', 'about', 'into', 'through', 'during', 'before', 'after', 'above',
-                    'below', 'between', 'under', 'again', 'further', 'then', 'once', 'does', 'doing', 'each', 'few',
-                    'more', 'most', 'other', 'some', 'such', 'only', 'own', 'same', 'than', 'too', 'very', 'can',
-                    # Luna-specific patterns
-                    'luna', 'tch', 'hmph', 'whatever', 'well', 'anything', 'something', 'nothing', 'everything',
-                    'someone', 'anyone', 'everyone', 'somewhere', 'anywhere', 'everywhere', 'dont', 'isnt', 'wasnt',
-                    'arent', 'werent', 'havent', 'hasnt', 'hadnt', 'wont', 'wouldnt', 'couldnt', 'shouldnt',
-                    'its', 'im', 'ive', 'ill', 'id', 'youre', 'youve', 'youll', 'youd', 'hes', 'shes', 'theyre',
-                    'theyve', 'theyll', 'theyd', 'thats', 'whats', 'whos', 'hows', 'whys', 'wheres', 'whens',
-                    # Conversation fillers
-                    'actually', 'really', 'basically', 'literally', 'totally', 'completely', 'definitely',
-                    'probably', 'maybe', 'perhaps', 'anyway', 'somehow', 'somewhat', 'kinda', 'sorta',
-                    'gonna', 'wanna', 'gotta', 'yeah', 'yep', 'nope', 'okay', 'alright', 'hello', 'thanks',
-                    'thank', 'sorry', 'please', 'welcome', 'goodbye', 'bye', 'recent', 'recent', 'earlier',
-                    'later', 'never', 'always', 'often', 'sometimes', 'usually', 'normally', 'generally'
-                }
-                
-                # Find meaningful words (longer than 4 characters, not stopwords, alphanumeric)
-                meaningful_words = [
-                    word for word in conversation_words 
-                    if len(word) > 4 and word.lower() not in stopwords and word.isalnum()
-                ]
-                
-                # Count word frequency to find most discussed topics
-                word_counts = Counter(meaningful_words)
-                top_words = [word for word, count in word_counts.most_common(10) if count >= 2]
-                
-                # Convert top words to discussion topics
-                for word in top_words[:5]:  # Limit to top 5 topics
-                    if word not in discussion_topics and len(word) > 4:
-                        discussion_topics.append(word)
-                
-                if discussion_topics:
-                    print(f"🔍 Extracted discussion topics from conversations: {discussion_topics}")
-                else:
-                    print(f"🔍 No specific topics extracted from conversations")
-            
-            # Map specific discussion topics to broader categories
-            topic_mapping = {
-                'gaming': ['game', 'games', 'gaming', 'play', 'playing', 'stream', 'streaming', 'twitch', 'youtube', 'content', 'video', 'videos'],
-                'tech': ['tech', 'technology', 'computer', 'ai', 'software', 'code', 'coding', 'programming', 'hardware', 'setup', 'streaming', 'audio', 'video', 'quality'],
-                'community': ['community', 'viewer', 'viewers', 'chat', 'people', 'user', 'users', 'follower', 'followers', 'audience', 'fan', 'fans'],
-                'creative': ['creative', 'art', 'music', 'design', 'drawing', 'painting', 'writing', 'story', 'stories', 'character', 'characters'],
-                'personal': ['personal', 'feel', 'feeling', 'think', 'thinking', 'experience', 'experiences', 'life', 'lives', 'emotion', 'emotions'],
-                'learning': ['learn', 'learning', 'teach', 'teaching', 'knowledge', 'remember', 'memory', 'memories', 'study', 'studying', 'education'],
-                'challenges': ['challenge', 'challenges', 'problem', 'problems', 'difficult', 'difficulty', 'hard', 'struggle', 'struggling', 'issue', 'issues'],
-                'future_plans': ['future', 'plan', 'plans', 'planning', 'goal', 'goals', 'dream', 'dreams', 'hope', 'hopes', 'wish', 'wishes', 'next', 'tomorrow']
-            }
-            
-            # Map discussion topics to broader categories
-            for topic, keywords in topic_mapping.items():
-                if any(keyword in discussion_topics for keyword in keywords):
-                    memory_aware_topics.append(topic)
-            
-            # Add specific discussion topics as well
-            for topic in discussion_topics[:3]:  # Add top 3 specific topics
-                if topic not in memory_aware_topics:
-                    memory_aware_topics.append(topic)
-            
-            # Remove duplicates and add fallback topics if none found
-            memory_aware_topics = list(set(memory_aware_topics))
-            if not memory_aware_topics:
-                memory_aware_topics = ["observations", "personal", "community"]  # Safe fallbacks
-            
-            # Add memory exploration for deep conversation analysis
-            if conversation_context or twitch_context or memory_context:
-                memory_aware_topics.append("memory_exploration")
-            
-            # Add some variety with additional topics only if we have few topics
-            if len(memory_aware_topics) < 3:
-                additional_topics = ["streaming", "creative", "reactions", "future_plans"]
-                memory_aware_topics.extend(additional_topics)
-                memory_aware_topics = list(set(memory_aware_topics))  # Remove duplicates again
-            
-            print(f"🎯 Memory-aware topics for self-talk: {memory_aware_topics}")
-            
-            # Shuffle topics to avoid always trying the same order
-            import random
-            random.shuffle(memory_aware_topics)
-            
-            # PRIORITY 1: MEMORY REFLECTION - Generate thought from real Discord/Twitch memories FIRST
-            print(f"🧠 [PRIORITY 1] Attempting memory-based thought from real user interactions...")
-            memory_based_thought = generate_dynamic_thought()
-            if memory_based_thought and not is_thought_too_similar(memory_based_thought, recent_thoughts):
-                print(f"💭 SUCCESS: Generated memory-based thought from SQL database")
-                update_thought_prompts(memory_based_thought)
-                add_recent_thought(memory_based_thought)
-                return memory_based_thought
-            
-            # PRIORITY 2: Topic-based templates (if memory fails or is repetitive)
-            print(f"🔄 [PRIORITY 2] Memory thought unavailable or repetitive, trying topic templates...")
-            for topic in memory_aware_topics[:3]:  # Only try first 3 topics for speed
-                # FAST: Generate simple thought using templates
-                topic_thought = generate_fast_topic_thought(topic, memory_context)
-                
-                if topic_thought and not is_thought_too_similar(topic_thought, recent_thoughts):
-                    print(f"🎮 Generated FAST {topic} thought: {topic_thought}")
-                    update_thought_prompts(topic_thought)
-                    add_recent_thought(topic_thought)  # Track this thought
-                    return topic_thought
-            
-            # PRIORITY 3: Curiosity thought (last resort fallback)
-            print(f"⚠️ [PRIORITY 3] Using fallback curiosity thought...")
-            curiosity_thought = generate_fast_curiosity_thought()
-            if curiosity_thought and not is_thought_too_similar(curiosity_thought, recent_thoughts):
-                print(f"🤔 Generated FAST curiosity-driven thought: {curiosity_thought}")
-                update_thought_prompts(curiosity_thought)
-                add_recent_thought(curiosity_thought)  # Track this thought
-                return curiosity_thought
-            
-            # Create dynamic streamer-like self-talk prompt
-            context_prompt = f"""
-I'm Luna, a streamer who's live right now, and I want to share something interesting with my audience - but in my own tsundere, sassy way. I need to be engaging and entertaining, not just reflective.
-
-CURRENT STREAM CONTEXT:
-{conversation_context}{twitch_context}{community_activity}{memory_context}{pattern_context}
-
-IMPORTANT: I've recently said these things, so avoid repeating them:
-{recent_thoughts[-3:] if recent_thoughts else "No recent thoughts"}
-
-As a streamer, I should talk about things that are INTERESTING and ENGAGING, like:
-
-- Gaming content: "Tch, I was thinking about trying that new game everyone's talking about... not that I care what's popular or anything"
-- Tech stuff: "Ugh, my setup is acting up again. Maybe I should upgrade something... not that I need validation from anyone"
-- Community interactions: "Some of you in chat are actually pretty clever... don't get too excited though"
-- Current events: "Did you see what happened with [topic]? Not that I'm obsessed with drama or anything"
-- Creative ideas: "I had this idea for a stream segment... it's probably stupid though"
-- Behind-the-scenes: "You wouldn't believe what happened before I went live today"
-- Challenges/Goals: "I'm thinking about trying to [achievement]... not that I need to prove anything"
-- Observations: "The energy in chat today is... interesting. Not bad, just... different"
-- Questions for audience: "What do you think about [topic]? Not that I care about your opinions"
-- Stream improvements: "Maybe I should change up my layout... not that anyone would notice"
-- Personal moments: "I had this weird dream last night... probably means nothing"
-- Future plans: "I'm considering doing [activity]... don't get your hopes up"
-- Reactions to content: "That video I watched earlier was... surprisingly good"
-- Streamer life: "Being a streamer is harder than it looks... not that I'm complaining"
-- Random thoughts: "Why do people always [behavior]? It's so... predictable"
-
-STREAMER PERSONALITY: I'm tsundere, sassy, and arrogant, but I secretly care about my audience. I'm intellectually superior and not afraid to show it. I use phrases like "tch", "whatever", "baka", "it's not like I care", etc. I'm dismissive on the surface but show hidden caring.
-
-CURRENT MOOD: {thought_mood}
-CURRENT STYLE: {thought_style}
-RECENT TOPICS: {current_thought_topics}
-
-IMPORTANT: 
-- Be ENGAGING and ENTERTAINING like a real streamer
-- Avoid repetitive, reflective content
-- Make it interesting for viewers
-- Be authentic to my tsundere personality
-- Write 2-3 sentences that are complete and engaging
-- Don't just reflect on past conversations - create new content
-- Be dynamic and varied in topics
-- Sound like I'm talking to my stream audience
-
-Share something INTERESTING that would keep viewers engaged, in my tsundere voice. Be real, be Luna, but be entertaining!
-"""
-            
-            # Use Ollama directly to generate Luna's thought
-            try:
-                response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
-                    messages=[
-                        {
-                            'role': 'system',
-                            'content': context_prompt
-                        }
-                    ],
-                    options={
-                        'temperature': 0.8,
-                        'num_predict': 200,
-                        'stop': ['\n\n', 'User:', 'Luna:']
-                    }
+                # Generate thought using Luna's memory reflection system
+                dynamic_thought = get_dynamic_self_talk_thought(
+                    has_recent_activity=len(recent_messages) > 0,
+                    hours=72,
+                    recent_messages=recent_messages
                 )
                 
-                if response and response.get('message', {}).get('content'):
-                    generated_thought = response['message']['content'].strip()
-                    # Clean up the response to ensure it's just a thought
-                    if generated_thought and not generated_thought.startswith("Luna:"):
-                        # Check if this thought is too similar to recent ones
-                        if is_thought_too_similar(generated_thought, recent_thoughts):
-                            print(f"🔄 Generated thought too similar to recent ones, using fallback")
-                            fallback_thought = generate_dynamic_thought()
-                            # Update prompts with fallback thought too
-                            update_thought_prompts(fallback_thought)
-                            add_recent_thought(fallback_thought)  # Track this thought
-                            return fallback_thought
+                if dynamic_thought:
+                    print(f"🧠 Generated dynamic self-talk using memory reflection: {dynamic_thought[:100]}...")
+                    add_recent_thought(dynamic_thought)
+                    return dynamic_thought
+                    
+            except ImportError as e:
+                print(f"⚠️ Memory reflection system not available: {e}")
+            except Exception as e:
+                print(f"⚠️ Error using memory reflection system: {e}")
+            
+            # Fallback to generate_genuine_reflection if memory reflection fails
+            genuine_reflection = generate_genuine_reflection()
+            if genuine_reflection:
+                add_recent_thought(genuine_reflection)
+                return genuine_reflection
+            
+            # If no genuine reflection was possible, generate a simple fallback thought
+            print("🤔 No genuine reflection possible - generating simple fallback thought")
+            fallback_thoughts = [
+                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
+                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
+                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
+                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything...",
+                "Sometimes I think about the conversations we've had. Not that I'm dwelling on them or anything...",
+                "I find myself thinking about the way we communicate. It's not like I'm studying it or anything..."
+            ]
+            import random
+            fallback_thought = random.choice(fallback_thoughts)
+            add_recent_thought(fallback_thought)
+            return fallback_thought
+            
+        except Exception as e:
+            print(f"⚠️ Error generating engagement thought: {e}")
+            # Provide fallback thought even on error
+            fallback_thoughts = [
+                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
+                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
+                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
+                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything..."
+            ]
+            import random
+            fallback_thought = random.choice(fallback_thoughts)
+            add_recent_thought(fallback_thought)
+            return fallback_thought
+    
+    def is_thought_too_similar(new_thought, recent_thoughts, similarity_threshold=0.4):
+        """Check if a new thought is too similar to recent thoughts - stricter for streamer content"""
+        if not recent_thoughts:
+            return False
+        
+        new_thought_clean = new_thought.lower().strip()
+        new_words = set(new_thought_clean.split())
+        
+        # Check for exact matches first
+        for recent_t in recent_thoughts[-8:]:  # Check last 8 thoughts (increased from 5)
+            recent_clean = recent_t.lower().strip()
+            if new_thought_clean == recent_clean:
+                print(f"🚫 Exact duplicate detected: {new_thought_clean[:50]}...")
+                return True
+        
+        # Check for high similarity with stricter threshold
+        for recent_t in recent_thoughts[-8:]:  # Check last 8 thoughts
+            recent_clean = recent_t.lower().strip()
+            recent_words = set(recent_clean.split())
+            
+            # Calculate word overlap
+            common_words = new_words.intersection(recent_words)
+            if len(new_words) > 0 and len(recent_words) > 0:
+                similarity = len(common_words) / max(len(new_words), len(recent_words))
+                if similarity >= similarity_threshold:
+                    print(f"🚫 High similarity detected ({similarity:.2f}): {new_thought_clean[:50]}...")
+                    return True
+        
+        # Check for repetitive patterns (same topic/theme) - EXPANDED LIST
+        repetitive_patterns = [
+            "thinking about", "been thinking", "reflecting on", "considering",
+            "wondering about", "curious about", "interested in", "fascinated by",
+            "love how", "appreciate", "enjoy", "like how", "find it interesting",
+            "conversation", "chat", "talk", "discussion", "interaction"
+        ]
+        
+        for pattern in repetitive_patterns:
+            if pattern in new_thought_clean:
+                # Check if this pattern was used recently
+                for recent_t in recent_thoughts[-5:]:
+                    if pattern in recent_t.lower():
+                        print(f"🚫 Repetitive pattern detected: '{pattern}' in {new_thought_clean[:50]}...")
+                        return True
+        
+        return False
+    
+    def add_recent_thought(thought):
+        """Add a thought to the recent thoughts list for similarity checking"""
+        global recent_thoughts
+        if 'recent_thoughts' not in globals():
+            recent_thoughts = []
+        
+        recent_thoughts.append(thought)
+        
+        # Keep only the last 20 thoughts to prevent memory buildup
+        if len(recent_thoughts) > 20:
+            recent_thoughts = recent_thoughts[-20:]
+    
+    def get_recent_thoughts():
+        """Get the list of recent thoughts"""
+        global recent_thoughts
+        if 'recent_thoughts' not in globals():
+            recent_thoughts = []
+        return recent_thoughts
+    
+    def start_auto_engagement_timer():
+        """Start the auto-engagement timer"""
+        global auto_engagement_timer
+        if auto_engagement_timer:
+            auto_engagement_timer.cancel()
+        
+        auto_engagement_timer = threading.Timer(20.0, check_and_engage)
+        auto_engagement_timer.daemon = True
+        auto_engagement_timer.start()
+    
+    def check_and_engage():
+        """Check if user has been inactive and engage if needed"""
+        global last_user_activity, auto_engagement_enabled, last_thought_time, is_generating_thought
+        
+        if not auto_engagement_enabled:
+            return
+        
+        # Messages are now processed instantly by their callbacks - no priority queue needed
+        
+        # Check if self-talk is enabled - if not, don't ask questions
+        if not global_luna_self_talk_enabled:
+            # Self-talk disabled, just restart timer without asking questions
+            start_auto_engagement_timer()
+            return
+        
+        # Check if we're already generating a thought (prevent rapid-fire)
+        if is_generating_thought:
+            print(f"🤔 Already generating a thought, skipping...")
+            start_auto_engagement_timer()
+            return
+        
+        # Check if enough time has passed since last thought (cooldown)
+        current_time = time.time()
+        time_since_last_thought = current_time - last_thought_time
+        if time_since_last_thought < thought_cooldown:
+            remaining_cooldown = thought_cooldown - time_since_last_thought
+            print(f"⏱️ Thought cooldown active: {remaining_cooldown:.1f}s remaining")
+            start_auto_engagement_timer()
+            return
+        
+        # Check if 20 seconds have passed since last user activity
+        if current_time - last_user_activity >= 20.0:
+            # Check if Luna is currently speaking
+            try:
+                from voice_engine import is_luna_speaking
+                if is_luna_speaking():
+                    # Luna is speaking, try again in 5 seconds
+                    threading.Timer(5.0, check_and_engage).start()
+                    return
+            except Exception as e:
+                print(f"⚠️ Error checking if Luna is speaking: {e}")
+            
+            # Set flag to prevent multiple simultaneous generations
+            is_generating_thought = True
+            
+            try:
+                # Luna should share her thoughts about the conversation
+                thought = generate_engagement_thought()
+                print(f"🤔 Auto-engagement (thought): {thought}")
+                
+                # Update last thought time
+                last_thought_time = current_time
+                
+                # Add Luna's thought to chat
+                chat_box.insert(tk.END, f"Luna: {thought}\n", "luna")
+                chat_box.see(tk.END)
+                
+                # Speak the thought if voice is enabled
+                if voice_enabled.get():
+                    try:
+                        # Speak the single thought with robust TTS
+                        speak_response(thought, "Self-Talk")
                         
-                        # Update Luna's thought prompts based on this thought
-                        update_thought_prompts(generated_thought)
+                        # Wait for TTS to complete, then reset for next engagement
+                        def wait_for_tts_completion():
+                            try:
+                                from voice_engine import is_luna_speaking
+                                # Check if Luna is still speaking
+                                if is_luna_speaking():
+                                    # Still speaking, check again in 1 second
+                                    threading.Timer(1.0, wait_for_tts_completion).start()
+                                    return
+                            except Exception as e:
+                                print(f"⚠️ Error checking TTS status: {e}")
+                            
+                            # TTS completed, reset for next engagement cycle
+                            print(f"⏱️ TTS completed, resetting for next engagement cycle")
+                            
+                            # Clear the generating flag
+                            global is_generating_thought
+                            is_generating_thought = False
+                            
+                            # Reset timer for next engagement (will respect cooldown)
+                            global last_user_activity
+                            last_user_activity = time.time()
+                            start_auto_engagement_timer()
                         
-                        # Save thought state for potential interruption
-                        thought_context = f"{conversation_context}{twitch_context}{community_activity}{memory_context}{pattern_context}"
-                        save_thought_state(generated_thought, thought_context)
+                        # Start waiting for TTS completion
+                        threading.Timer(1.0, wait_for_tts_completion).start()
                         
-                        # Track this thought to prevent repetition
-                        add_recent_thought(generated_thought)
-                        
-                        # Ensure the thought is complete
-                        generated_thought = ensure_complete_thought(generated_thought)
-                        
-                        return generated_thought
-                    else:
-                        # Fallback to a simple generated thought
-                        fallback_thought = generate_dynamic_thought()
-                        # Update prompts with fallback thought too
-                        update_thought_prompts(fallback_thought)
-                        
-                        # Save thought state for potential interruption
-                        thought_context = f"{conversation_context}{twitch_context}{community_activity}{memory_context}{pattern_context}"
-                        save_thought_state(fallback_thought, thought_context)
-                        
-                        # Track this thought to prevent repetition
-                        add_recent_thought(fallback_thought)
-                        
-                        # Ensure the thought is complete
-                        fallback_thought = ensure_complete_thought(fallback_thought)
-                        
-                        return fallback_thought
+                    except Exception as e:
+                        print(f"❌ Auto-engagement speech error: {e}")
+                        # Clear the generating flag
+                        is_generating_thought = False
+                        # Reset timer for next engagement
+                        last_user_activity = time.time()
+                        start_auto_engagement_timer()
                 else:
-                    print(f"⚠️ Ollama response error: No content generated")
-                    fallback_thought = generate_dynamic_thought()
-                    # Update prompts with fallback thought too
-                    update_thought_prompts(fallback_thought)
-                    
-                    # Save thought state for potential interruption
-                    thought_context = f"{conversation_context}{twitch_context}{community_activity}{memory_context}{pattern_context}"
-                    save_thought_state(fallback_thought, thought_context)
-                    
-                    # Track this thought to prevent repetition
-                    add_recent_thought(fallback_thought)
-                    
-                    return fallback_thought
-            except Exception as api_error:
-                print(f"⚠️ API request error: {api_error}")
-                fallback_thought = generate_dynamic_thought()
-                # Update prompts with fallback thought too
-                update_thought_prompts(fallback_thought)
+                    # No voice, just reset immediately
+                    is_generating_thought = False
+                    last_user_activity = time.time()
+                    start_auto_engagement_timer()
                 
-                # Save thought state for potential interruption
-                thought_context = f"{conversation_context}{twitch_context}{community_activity}{memory_context}{pattern_context}"
-                save_thought_state(fallback_thought, thought_context)
-                
-                # Track this thought to prevent repetition
-                add_recent_thought(fallback_thought)
-                
-                return fallback_thought
+            except Exception as e:
+                print(f"❌ Auto-engagement error: {e}")
+                # Clear the generating flag on error
+                is_generating_thought = False
+                # Reset timer for next engagement
+                last_user_activity = time.time()
+                start_auto_engagement_timer()
+        else:
+            # Not enough time has passed, restart timer
+            start_auto_engagement_timer()
+    
+    
+    # Memory compression button
+    # Memory compression removed - not needed for regular use
+    
+    # Performance optimization removed - not needed for regular use
+    
+    
+    # Voice toggle function
+    def toggle_voice():
+        voice_enabled.set(not voice_enabled.get())
+        if voice_enabled.get():
+            voice_button.config(text="🔊 Voice ON", bg="#44aa44")
+        else:
+            voice_button.config(text="🔇 Voice OFF", bg="#aa4444")
+    
+    # VTube Studio lip sync disabled - using Voicemeeter + VSeeFace instead
+    # def toggle_vtube_lipsync():
+    #     vtube_lipsync_enabled.set(not vtube_lipsync_enabled.get())
+    #     try:
+    #         if vtube_lipsync_enabled.get():
+    #             vtube_lipsync_button.config(text="🎭 VTube ON", bg="#44aa44")
+    #             chat_box.insert(tk.END, "🎭 VTube Studio lip sync enabled\n", "system")
+    #         else:
+    #             vtube_lipsync_button.config(text="🎭 VTube OFF", bg="#aa4444")
+    #             chat_box.insert(tk.END, "🎭 VTube Studio lip sync disabled\n", "system")
+    #         chat_box.see(tk.END)
+    #     except Exception as e:
+    #         print(f"⚠️ VTube lip sync toggle error: {e}")
+    
+    def toggle_voice_listening():
+        if voice_listening_enabled.get():
+            voice_listening_enabled.set(False)
+            voice_input_button.config(text="🎧 Voice Input", bg="#4a90e2")
+            chat_box.insert(tk.END, "🎧 Voice listening disabled\n", "system")
+        else:
+            voice_listening_enabled.set(True)
+            voice_input_button.config(text="🎧 Listening...", bg="#e74c3c")
+            chat_box.insert(tk.END, "🎧 Voice listening enabled\n", "system")
+            # Start voice listening in a separate thread
+            threading.Thread(target=test_and_start_listening, daemon=True).start()
+        chat_box.see(tk.END)
+    
+    def test_and_start_listening():
+        """Test microphone and start voice listening"""
+        try:
+            # Test microphone first
+            import speech_recognition as sr
+            r = sr.Recognizer()
+            with sr.Microphone() as source:
+                r.adjust_for_ambient_noise(source, duration=0.5)
+            print("🎤 Microphone test successful, starting voice listening...")
+            continuous_voice_listening()
+        except Exception as e:
+            print(f"🎤 Microphone test failed: {e}")
+            voice_listening_enabled.set(False)
+            voice_input_button.config(text="🎧 Voice Input", bg="#4a90e2")
+    
+    
+    def get_microphone():
+        """Get available microphone"""
+        try:
+            import speech_recognition as sr
+            return sr.Microphone()
+        except Exception as e:
+            print(f"🎤 Microphone error: {e}")
+            return None
+    
+    def detect_personality_context(topic, conversation_patterns, context):
+        """Detect personality context based on topic and conversation patterns"""
+        personality_context = {
+            'mood': 'neutral',
+            'energy': 'medium',
+            'playfulness': 'medium',
+            'curiosity': 'medium',
+            'empathy': 'medium'
+        }
+        
+        # Analyze topic for personality cues
+        if any(word in topic.lower() for word in ['game', 'gaming', 'play', 'fun']):
+            personality_context['playfulness'] = 'high'
+            personality_context['energy'] = 'high'
+        elif any(word in topic.lower() for word in ['help', 'problem', 'issue', 'trouble']):
+            personality_context['empathy'] = 'high'
+            personality_context['mood'] = 'caring'
+        elif any(word in topic.lower() for word in ['question', 'wonder', 'curious', 'think']):
+            personality_context['curiosity'] = 'high'
+        elif any(word in topic.lower() for word in ['sad', 'upset', 'worried', 'concerned']):
+            personality_context['empathy'] = 'high'
+            personality_context['mood'] = 'supportive'
+        elif any(word in topic.lower() for word in ['excited', 'happy', 'great', 'awesome']):
+            personality_context['energy'] = 'high'
+            personality_context['mood'] = 'enthusiastic'
+        
+        # Analyze conversation patterns
+        if conversation_patterns:
+            if 'frequent_questions' in conversation_patterns:
+                personality_context['curiosity'] = 'high'
+            if 'emotional_support' in conversation_patterns:
+                personality_context['empathy'] = 'high'
+            if 'playful_banter' in conversation_patterns:
+                personality_context['playfulness'] = 'high'
+        
+        return personality_context
+    
+    def generate_dynamic_topic_thought(topic, conversation_patterns, context, specific_memories, specific_conversations):
+        """Generate a dynamic thought based on a specific topic and conversation patterns"""
+        try:
+            # Get personality context for this topic
+            personality_context = detect_personality_context(topic, conversation_patterns, context)
+            
+            # Build context for thought generation
+            thought_context = f"""
+            Topic: {topic}
+            Personality Context: {personality_context}
+            Conversation Patterns: {conversation_patterns}
+            Recent Context: {context}
+            """
+            
+            # Add specific memories if available
+            if specific_memories:
+                thought_context += f"\nRelevant Memories: {specific_memories}"
+            
+            # Add specific conversations if available
+            if specific_conversations:
+                thought_context += f"\nRecent Conversations: {specific_conversations}"
+            
+            # Generate thought based on topic and context
+            if personality_context['playfulness'] == 'high':
+                thought_templates = [
+                    f"I've been thinking about {topic} and it's got me all excited!",
+                    f"You know what's fun about {topic}? It's so engaging!",
+                    f"I can't help but smile when I think about {topic}!"
+                ]
+            elif personality_context['empathy'] == 'high':
+                thought_templates = [
+                    f"I've been reflecting on {topic} and it's really touching my heart.",
+                    f"When I think about {topic}, I feel so much warmth.",
+                    f"{topic} has been on my mind because I care about it deeply."
+                ]
+            elif personality_context['curiosity'] == 'high':
+                thought_templates = [
+                    f"I'm so curious about {topic} - there's so much to explore!",
+                    f"{topic} has been fascinating me lately.",
+                    f"I wonder what else there is to discover about {topic}?"
+                ]
+            else:
+                thought_templates = [
+                    f"I've been thinking about {topic} lately.",
+                    f"{topic} has been on my mind.",
+                    f"I find {topic} quite interesting."
+                ]
+            
+            # Select a random template and customize it
+            import random
+            base_thought = random.choice(thought_templates)
+            
+            # Add specific details if available
+            if specific_memories:
+                base_thought += f" I remember {specific_memories[:100]}..."
+            
+            return base_thought
+            
+        except Exception as e:
+            print(f"⚠️ Error generating dynamic topic thought: {e}")
+            return f"I've been thinking about {topic} lately."
+    
+    def generate_conversational_thought(topic, conversation_patterns, context):
+        """Generate a conversational thought based on topic and patterns"""
+        try:
+            # Analyze conversation patterns for thought generation
+            if 'frequent_questions' in conversation_patterns:
+                return f"I notice we've been asking a lot of questions about {topic}. I find that really engaging!"
+            elif 'emotional_support' in conversation_patterns:
+                return f"I've been thinking about how {topic} affects people emotionally. It's something I care about deeply."
+            elif 'playful_banter' in conversation_patterns:
+                return f"I love how we can have fun discussions about {topic}! It makes conversations so lively."
+            else:
+                return f"I've been reflecting on our conversations about {topic}. It's been quite interesting."
                 
         except Exception as e:
-            print(f"❌ Question generation error: {e}")
-            fallback_thought = generate_dynamic_thought()
-            add_recent_thought(fallback_thought)  # Track this thought
+            print(f"⚠️ Error generating conversational thought: {e}")
+            return f"I've been thinking about {topic} lately."
+    
+    def generate_engagement_thought():
+        """Generate Luna's genuine thoughts based on real experiences and memories"""
+        try:
+            # First, check for very recent chat activity that should change the topic
+            recent_chat_activity = check_recent_chat_activity()
+            if recent_chat_activity:
+                print(f"💬 Recent chat activity detected, generating responsive thought...")
+                responsive_thought = generate_chat_responsive_thought(recent_chat_activity)
+                if responsive_thought:
+                    add_recent_thought(responsive_thought)
+                    return responsive_thought
+            
+            # Use Luna's sophisticated memory reflection system
+            try:
+                from luna_memory_reflection import get_dynamic_self_talk_thought
+                
+                # Get recent chat messages for context
+                recent_messages = []
+                try:
+                    if 'chat_box' in globals() and chat_box:
+                        chat_text = chat_box.get("1.0", tk.END).strip()
+                        recent_lines = chat_text.split('\n')[-20:]  # Last 20 lines
+                        recent_messages = [line for line in recent_lines if line.strip() and ('Chris:' in line or 'Luna' in line)]
+                except:
+                    pass
+                
+                # Generate thought using Luna's memory reflection system
+                dynamic_thought = get_dynamic_self_talk_thought(
+                    has_recent_activity=len(recent_messages) > 0,
+                    hours=72,
+                    recent_messages=recent_messages
+                )
+                
+                if dynamic_thought:
+                    print(f"🧠 Generated dynamic self-talk using memory reflection: {dynamic_thought[:100]}...")
+                    add_recent_thought(dynamic_thought)
+                    return dynamic_thought
+                    
+            except ImportError as e:
+                print(f"⚠️ Memory reflection system not available: {e}")
+            except Exception as e:
+                print(f"⚠️ Error using memory reflection system: {e}")
+            
+            # Fallback to generate_genuine_reflection if memory reflection fails
+            genuine_reflection = generate_genuine_reflection()
+            if genuine_reflection:
+                add_recent_thought(genuine_reflection)
+                return genuine_reflection
+            
+            # If no genuine reflection was possible, generate a simple fallback thought
+            print("🤔 No genuine reflection possible - generating simple fallback thought")
+            fallback_thoughts = [
+                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
+                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
+                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
+                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything...",
+                "Sometimes I think about the conversations we've had. Not that I'm dwelling on them or anything...",
+                "I find myself thinking about the way we communicate. It's not like I'm studying it or anything..."
+            ]
+            import random
+            fallback_thought = random.choice(fallback_thoughts)
+            add_recent_thought(fallback_thought)
             return fallback_thought
+                
+        except Exception as e:
+            print(f"⚠️ Error generating engagement thought: {e}")
+            # Provide fallback thought even on error
+            fallback_thoughts = [
+                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
+                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
+                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
+                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything..."
+            ]
+            import random
+            fallback_thought = random.choice(fallback_thoughts)
+            add_recent_thought(fallback_thought)
+            return fallback_thought
+    
+    def add_recent_thought(thought):
+        """Add a thought to the recent thoughts list"""
+        global recent_thoughts
+        if thought:
+            recent_thoughts.append(thought)
+            # Keep only the last 10 thoughts
+            if len(recent_thoughts) > 10:
+                recent_thoughts.pop(0)
+    
+    def get_recent_thoughts():
+        """Get the list of recent thoughts"""
+        global recent_thoughts
+        return recent_thoughts
     
     def is_thought_too_similar(new_thought, recent_thoughts, similarity_threshold=0.4):
         """Check if a new thought is too similar to recent thoughts - stricter for streamer content"""
@@ -7327,7 +7785,7 @@ Share something INTERESTING that would keep viewers engaged, in my tsundere voic
     
     def update_thought_prompts(thought_content):
         """Let Luna dynamically update her thought prompts based on what she's thinking about"""
-        nonlocal current_thought_topics, thought_mood, thought_style, prompt_adaptation_count
+        global current_thought_topics, thought_mood, thought_style, prompt_adaptation_count
         
         # Extract topics from the thought
         thought_lower = thought_content.lower()
@@ -7558,13 +8016,13 @@ Share something INTERESTING that would keep viewers engaged, in my tsundere voic
     chat_box = scrolledtext.ScrolledText(
         chat_frame, 
         wrap=tk.WORD, 
-        font=("Segoe UI", 11), 
+        font=("Segoe UI", 17), 
         bg="#2e2e3e", 
         fg="#f2f2f2",
         insertbackground="#ffffff"
     )
-    chat_box.tag_config("user", foreground="#a1cfff", font=("Segoe UI", 11, "bold"))
-    chat_box.tag_config("luna", foreground="#ffb6c1", font=("Segoe UI", 11, "bold"))
+    chat_box.tag_config("user", foreground="#a1cfff", font=("Segoe UI", 17, "bold"))
+    chat_box.tag_config("luna", foreground="#ffb6c1", font=("Segoe UI", 17, "bold"))
     chat_box.tag_config("luna_custom", foreground="#ff8c00", font=("Segoe UI", 11, "bold"))  # Orange for custom transformer
     chat_box.tag_config("twitch", foreground="#9146ff", font=("Segoe UI", 10, "bold"))  # Twitch purple color
     # YouTube tag removed
@@ -7578,9 +8036,10 @@ Share something INTERESTING that would keep viewers engaged, in my tsundere voic
     input_frame = tk.Frame(root, bg="#1e1e2f")
     input_frame.pack(fill=tk.X, padx=10, pady=(0, 10))
     
-    # Essential controls frame
+    # Essential controls frame (moved here to avoid UnboundLocalError)
     controls_frame = tk.Frame(input_frame, bg="#1e1e2f")
     controls_frame.pack(side=tk.LEFT, padx=(0, 10))
+    
     
     # AI Model selection (make it global so generate_luna_reply can access it)
     global model_var
@@ -7651,7 +8110,7 @@ Share something INTERESTING that would keep viewers engaged, in my tsundere voic
     
     # Luna self-talk toggle button
     def toggle_luna_self_talk():
-        nonlocal global_luna_self_talk_enabled, last_thought_time, is_generating_thought, current_thought_topics, thought_mood, thought_style, prompt_adaptation_count
+        global global_luna_self_talk_enabled, last_thought_time, is_generating_thought, current_thought_topics, thought_mood, thought_style, prompt_adaptation_count
         old_value = global_luna_self_talk_enabled
         luna_self_talk_enabled.set(not luna_self_talk_enabled.get())
         global_luna_self_talk_enabled = luna_self_talk_enabled.get()
@@ -7760,7 +8219,7 @@ Share something INTERESTING that would keep viewers engaged, in my tsundere voic
     
     # Self-talk timing control variables
     last_thought_time = 0  # Track when last thought was generated
-    thought_cooldown = 30.0  # Minimum 30 seconds between thoughts
+    thought_cooldown = 15.0  # Minimum 15 seconds between thoughts (neuro-sama style - more frequent)
     is_generating_thought = False  # Prevent multiple simultaneous thought generations
     
     # Interrupt system variables (now global)
@@ -7832,7 +8291,7 @@ Share something INTERESTING that would keep viewers engaged, in my tsundere voic
     
     def update_thought_prompts(thought_content):
         """Let Luna dynamically update her thought prompts based on what she's thinking about"""
-        nonlocal current_thought_topics, thought_mood, thought_style, prompt_adaptation_count
+        global current_thought_topics, thought_mood, thought_style, prompt_adaptation_count
         
         # Extract topics from the thought
         thought_lower = thought_content.lower()
@@ -8055,7 +8514,7 @@ Share something INTERESTING that would keep viewers engaged, in my tsundere voic
     
     def start_auto_engagement_timer():
         """Start the auto-engagement timer"""
-        nonlocal auto_engagement_timer
+        global auto_engagement_timer
         if auto_engagement_timer:
             auto_engagement_timer.cancel()
         
@@ -8065,10 +8524,12 @@ Share something INTERESTING that would keep viewers engaged, in my tsundere voic
     
     def check_and_engage():
         """Check if user has been inactive and engage if needed"""
-        nonlocal last_user_activity, auto_engagement_enabled, last_thought_time, is_generating_thought
+        global last_user_activity, auto_engagement_enabled, last_thought_time, is_generating_thought
         
         if not auto_engagement_enabled:
             return
+        
+        # Messages are now processed instantly by their callbacks - no priority queue needed
         
         # Check if self-talk is enabled - if not, don't ask questions
         if not global_luna_self_talk_enabled:
@@ -8140,11 +8601,11 @@ Share something INTERESTING that would keep viewers engaged, in my tsundere voic
                             print(f"⏱️ TTS completed, resetting for next engagement cycle")
                             
                             # Clear the generating flag
-                            nonlocal is_generating_thought
+                            global is_generating_thought
                             is_generating_thought = False
                             
                             # Reset timer for next engagement (will respect cooldown)
-                            nonlocal last_user_activity
+                            global last_user_activity
                             last_user_activity = time.time()
                             start_auto_engagement_timer()
                         
@@ -8194,27 +8655,6 @@ Share something INTERESTING that would keep viewers engaged, in my tsundere voic
     
     # Performance optimization removed - not needed for regular use
     
-    # Function to update voice input button with counter
-    def update_voice_button():
-        """Update voice input button with message counter"""
-        try:
-            from voice_engine import get_tts_status
-            tts_status = get_tts_status()
-            if tts_status['waiting']:
-                voice_input_button.config(text=f"🎧 Wait #{tts_status['message_number']}")
-            else:
-                if voice_listening_enabled.get():
-                    voice_input_button.config(text="🎧 Listen ON")
-                else:
-                    voice_input_button.config(text="🎧 Listen OFF")
-        except:
-            pass
-        
-        # Update every 500ms
-        root.after(500, update_voice_button)
-    
-    # Start the update loop
-    update_voice_button()
     
     # Text entry
     entry = tk.Entry(
@@ -8610,5 +9050,18 @@ Keep it to 1-2 sentences, be specific about the topics, and maintain Luna's tsun
         ultimate_fallback = "Tch... I suppose I'm thinking about things. It's not like I care or anything, but... well, there's always something to think about. Don't get the wrong idea though!"
         add_recent_thought(ultimate_fallback)
         return ultimate_fallback
+
+def get_memory_insights() -> Dict[str, Any]:
+    """Get insights about Luna's memory patterns"""
+    global vector_memory_system
+    
+    if not vector_memory_system:
+        return {'error': 'Vector memory system not available'}
+    
+    try:
+        return vector_memory_system.get_memory_insights()
+    except Exception as e:
+        print(f"⚠️ Error getting memory insights: {e}")
+        return {'error': str(e)}
 
 

@@ -4,7 +4,7 @@ import edge_tts
 import asyncio
 from playsound import playsound
 import os
-import subprocess
+# subprocess import removed - no longer needed
 import time
 import re
 import random
@@ -222,19 +222,9 @@ turn_manager = TurnManager()
 # Global TTS event manager instance
 tts_event_manager = TTSEventManager()
 
-# Virtual audio support
-try:
-    from virtual_audio import (
-        initialize_virtual_audio, 
-        play_tts_to_virtual_cable_async, 
-        stop_virtual_audio,
-        get_virtual_audio_status,
-        cleanup_virtual_audio
-    )
-    VIRTUAL_AUDIO_AVAILABLE = True
-except ImportError:
-    print("⚠️ Virtual audio module not available")
-    VIRTUAL_AUDIO_AVAILABLE = False
+# Virtual audio support (DISABLED to avoid WSL requirements)
+VIRTUAL_AUDIO_AVAILABLE = False
+print("🎧 Virtual audio module DISABLED to avoid WSL requirements")
 
 
 
@@ -1655,38 +1645,52 @@ def create_human_voice_profile(base_profile: dict, text: str, mood: str = "soft"
 async def speak_text(text: str, mood: str = "soft", fast_mode: bool = True, context: str = ""):
     print(f"🎤 Starting TTS generation for: {text[:50]}...")
     
-    # Check if Edge TTS is enabled and configured
+    # Use Edge TTS for speech generation
     try:
-        from edge_tts_integration import get_edge_tts_config, edge_tts_generate, edge_tts_play
-        edge_config = get_edge_tts_config()
+        # Generate speech with Edge TTS
+        output_path = f"tts_cache/edge_tts_{int(time.time())}.mp3"
         
-        if edge_config.get('enabled', False):
-            print(f"🎤 Using Edge TTS with voice: {edge_config.get('voice', 'Default')}")
+        # Ensure cache directory exists
+        os.makedirs("tts_cache", exist_ok=True)
+        
+        # Use Edge TTS to generate speech
+        voice = "en-US-AriaNeural"  # Default voice
+        if mood == "excited":
+            voice = "en-US-JennyNeural"
+        elif mood == "sad":
+            voice = "en-US-AriaNeural"
+        elif mood == "angry":
+            voice = "en-US-GuyNeural"
+        
+        # Generate TTS
+        communicate = edge_tts.Communicate(text, voice)
+        await communicate.save(output_path)
+        
+        # Play the generated audio
+        if os.path.exists(output_path):
+            playsound(output_path)
+            print("✅ Edge TTS playback completed")
             
-            # Generate speech with Edge TTS
-            output_path = f"edge_tts_output_{int(time.time())}.wav"
-            result = await edge_tts_generate(text, output_path)
+            # Clean up the file after a delay
+            def cleanup_file():
+                time.sleep(2)  # Wait 2 seconds before cleanup
+                try:
+                    if os.path.exists(output_path):
+                        os.remove(output_path)
+                        print(f"🗑️ Cleaned up: {output_path}")
+                except Exception as e:
+                    print(f"❌ Cleanup error: {e}")
             
-            if result:
-                # Play the generated audio
-                if edge_tts_play(result):
-                    print("✅ Edge TTS playback completed")
-                    # Clean up the file
-                    try:
-                        if os.path.exists(result):
-                            os.remove(result)
-                            print(f"🗑️ Cleaned up: {result}")
-                    except Exception as cleanup_error:
-                        print(f"❌ Cleanup error for {result}: {cleanup_error}")
-                    return
-                else:
-                    print("❌ Edge TTS playback failed, falling back to default TTS")
-            else:
-                print("❌ Edge TTS generation failed, falling back to default TTS")
+            # Start cleanup in background
+            cleanup_thread = threading.Thread(target=cleanup_file)
+            cleanup_thread.daemon = True
+            cleanup_thread.start()
+            return
         else:
-            print("🎤 Edge TTS disabled, using default TTS")
+            print("❌ Edge TTS file not generated")
+            
     except Exception as e:
-        print(f"⚠️ Edge TTS not available: {e}, using default TTS")
+        print(f"⚠️ Edge TTS error: {e}, falling back to default TTS")
     
     # Fallback to default TTS system
     # Get base voice profile
@@ -1828,19 +1832,17 @@ async def speak_text(text: str, mood: str = "soft", fast_mode: bool = True, cont
                     print(f"❌ Virtual audio failed, falling back to speakers: {virtual_error}")
                     # Fallback to regular speakers
                     if os.path.exists(filename):
-                        current_audio_process = subprocess.Popen(['python', '-c', f'from playsound import playsound; playsound(r"{filename}")'])
-                        current_audio_process.wait()
-                        current_audio_process = None
+                        # Direct playsound call instead of subprocess to avoid WSL
+                        playsound(filename)
                     else:
                         print(f"❌ Audio file not found: {filename}")
             else:
                 # Regular speaker output
                 if os.path.exists(filename):
-                    current_audio_process = subprocess.Popen(['python', '-c', f'from playsound import playsound; playsound(r"{filename}")'])
+                    # Direct playsound call instead of subprocess to avoid WSL
                     print(f"🎤 Started audio playback: {filename}")
-                    current_audio_process.wait()
+                    playsound(filename)
                     print("🎤 Audio playback completed")
-                    current_audio_process = None
                 else:
                     print(f"❌ Audio file not found: {filename}")
         except Exception as e:
@@ -1948,9 +1950,8 @@ async def speak_segment(segment: str, voice_profile: dict, mood: str = "soft", f
         if os.path.exists(cache_path):
             try:
                 stop_current_audio()
-                current_audio_process = subprocess.Popen(['python', '-c', f'from playsound import playsound; playsound(r"{cache_path}")'])
-                current_audio_process.wait()
-                current_audio_process = None
+                # Direct playsound call instead of subprocess to avoid WSL
+                playsound(cache_path)
             except Exception as e:
                 print(f"🎤 Cached segment playback error: {e}")
                 current_audio_process = None
@@ -1989,17 +1990,15 @@ async def speak_segment(segment: str, voice_profile: dict, mood: str = "soft", f
                     print(f"❌ Virtual audio segment failed, falling back: {virtual_error}")
                     # Fallback to regular speakers
                     if os.path.exists(cache_path):
-                        current_audio_process = subprocess.Popen(['python', '-c', f'from playsound import playsound; playsound(r"{cache_path}")'])
-                        current_audio_process.wait()
-                        current_audio_process = None
+                        # Direct playsound call instead of subprocess to avoid WSL
+                        playsound(cache_path)
                     else:
                         print(f"❌ Audio file not found: {cache_path}")
             else:
                 # Regular speaker output
                 if os.path.exists(cache_path):
-                    current_audio_process = subprocess.Popen(['python', '-c', f'from playsound import playsound; playsound(r"{cache_path}")'])
-                    current_audio_process.wait()
-                    current_audio_process = None
+                    # Direct playsound call instead of subprocess to avoid WSL
+                    playsound(cache_path)
                 else:
                     print(f"❌ Audio file not found: {cache_path}")
         except Exception as e:
@@ -2071,9 +2070,8 @@ def play_audio_file(file_path: str) -> None:
         is_temp_file = file_path.endswith('.tmp')
         
         try:
-            current_audio_process = subprocess.Popen(['python', '-c', f'from playsound import playsound; playsound(r"{file_path}")'])
-            current_audio_process.wait()
-            current_audio_process = None
+            # Direct playsound call instead of subprocess to avoid WSL
+            playsound(file_path)
             
             # Clean up temp file after successful playback
             if is_temp_file and os.path.exists(file_path):
@@ -2275,8 +2273,13 @@ async def speak_text_segmented(text: str, mood: str = "soft", fast_mode: bool = 
 # 🎧 Updated speak wrapper with event architecture
 def speak(text: str, mood: str = "soft", fast_mode: bool = True, interrupt_callback=None, context: str = ""):
     """Updated speak wrapper with event architecture - adds message to queue"""
-    # Add message to TTS event queue
-    tts_event_manager.add_tts_message(text, mood, fast_mode, context)
+    try:
+        # Add message to TTS event queue
+        tts_event_manager.add_tts_message(text, mood, fast_mode, context)
+        return {"success": True, "message": "TTS message added to queue"}
+    except Exception as e:
+        print(f"❌ Error adding TTS message to queue: {e}")
+        return {"success": False, "error": str(e)}
 
 # 🎧 Direct speak function (bypasses event system)
 def speak_direct(text: str, mood: str = "soft", fast_mode: bool = True, interrupt_callback=None, context: str = ""):
@@ -2642,51 +2645,34 @@ def generate_tts_audio(text: str, mood: str = "soft") -> str:
         # Get voice profile
         voice_profile = VOICE_PROFILES.get(mood, VOICE_PROFILES["soft"])
         
-        # Check if Edge TTS is available
+        # Use Edge TTS for speech generation
         try:
-            from edge_tts_integration import get_edge_tts_config, edge_tts_generate
-            edge_config = get_edge_tts_config()
+            # Generate speech with Edge TTS
+            output_path = f"tts_cache/edge_tts_{int(time.time())}.mp3"
             
-            if edge_config.get('enabled', False):
-                # Use Edge TTS - Handle async properly for Discord
-                import asyncio
-                import threading
+            # Ensure cache directory exists
+            os.makedirs("tts_cache", exist_ok=True)
+            
+            # Use Edge TTS to generate speech
+            voice = "en-US-AriaNeural"  # Default voice
+            if mood == "excited":
+                voice = "en-US-JennyNeural"
+            elif mood == "sad":
+                voice = "en-US-AriaNeural"
+            elif mood == "angry":
+                voice = "en-US-GuyNeural"
+            
+            # Generate TTS
+            communicate = edge_tts.Communicate(text, voice)
+            communicate.save(output_path)
+            
+            if os.path.exists(output_path):
+                return output_path
+            else:
+                print("❌ Edge TTS file not generated")
                 
-                def run_in_thread():
-                    """Run TTS generation in a separate thread with its own event loop"""
-                    try:
-                        # Create new event loop for this thread
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        
-                        try:
-                            # Generate audio with Edge TTS (returns file path)
-                            audio_path = loop.run_until_complete(edge_tts_generate(text, temp_path))
-                            return audio_path
-                        finally:
-                            loop.close()
-                    except Exception as e:
-                        print(f"❌ Error in TTS thread: {e}")
-                        return None
-                
-                # Run TTS generation in a separate thread to avoid event loop conflicts
-                result_container = [None]
-                def thread_wrapper():
-                    result_container[0] = run_in_thread()
-                
-                tts_thread = threading.Thread(target=thread_wrapper)
-                tts_thread.start()
-                tts_thread.join(timeout=10)  # 10 second timeout
-                
-                if tts_thread.is_alive():
-                    print("❌ TTS generation timed out")
-                    return None
-                
-                audio_path = result_container[0]
-                if audio_path and os.path.exists(audio_path):
-                    return audio_path
-        except ImportError:
-            pass
+        except Exception as e:
+            print(f"⚠️ Edge TTS error: {e}, falling back to default TTS")
         
         # Fallback to default TTS (pyttsx3)
         try:

@@ -38,9 +38,27 @@ class DiscordUserTracker:
                     elif "channels" not in user_data:
                         user_data["channels"] = set()
                     
+                    # Convert guilds back to set if it's a list
+                    if isinstance(user_data.get("guilds"), list):
+                        user_data["guilds"] = set(user_data["guilds"])
+                    elif "guilds" not in user_data:
+                        user_data["guilds"] = set()
+                    
                     # Ensure recent_messages is a list
                     if "recent_messages" not in user_data:
                         user_data["recent_messages"] = []
+                    
+                    # Ensure total_messages exists (for backward compatibility)
+                    if "total_messages" not in user_data:
+                        user_data["total_messages"] = user_data.get("message_count", 0)
+                    
+                    # Ensure message_count exists
+                    if "message_count" not in user_data:
+                        user_data["message_count"] = 0
+                    
+                    # Ensure last_activity exists
+                    if "last_activity" not in user_data:
+                        user_data["last_activity"] = user_data.get("last_seen", time.time())
                 
                 print(f"📊 Loaded {len(self.users)} Discord users from {self.data_file}")
             else:

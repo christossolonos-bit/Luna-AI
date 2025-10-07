@@ -73,13 +73,31 @@ class TwitchChatBot(commands.Bot):
     
     async def event_message(self, message):
         """Handle incoming chat messages"""
-        # Add null checks for message structure
-        if not message or not hasattr(message, 'author') or not message.author:
-            print(f"🎮 Invalid message structure received: {message}")
+        # Add comprehensive null checks for message structure
+        if not message:
+            print(f"🎮 No message received")
+            return
+            
+        if not hasattr(message, 'author') or not message.author:
+            print(f"🎮 Message missing author: {type(message)}")
             return
             
         if not hasattr(message, 'content') or not message.content:
-            print(f"🎮 Message has no content: {message}")
+            print(f"🎮 Message has no content: {type(message)}")
+            return
+            
+        # Additional validation for message object
+        try:
+            # Test if we can access basic properties
+            author_name = getattr(message.author, 'name', None)
+            content = getattr(message, 'content', None)
+            
+            if not author_name or not content:
+                print(f"🎮 Message missing required fields: author={author_name}, content={bool(content)}")
+                return
+                
+        except Exception as validation_error:
+            print(f"🎮 Message validation error: {validation_error}")
             return
             
         print(f"🎮 Raw Twitch message received: {message.author.name}: {message.content}")
