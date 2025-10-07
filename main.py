@@ -7528,7 +7528,7 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
             'curiosity': 'medium',
             'empathy': 'medium'
         }
-        
+         
         # Analyze topic for personality cues
         if any(word in topic.lower() for word in ['game', 'gaming', 'play', 'fun']):
             personality_context['playfulness'] = 'high'
