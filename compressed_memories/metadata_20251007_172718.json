@@ -1,20 +1,20 @@
 {
   "compression_info": {
     "compression_level": 9,
-    "compressed_at": "2025-10-07T18:47:20.568313",
+    "compressed_at": "2025-10-07T17:27:18.268814",
     "algorithm": "gzip"
   },
   "statistics": {
-    "total_memories": 21663,
-    "total_conversations": 13775,
+    "total_memories": 21659,
+    "total_conversations": 13772,
     "memory_types": {
-      "emotional": 8472,
-      "conversation": 13142,
+      "conversation": 13139,
+      "emotional": 8471,
       "self_talk": 26,
       "vision": 23
     },
     "mood_distribution": {
-      "soft": 4762,
+      "soft": 4758,
       "sultry": 5447,
       "playful": 5194,
       "cheeky": 2462,

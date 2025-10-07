@@ -135,11 +135,21 @@ class TwitchAPIChat:
                 self._handle_irc_message(message)
             
             def on_error(ws, error):
+                print(f"❌ Twitch WebSocket error: {error}")
                 logger.error(f"WebSocket error: {error}")
             
             def on_close(ws, close_status_code, close_msg):
+                print(f"⚠️ Twitch WebSocket closed (code: {close_status_code}, msg: {close_msg})")
                 logger.info("WebSocket connection closed")
                 self.is_connected = False
+                
+                # Auto-reconnect if still running
+                if self.running:
+                    print("🔄 Attempting to reconnect to Twitch in 5 seconds...")
+                    time.sleep(5)
+                    if self.running:
+                        print("🔄 Reconnecting to Twitch...")
+                        self.connect_websocket()
             
             def on_open(ws):
                 print("✅ Twitch WebSocket connection opened!")
@@ -190,63 +200,87 @@ class TwitchAPIChat:
             # Debug: Print raw IRC message
             print(f"🔍 Raw IRC message: {message}")
             
-            # Parse IRC message
-            parts = message.strip().split()
-            if len(parts) < 3:
-                print(f"🔍 Message too short (parts < 3): {parts}")
+            # Handle PING - critical for keeping connection alive
+            if message.startswith("PING"):
+                print("🏓 PING received, sending PONG")
+                self.ws.send("PONG :tmi.twitch.tv")
                 return
             
-            # Check for PRIVMSG (chat message)
-            if parts[1] == "PRIVMSG":
-                print(f"🔍 PRIVMSG detected: {parts}")
-                # Extract channel and message content
-                channel = parts[2].lstrip('#')
-                
-                # Find message content (after the first ':')
-                message_start = message.find(':', 1)
-                if message_start == -1:
-                    return
-                
-                full_message = message[message_start + 1:]
-                
-                # Extract username from sender info
-                sender_info = parts[0]
-                if sender_info.startswith(':'):
-                    sender_info = sender_info[1:]
-                
-                username_match = re.search(r'display-name=([^;]+)', sender_info)
-                if username_match:
-                    username = username_match.group(1)
-                else:
-                    # Fallback: extract from nick
-                    username = sender_info.split('!')[0] if '!' in sender_info else sender_info
-                
-                # Update stats
-                self.stats["messages_received"] += 1
-                print(f"📨 Received message from {username}: {full_message}")
-                
-                # Check if message should be ignored
-                if self._should_ignore_message(username, full_message):
-                    print(f"🚫 Ignoring message from {username}: {full_message}")
-                    return
-                
-                # Filter offensive words from message
-                filtered_message = self._filter_message(full_message)
-                if filtered_message != full_message:
-                    print(f"🔧 Filtered message from {username}: {filtered_message}")
-                
-                # Call callback if available
-                if self.callback and self.chat_enabled:
-                    try:
-                        response = self.callback(username, filtered_message, channel)
-                        if response:
-                            self.send_message(channel, response)
-                    except Exception as e:
-                        logger.error(f"Error in callback: {e}")
-            
-            # Handle PING
-            elif parts[0] == "PING":
+            # Also handle PING in different format
+            if "PING" in message and ":tmi.twitch.tv" in message:
+                print("🏓 PING (alternate format) received, sending PONG")
                 self.ws.send("PONG :tmi.twitch.tv")
+                return
+            
+            # Check for PRIVMSG (chat message) - can appear anywhere in the message
+            if " PRIVMSG " not in message:
+                print(f"🔍 Not a PRIVMSG, skipping")
+                return
+            
+            print(f"🔍 PRIVMSG detected in message!")
+            
+            # Extract display name from tags if available
+            username = None
+            if message.startswith('@'):
+                # Parse tags to get display-name
+                tags_end = message.find(' :')
+                if tags_end > 0:
+                    tags = message[1:tags_end]
+                    for tag in tags.split(';'):
+                        if tag.startswith('display-name='):
+                            username = tag.split('=', 1)[1]
+                            break
+            
+            # Extract channel and message from PRIVMSG format
+            # Format: ... PRIVMSG #channel :message
+            privmsg_index = message.find(' PRIVMSG ')
+            if privmsg_index == -1:
+                return
+            
+            # Get the part after PRIVMSG
+            after_privmsg = message[privmsg_index + 9:]  # +9 to skip " PRIVMSG "
+            parts = after_privmsg.split(' :', 1)
+            
+            if len(parts) < 2:
+                print(f"🔍 Could not parse channel and message")
+                return
+            
+            channel = parts[0].lstrip('#').strip()
+            full_message = parts[1].strip()
+            
+            # If we didn't get username from tags, try to extract from sender info
+            if not username:
+                # Look for username in format :username!username@username.tmi.twitch.tv
+                sender_match = re.search(r':([^!]+)!', message)
+                if sender_match:
+                    username = sender_match.group(1)
+                else:
+                    username = "Unknown"
+            
+            # Update stats
+            self.stats["messages_received"] += 1
+            print(f"📨 Received message from {username} in #{channel}: {full_message}")
+            
+            # Check if message should be ignored
+            if self._should_ignore_message(username, full_message):
+                print(f"🚫 Ignoring message from {username}: {full_message}")
+                return
+            
+            # Filter offensive words from message
+            filtered_message = self._filter_message(full_message)
+            if filtered_message != full_message:
+                print(f"🔧 Filtered message from {username}: {filtered_message}")
+            
+            # Call callback if available
+            if self.callback and self.chat_enabled:
+                try:
+                    print(f"🎮 Calling callback for {username}: {filtered_message}")
+                    response = self.callback(username, filtered_message, channel)
+                    if response:
+                        print(f"✅ Got response from callback, sending to channel: {response}")
+                        self.send_message(channel, response)
+                except Exception as e:
+                    logger.error(f"Error in callback: {e}")
             
         except Exception as e:
             logger.error(f"Error handling IRC message: {e}")
@@ -279,10 +313,38 @@ class TwitchAPIChat:
         self.last_message_time = current_time
         return False
     
+    def validate_token(self) -> bool:
+        """Validate OAuth token with Twitch"""
+        try:
+            headers = {
+                'Authorization': f'OAuth {self.token}'
+            }
+            response = requests.get('https://id.twitch.tv/oauth2/validate', headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                print(f"✅ Token valid - User: {data.get('login')}, Scopes: {data.get('scopes')}")
+                return True
+            elif response.status_code == 401:
+                print(f"❌ Token is invalid or expired!")
+                print(f"💡 You may need to refresh your OAuth token")
+                return False
+            else:
+                print(f"⚠️ Token validation returned status: {response.status_code}")
+                return False
+        except Exception as e:
+            print(f"⚠️ Could not validate token: {e}")
+            return False
+    
     def start(self) -> bool:
         """Start the Twitch chat connection"""
         if self.running:
             return True
+        
+        # Validate token before connecting
+        print("🔑 Validating OAuth token...")
+        if not self.validate_token():
+            print("⚠️ Token validation failed, but attempting to connect anyway...")
         
         self.running = True
         
