@@ -142,17 +142,25 @@ class TwitchAPIChat:
                 self.is_connected = False
             
             def on_open(ws):
+                print("✅ Twitch WebSocket connection opened!")
                 logger.info("WebSocket connection opened")
                 # Send authentication
+                print(f"🔑 Authenticating as {self.nick}...")
                 ws.send(f"PASS oauth:{self.token}")
                 ws.send(f"NICK {self.nick}")
+                
+                # Request capabilities for tags (to get display-name)
+                ws.send("CAP REQ :twitch.tv/tags twitch.tv/commands")
+                print("📋 Requested Twitch IRC capabilities (tags + commands)")
                 
                 # Join channels
                 for channel in self.channels:
                     ws.send(f"JOIN #{channel}")
+                    print(f"✅ Joined Twitch channel: #{channel}")
                     logger.info(f"Joined channel: #{channel}")
                 
                 self.is_connected = True
+                print(f"🎮 Twitch chat is now connected and listening to: {', '.join(self.channels)}")
             
             # Create WebSocket connection
             self.ws = websocket.WebSocketApp(
@@ -179,13 +187,18 @@ class TwitchAPIChat:
     def _handle_irc_message(self, message: str):
         """Handle incoming IRC messages"""
         try:
+            # Debug: Print raw IRC message
+            print(f"🔍 Raw IRC message: {message}")
+            
             # Parse IRC message
             parts = message.strip().split()
             if len(parts) < 3:
+                print(f"🔍 Message too short (parts < 3): {parts}")
                 return
             
             # Check for PRIVMSG (chat message)
             if parts[1] == "PRIVMSG":
+                print(f"🔍 PRIVMSG detected: {parts}")
                 # Extract channel and message content
                 channel = parts[2].lstrip('#')
                 

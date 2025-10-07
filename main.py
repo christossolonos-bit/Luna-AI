@@ -316,10 +316,11 @@ transformer_failure_count = 0
 
 # 🎮 Twitch Chat Configuration
 TWITCH_CONFIG = {
-    "token": "oauth:4mab9ckqazt29odbhz8zq6m7slh37e",  # OAuth token for solosluna account (NEEDS user:write:chat scope)
+    "token": "m2iw2ccv12vufrpfpt25bi25n97zc7",  # OAuth token for solosluna account (chat:read + chat:edit scopes)
+    "refresh_token": "p4zahcobbr9dtk9a16lu4bydpxn41qz23oq1xe3v9r199228ac",  # Refresh token for token renewal
     "client_id": "gp762nuuoqcoxypju8c569th9wz7q5",  # Client ID for solosluna account
     "nick": "solosluna",  # Bot will respond as solosluna
-    "channels": ["solonaras"],  # Bot joins solonaras channel to read chat
+    "channels": ["solonaras"],  # Bot joins solonaras channel to read and respond to chat
     "enabled": True  # Set to True to enable Twitch chat
 }
 
@@ -3032,6 +3033,78 @@ def get_user_profile_info(query: str = "") -> str:
 # 🌙 Conversation memory
 conversation_history = []
 
+# 🎤 Whisper hallucination filter
+def filter_whisper_hallucinations(transcription):
+    """Filter out common Whisper hallucinations and false positives"""
+    if not transcription or not transcription.strip():
+        return None
+    
+    # Common Whisper hallucinations to filter out
+    hallucination_patterns = [
+        # Common courtesy phrases that Whisper often hallucinates
+        r'^(thank you|thanks|thank you so much|thanks a lot)$',
+        r'^(you\'re welcome|you are welcome)$',
+        r'^(please|please do|please don\'t)$',
+        r'^(sorry|excuse me|pardon me)$',
+        r'^(hello|hi|hey|good morning|good afternoon|good evening)$',
+        r'^(goodbye|bye|see you later|talk to you later)$',
+        
+        # Common filler words/phrases
+        r'^(um|uh|ah|er|hmm|well|so|like|you know)$',
+        r'^(i mean|i think|i guess|i suppose)$',
+        r'^(that\'s good|that\'s great|that\'s nice|that\'s cool)$',
+        r'^(okay|ok|alright|sure|yeah|yes|no|nope)$',
+        
+        # Very short responses that are likely hallucinations
+        r'^(yes|no|ok|okay|sure|fine|good|bad|nice|cool|great|awesome)$',
+        
+        # Common audio artifacts
+        r'^(music|sound|noise|static|beep|click|pop)$',
+        r'^(background|ambient|environment|room|space)$',
+        
+        # Single word responses that are likely false positives
+        r'^(the|and|or|but|if|when|where|why|how|what|who)$',
+        r'^(this|that|these|those|here|there|now|then|soon)$',
+        
+        # Common TTS/audio system artifacts
+        r'^(speaking|talking|listening|hearing|voice|audio)$',
+        r'^(system|computer|ai|robot|assistant|bot)$',
+    ]
+    
+    import re
+    transcription_lower = transcription.lower().strip()
+    
+    # Check against hallucination patterns
+    for pattern in hallucination_patterns:
+        if re.match(pattern, transcription_lower):
+            return None
+    
+    # Filter out very short transcriptions (likely noise)
+    if len(transcription.strip()) < 3:
+        return None
+    
+    # Filter out transcriptions that are just punctuation
+    if re.match(r'^[^\w\s]*$', transcription.strip()):
+        return None
+    
+    # Filter out transcriptions that are just numbers
+    if re.match(r'^\d+$', transcription.strip()):
+        return None
+    
+    # Filter out transcriptions with very low confidence indicators
+    # (These often indicate Whisper is guessing)
+    low_confidence_indicators = [
+        'i don\'t know', 'i can\'t hear', 'i can\'t understand', 'unclear',
+        'inaudible', 'unintelligible', 'garbled', 'distorted'
+    ]
+    
+    for indicator in low_confidence_indicators:
+        if indicator in transcription_lower:
+            return None
+    
+    # If it passes all filters, return the transcription
+    return transcription.strip()
+
 # 🎤 Whisper transcription function
 def transcribe_with_whisper(audio_data):
     """Transcribe audio using Whisper for faster, more accurate results"""
@@ -3051,12 +3124,50 @@ def transcribe_with_whisper(audio_data):
             temp_file_path = temp_file.name
         
         try:
-            # Transcribe with Whisper
-            result = model.transcribe(temp_file_path, language="en")
+            # Transcribe with Whisper with confidence threshold
+            result = model.transcribe(
+                temp_file_path, 
+                language="en",
+                # Add confidence threshold to reduce hallucinations
+                temperature=0.0,  # Lower temperature for more deterministic results
+                beam_size=1,      # Faster processing, less hallucination
+                best_of=1,        # Single pass to reduce over-generation
+                patience=1.0,     # Lower patience to reduce false positives
+                length_penalty=1.0,
+                suppress_tokens=[-1],  # Suppress special tokens that might cause hallucinations
+                # Add word timestamps to help with confidence
+                word_timestamps=True
+            )
+            
             transcription = result["text"].strip()
             
-            print(f"🎤 Whisper transcription: '{transcription}'")
-            return transcription
+            # Check for confidence indicators in the result
+            segments = result.get("segments", [])
+            if segments:
+                # Check average confidence across segments
+                total_confidence = 0
+                valid_segments = 0
+                for segment in segments:
+                    if "avg_logprob" in segment:
+                        total_confidence += segment["avg_logprob"]
+                        valid_segments += 1
+                
+                if valid_segments > 0:
+                    avg_confidence = total_confidence / valid_segments
+                    # Filter out low confidence transcriptions (likely hallucinations)
+                    if avg_confidence < -0.5:  # Threshold for confidence
+                        print(f"🎤 Low confidence transcription filtered: '{transcription}' (confidence: {avg_confidence:.2f})")
+                        return None
+            
+            # Filter out common Whisper hallucinations
+            filtered_transcription = filter_whisper_hallucinations(transcription)
+            
+            if filtered_transcription:
+                print(f"🎤 Whisper transcription: '{filtered_transcription}'")
+                return filtered_transcription
+            else:
+                print(f"🎤 Whisper hallucination filtered out: '{transcription}'")
+                return None
             
         finally:
             # Clean up temporary file
@@ -3364,7 +3475,7 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             if question_type in ['factual', 'mathematical', 'logical']:
                 print(f"🧠 Chain of Thought detected: {question_type} question")
                 # Add CoT context to help Luna reason through the problem
-                cot_context = cot_system.generate_cot_context(user_input, question_type)
+                cot_context = cot_system.generate_chain_of_thought(user_input, question_type)
                 if cot_context:
                     enhanced_input = f"[Chain of Thought: {cot_context}] {enhanced_input}"
                     print(f"🔗 Added CoT context for {question_type} reasoning")
@@ -3421,7 +3532,7 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
         global _response_generation_in_progress
         if hasattr(generate_luna_reply, '_response_generation_in_progress') and generate_luna_reply._response_generation_in_progress:
             print("⚠️ Response generation already in progress, skipping...")
-            return f"I'm still thinking about that, {username}. Give me a moment."
+            return f"I'm still thinking about that, {username}. Give me a moment.", False
         
         generate_luna_reply._response_generation_in_progress = True
         
@@ -4253,15 +4364,18 @@ async def chat_endpoint(request: Request):
     if generate_question:
         # Special mode for generating engagement questions
         mood = "curious"
-        luna_reply, _ = generate_luna_reply(user_message)
+        reply_result = generate_luna_reply(user_message, "Chris", "api")
+        luna_reply, _ = intelligent_tuple_unpack(reply_result, "API")
     elif generate_answer:
         # Special mode for generating answers to her own questions
         mood = "thoughtful"
-        luna_reply, _ = generate_luna_reply(user_message)
+        reply_result = generate_luna_reply(user_message, "Chris", "api")
+        luna_reply, _ = intelligent_tuple_unpack(reply_result, "API")
     else:
         # Normal chat mode
         mood = detect_mood(user_message)
-        luna_reply, _ = generate_luna_reply(user_message)
+        reply_result = generate_luna_reply(user_message, "Chris", "api")
+        luna_reply, _ = intelligent_tuple_unpack(reply_result, "API")
 
     # Clean up any TTS cache files that might have been generated
     try:
@@ -4489,8 +4603,7 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
         # Display the Twitch message in the GUI (if available)
         try:
             if 'chat_box' in globals() and chat_box:
-                chat_box.insert(tk.END, f"🎮 {username}: {message_text}\n", "twitch")
-                chat_box.see(tk.END)
+                safe_chat_insert(f"🎮 {username}: {message_text}\n", "twitch")
                 print(f"🎮 Twitch message displayed in GUI: {username}: {message_text}")
         except Exception as gui_error:
             print(f"⚠️ Could not display Twitch message in GUI: {gui_error}")
@@ -4505,8 +4618,7 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
                 # Display Luna's response in the GUI
                 try:
                     if 'chat_box' in globals() and chat_box:
-                        chat_box.insert(tk.END, f"Luna (to {username}): {response}\n", "luna")
-                        chat_box.see(tk.END)
+                        safe_chat_insert(f"Luna (to {username}): {response}\n", "luna")
                 except Exception as gui_error:
                     print(f"⚠️ Could not display Luna's response in GUI: {gui_error}")
                 
@@ -4545,9 +4657,13 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
         # Display the Discord message in the GUI (if available)
         try:
             if 'chat_box' in globals() and chat_box:
-                chat_box.insert(tk.END, f"💬 {username} in #{channel}: {message_text}\n", "discord")
-                chat_box.see(tk.END)
-                print(f"💬 Discord message displayed in GUI: {username}: {message_text}")
+                # Show special formatting for chris-chat channel
+                if channel and channel.lower() == "chris-chat":
+                    safe_chat_insert(f"💬 [chris-chat] {username}: {message_text}\n", "discord")
+                    print(f"💬 Chris-chat Discord message displayed in GUI: {username}: {message_text}")
+                else:
+                    safe_chat_insert(f"💬 {username} in #{channel}: {message_text}\n", "discord")
+                    print(f"💬 Discord message displayed in GUI: {username}: {message_text}")
         except Exception as gui_error:
             print(f"⚠️ Could not display Discord message in GUI: {gui_error}")
         
@@ -4561,8 +4677,10 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                 # Display Luna's response in the GUI
                 try:
                     if 'chat_box' in globals() and chat_box:
-                        chat_box.insert(tk.END, f"Luna (to {username}): {response}\n", "luna")
-                        chat_box.see(tk.END)
+                        if channel and channel.lower() == "chris-chat":
+                            safe_chat_insert(f"Luna (to {username} in chris-chat): {response}\n", "luna")
+                        else:
+                            safe_chat_insert(f"Luna (to {username} in #{channel}): {response}\n", "luna")
                 except Exception as gui_error:
                     print(f"⚠️ Could not display Luna's response in GUI: {gui_error}")
                 
@@ -4747,8 +4865,7 @@ def handle_discord_message(message: str):
     global chat_box
     try:
         # Add Discord message to chat with special formatting
-        chat_box.insert(tk.END, f"💬 {message}\n", "discord")
-        chat_box.see(tk.END)
+        safe_chat_insert(f"💬 {message}\n", "discord")
         
         # Note: No auto-response here - Discord bot handles responses directly
         # This function is now only for displaying Discord messages in Luna's UI
@@ -4785,6 +4902,28 @@ def send_to_discord(message: str):
     except Exception as e:
         print(f"❌ Error sending to Discord: {e}")
 
+# Global helper function to safely insert text into read-only chat box
+def safe_chat_insert(text, tag=None):
+    """Safely insert text into the read-only chat box"""
+    global chat_box
+    try:
+        if 'chat_box' in globals() and chat_box:
+            chat_box.config(state="normal")  # Temporarily enable
+            if tag:
+                chat_box.insert(tk.END, text, tag)
+            else:
+                chat_box.insert(tk.END, text)
+            chat_box.config(state="disabled")  # Disable again
+            chat_box.see(tk.END)
+    except Exception as e:
+        print(f"⚠️ Error inserting text into chat box: {e}")
+        # Make sure it's disabled even if there's an error
+        try:
+            if 'chat_box' in globals() and chat_box:
+                chat_box.config(state="disabled")
+        except:
+            pass
+
 def create_gui():
     # 🪞 GUI setup
     import threading
@@ -4792,7 +4931,7 @@ def create_gui():
     global voice_enabled  # Make voice_enabled globally accessible
     root = tk.Tk()
     root.title("Chat with Luna 💖")
-    root.geometry("700x500")
+    root.geometry("500x400")
     root.configure(bg="#1e1e2f")
     
     # Voice toggle variable - Force enabled
@@ -4813,7 +4952,7 @@ def create_gui():
     recent_thoughts = []
     global_luna_self_talk_enabled = False
     current_thought_topics = []
-    thought_mood = "neutral"
+    thought_mood = "curious"
     thought_style = "conversational"
     prompt_adaptation_count = 0
     
@@ -4827,24 +4966,22 @@ def create_gui():
     
     # Welcome message
     def add_welcome_message():
-        chat_box.insert(tk.END, "🌸 Welcome to Luna's Chat! 🌸\n", "system")
-        chat_box.insert(tk.END, "Type your message and press Enter or click Send.\n", "system")
-        chat_box.insert(tk.END, "🎤 Voice ON/OFF: Controls Luna's speech\n", "system")
-        chat_box.insert(tk.END, "🎧 Listen ON/OFF: Toggle continuous voice listening\n", "system")
-        chat_box.insert(tk.END, "🤐 Self-Talk ON/OFF: Enable Luna's auto-engagement\n", "system")
-        chat_box.insert(tk.END, "🤖 AI Model: Choose between Ollama, External Legion, or Custom Transformer\n", "system")
+        safe_chat_insert("🌸 Welcome to Luna's Chat! 🌸\n", "system")
+        safe_chat_insert("Type your message and press Enter or click Send.\n", "system")
+        safe_chat_insert("🎤 Voice ON/OFF: Controls Luna's speech\n", "system")
+        safe_chat_insert("🎧 Listen ON/OFF: Toggle continuous voice listening\n", "system")
+        safe_chat_insert("🤐 Self-Talk ON/OFF: Enable Luna's auto-engagement\n", "system")
+        safe_chat_insert("🤖 AI Model: Choose between Ollama, External Legion, or Custom Transformer\n", "system")
         if DISCORD_SYSTEM_AVAILABLE:
-            chat_box.insert(tk.END, "🤖 Discord: Luna automatically connects to Discord servers!\n", "system")
-            chat_box.insert(tk.END, "💬 /discord <message> - Send message to Discord channel\n", "system")
-        chat_box.insert(tk.END, "🧠 Custom Transformer: Luna's own AI model! (Orange text = Custom brain, Pink = Ollama)\n", "system")
-        chat_box.insert(tk.END, "🎭 VSeeFace: Luna automatically triggers expressions!\n", "system")
-        chat_box.insert(tk.END, "🎮 Twitch: Auto-connects to chat on startup!\n", "system")
+            safe_chat_insert("🤖 Discord: Luna automatically connects to Discord servers!\n", "system")
+            safe_chat_insert("💬 /discord <message> - Send message to Discord channel\n", "system")
+        safe_chat_insert("🧠 Custom Transformer: Luna's own AI model! (Orange text = Custom brain, Pink = Ollama)\n", "system")
+        safe_chat_insert("🎭 VSeeFace: Luna automatically triggers expressions!\n", "system")
+        safe_chat_insert("🎮 Twitch: Auto-connects to chat on startup!\n", "system")
         # YouTube integration removed
-        chat_box.insert(tk.END, "📊 Perf: Click to see performance metrics\n\n", "system")
-        chat_box.insert(tk.END, "🎤 Voice system: ENABLED and ready!\n", "system")
+        safe_chat_insert("📊 Perf: Click to see performance metrics\n\n", "system")
+        safe_chat_insert("🎤 Voice system: ENABLED and ready!\n", "system")
         chat_box.tag_config("system", foreground="#888888")
-    
-        chat_box.see(tk.END)
     
     # Memory command handler
     def handle_memory_command(command: str, username: str = "Chris"):
@@ -4852,12 +4989,11 @@ def create_gui():
         parts = command.split(' ', 1)
         
         if len(parts) < 2:
-            chat_box.insert(tk.END, "🧠 Memory commands:\n", "system")
-            chat_box.insert(tk.END, "  /remember <content> - Save something important to Luna's memory\n", "system")
-            chat_box.insert(tk.END, "  /remember emotional <content> - Save emotional memory (high priority)\n", "system")
-            chat_box.insert(tk.END, "  /remember conversation <content> - Save conversation memory\n", "system")
-            chat_box.insert(tk.END, "  /remember preference <content> - Save user preference\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert("🧠 Memory commands:\n", "system")
+            safe_chat_insert("  /remember <content> - Save something important to Luna's memory\n", "system")
+            safe_chat_insert("  /remember emotional <content> - Save emotional memory (high priority)\n", "system")
+            safe_chat_insert("  /remember conversation <content> - Save conversation memory\n", "system")
+            safe_chat_insert("  /remember preference <content> - Save user preference\n", "system")
             return
         
         memory_content = parts[1].strip()
@@ -4890,16 +5026,15 @@ def create_gui():
             save_memory_with_rag(memory_type, memory_content, mood, importance, context)
             
             # Show confirmation
-            chat_box.insert(tk.END, f"🧠 Luna: I've saved that to my memory, {username}!\n", "luna")
-            chat_box.insert(tk.END, f"   Type: {memory_type.title()}\n", "system")
-            chat_box.insert(tk.END, f"   Content: {memory_content[:100]}{'...' if len(memory_content) > 100 else ''}\n", "system")
-            chat_box.insert(tk.END, f"   Importance: {importance}/5\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert(f"🧠 Luna: I've saved that to my memory, {username}!\n", "luna")
+            safe_chat_insert(f"   Type: {memory_type.title()}\n", "system")
+            safe_chat_insert(f"   Content: {memory_content[:100]}{'...' if len(memory_content) > 100 else ''}\n", "system")
+            safe_chat_insert(f"   Importance: {importance}/5\n", "system")
             
             print(f"🧠 Manual memory saved by {username}: {memory_type} - {memory_content[:50]}...")
             
         except Exception as e:
-            chat_box.insert(tk.END, f"❌ Error saving memory: {e}\n", "system")
+            safe_chat_insert(f"❌ Error saving memory: {e}\n", "system")
             print(f"❌ Error saving manual memory: {e}")
 
     # Recall command handler
@@ -4908,12 +5043,11 @@ def create_gui():
         parts = command.split(' ', 1)
         
         if len(parts) < 2:
-            chat_box.insert(tk.END, "🔍 Recall commands:\n", "system")
-            chat_box.insert(tk.END, "  /recall <search_term> - Search Luna's memories\n", "system")
-            chat_box.insert(tk.END, "  /recall emotional - Find emotional memories\n", "system")
-            chat_box.insert(tk.END, "  /recall preference - Find preference memories\n", "system")
-            chat_box.insert(tk.END, "  /recall recent - Find recent memories\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert("🔍 Recall commands:\n", "system")
+            safe_chat_insert("  /recall <search_term> - Search Luna's memories\n", "system")
+            safe_chat_insert("  /recall emotional - Find emotional memories\n", "system")
+            safe_chat_insert("  /recall preference - Find preference memories\n", "system")
+            safe_chat_insert("  /recall recent - Find recent memories\n", "system")
             return
         
         search_term = parts[1].strip().lower()
@@ -4923,8 +5057,8 @@ def create_gui():
             memories = search_luna_memories(search_term, limit=5)
             
             if memories:
-                chat_box.insert(tk.END, f"🔍 Luna: Here's what I remember about '{search_term}', {username}:\n", "luna")
-                chat_box.insert(tk.END, f"   Found {len(memories)} memories:\n\n", "system")
+                safe_chat_insert(f"🔍 Luna: Here's what I remember about '{search_term}', {username}:\n", "luna")
+                safe_chat_insert(f"   Found {len(memories)} memories:\n\n", "system")
                 
                 for i, memory in enumerate(memories, 1):
                     memory_type = memory.get('memory_type', 'unknown')
@@ -4940,20 +5074,17 @@ def create_gui():
                     except:
                         time_str = timestamp[:16] if timestamp else 'Unknown'
                     
-                    chat_box.insert(tk.END, f"   {i}. [{memory_type.title()}] (Importance: {importance}/5) - {time_str}\n", "system")
-                    chat_box.insert(tk.END, f"      {content[:150]}{'...' if len(content) > 150 else ''}\n\n", "system")
-                
-                chat_box.see(tk.END)
+                    safe_chat_insert(f"   {i}. [{memory_type.title()}] (Importance: {importance}/5) - {time_str}\n", "system")
+                    safe_chat_insert(f"      {content[:150]}{'...' if len(content) > 150 else ''}\n\n", "system")
                 print(f"🔍 Memory recall by {username}: Found {len(memories)} memories for '{search_term}'")
                 
             else:
-                chat_box.insert(tk.END, f"🔍 Luna: I don't have any memories about '{search_term}', {username}.\n", "luna")
-                chat_box.insert(tk.END, f"   Try using /remember to save something important first!\n", "system")
-                chat_box.see(tk.END)
+                safe_chat_insert(f"🔍 Luna: I don't have any memories about '{search_term}', {username}.\n", "luna")
+                safe_chat_insert(f"   Try using /remember to save something important first!\n", "system")
                 print(f"🔍 Memory recall by {username}: No memories found for '{search_term}'")
                 
         except Exception as e:
-            chat_box.insert(tk.END, f"❌ Error searching memories: {e}\n", "system")
+            safe_chat_insert(f"❌ Error searching memories: {e}\n", "system")
             print(f"❌ Error searching memories: {e}")
 
     # Memory queue status command handler
@@ -4962,19 +5093,18 @@ def create_gui():
         try:
             status = memory_queue.get_status()
             
-            chat_box.insert(tk.END, f"🧠 Luna Memory Queue Status:\n", "system")
-            chat_box.insert(tk.END, f"   Queue Size: {status['queue_size']} operations\n", "system")
-            chat_box.insert(tk.END, f"   Active: {status['active_operation'] or 'None'}\n", "system")
-            chat_box.insert(tk.END, f"   Total Operations: {status['total_operations']}\n", "system")
-            chat_box.insert(tk.END, f"   Completed: {status['completed_operations']}\n", "system")
-            chat_box.insert(tk.END, f"   Failed: {status['failed_operations']}\n", "system")
-            chat_box.insert(tk.END, f"   Success Rate: {status['success_rate']:.1f}%\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert(f"🧠 Luna Memory Queue Status:\n", "system")
+            safe_chat_insert(f"   Queue Size: {status['queue_size']} operations\n", "system")
+            safe_chat_insert(f"   Active: {status['active_operation'] or 'None'}\n", "system")
+            safe_chat_insert(f"   Total Operations: {status['total_operations']}\n", "system")
+            safe_chat_insert(f"   Completed: {status['completed_operations']}\n", "system")
+            safe_chat_insert(f"   Failed: {status['failed_operations']}\n", "system")
+            safe_chat_insert(f"   Success Rate: {status['success_rate']:.1f}%\n", "system")
             
             print(f"🧠 Memory queue status requested by {username}")
             
         except Exception as e:
-            chat_box.insert(tk.END, f"❌ Error getting queue status: {e}\n", "system")
+            safe_chat_insert(f"❌ Error getting queue status: {e}\n", "system")
             print(f"❌ Error getting memory queue status: {e}")
 
     # Memory debug command handler
@@ -4983,12 +5113,11 @@ def create_gui():
         parts = command.split(' ', 1)
         
         if len(parts) < 2:
-            chat_box.insert(tk.END, "🔍 Memory debug commands:\n", "system")
-            chat_box.insert(tk.END, "  /memories <username> - Show all real memories about a user\n", "system")
-            chat_box.insert(tk.END, "  /memories recent - Show recent memories\n", "system")
-            chat_box.insert(tk.END, "  /memories emotional - Show emotional memories\n", "system")
-            chat_box.insert(tk.END, "  /memories all - Show all memory types\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert("🔍 Memory debug commands:\n", "system")
+            safe_chat_insert("  /memories <username> - Show all real memories about a user\n", "system")
+            safe_chat_insert("  /memories recent - Show recent memories\n", "system")
+            safe_chat_insert("  /memories emotional - Show emotional memories\n", "system")
+            safe_chat_insert("  /memories all - Show all memory types\n", "system")
             return
         
         search_term = parts[1].strip()
@@ -5020,17 +5149,15 @@ def create_gui():
                     if content:
                         memory_response += f"{i}. {content}\n\n"
                 
-                chat_box.insert(tk.END, f"Luna: {memory_response}", "luna")
-                chat_box.see(tk.END)
+                safe_chat_insert(f"Luna: {memory_response}", "luna")
                 print(f"🔍 Memory debug by {username}: Found {len(memories)} real memories for '{search_term}'")
                 
             else:
-                chat_box.insert(tk.END, f"Luna: I don't have any real memories about {search_term}, {username}. That's why I shouldn't make up fake memories when roasting you!\n", "luna")
-                chat_box.see(tk.END)
+                safe_chat_insert(f"Luna: I don't have any real memories about {search_term}, {username}. That's why I shouldn't make up fake memories when roasting you!\n", "luna")
                 print(f"🔍 Memory debug by {username}: No real memories found for '{search_term}'")
                 
         except Exception as e:
-            chat_box.insert(tk.END, f"❌ Error searching memories: {e}\n", "system")
+            safe_chat_insert(f"❌ Error searching memories: {e}\n", "system")
             print(f"❌ Error searching memories: {e}")
 
     # Discord command handler
@@ -5039,102 +5166,94 @@ def create_gui():
         parts = command.split(' ', 1)
         
         if len(parts) < 2:
-            chat_box.insert(tk.END, "💬 Discord commands:\n", "system")
-            chat_box.insert(tk.END, "  /discord <message> - Send message to Discord channel\n", "system")
-            chat_box.insert(tk.END, "  /discord status - Check Discord connection status\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert("💬 Discord commands:\n", "system")
+            safe_chat_insert("  /discord <message> - Send message to Discord channel\n", "system")
+            safe_chat_insert("  /discord status - Check Discord connection status\n", "system")
             return
         
         cmd = parts[1]
         
         if cmd.lower() == "status":
             if discord_bot_running:
-                chat_box.insert(tk.END, "✅ Discord bot is connected and running\n", "system")
+                safe_chat_insert("✅ Discord bot is connected and running\n", "system")
             else:
-                chat_box.insert(tk.END, "❌ Discord bot is not connected\n", "system")
+                safe_chat_insert("❌ Discord bot is not connected\n", "system")
         else:
             # Send message to Discord
             send_to_discord(cmd)
-            chat_box.insert(tk.END, f"💬 Sent to Discord: {cmd}\n", "discord")
-        
-        chat_box.see(tk.END)
+            safe_chat_insert(f"💬 Sent to Discord: {cmd}\n", "discord")
     
     def handle_mindmap_command(command: str):
         """Handle mind-map related commands"""
         if not MINDMAP_SYSTEM_AVAILABLE:
-            chat_box.insert(tk.END, "❌ Mind-map system not available\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert("❌ Mind-map system not available\n", "system")
             return
         
         parts = command.lower().split()
         if len(parts) < 2:
-            chat_box.insert(tk.END, "🧠 Mind-map commands:\n", "system")
-            chat_box.insert(tk.END, "  /mindmap search <query> - Search user profile\n", "system")
-            chat_box.insert(tk.END, "  /mindmap profile - Get complete user profile\n", "system")
-            chat_box.insert(tk.END, "  /mindmap stats - Get mind-map statistics\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert( "🧠 Mind-map commands:\n", "system")
+            safe_chat_insert( "  /mindmap search <query> - Search user profile\n", "system")
+            safe_chat_insert( "  /mindmap profile - Get complete user profile\n", "system")
+            safe_chat_insert( "  /mindmap stats - Get mind-map statistics\n", "system")
             return
         
         if parts[1] == "search" and len(parts) > 2:
             query = " ".join(parts[2:])
-            chat_box.insert(tk.END, f"🔍 Searching mind-map for: '{query}'\n", "system")
+            safe_chat_insert( f"🔍 Searching mind-map for: '{query}'\n", "system")
             try:
                 results = search_user_profile(query, limit=5)
                 if results:
                     for result in results:
-                        chat_box.insert(tk.END, f"• {result['type']}: {result['content']} (score: {result['score']:.2f})\n", "system")
+                        safe_chat_insert( f"• {result['type']}: {result['content']} (score: {result['score']:.2f})\n", "system")
                 else:
-                    chat_box.insert(tk.END, "No results found\n", "system")
+                    safe_chat_insert( "No results found\n", "system")
             except Exception as e:
-                chat_box.insert(tk.END, f"Error: {e}\n", "system")
+                safe_chat_insert( f"Error: {e}\n", "system")
         
         elif parts[1] == "profile":
-            chat_box.insert(tk.END, "👤 Getting complete user profile...\n", "system")
+            safe_chat_insert( "👤 Getting complete user profile...\n", "system")
             try:
                 profile_info = get_user_profile_info()
-                chat_box.insert(tk.END, f"{profile_info}\n", "system")
+                safe_chat_insert( f"{profile_info}\n", "system")
             except Exception as e:
-                chat_box.insert(tk.END, f"Error: {e}\n", "system")
+                safe_chat_insert( f"Error: {e}\n", "system")
         
         elif parts[1] == "stats":
-            chat_box.insert(tk.END, "📊 Mind-map statistics:\n", "system")
+            safe_chat_insert( "📊 Mind-map statistics:\n", "system")
             try:
                 mindmap = get_mindmap_system()
                 if mindmap:
                     stats = mindmap.get_mindmap_stats()
-                    chat_box.insert(tk.END, f"• Total nodes: {stats['total_nodes']}\n", "system")
-                    chat_box.insert(tk.END, f"• Total connections: {stats['total_connections']}\n", "system")
-                    chat_box.insert(tk.END, f"• Graph density: {stats['graph_density']:.3f}\n", "system")
-                    chat_box.insert(tk.END, f"• Node types: {stats['node_types']}\n", "system")
+                    safe_chat_insert( f"• Total nodes: {stats['total_nodes']}\n", "system")
+                    safe_chat_insert( f"• Total connections: {stats['total_connections']}\n", "system")
+                    safe_chat_insert( f"• Graph density: {stats['graph_density']:.3f}\n", "system")
+                    safe_chat_insert( f"• Node types: {stats['node_types']}\n", "system")
                 else:
-                    chat_box.insert(tk.END, "Mind-map system not initialized\n", "system")
+                    safe_chat_insert( "Mind-map system not initialized\n", "system")
             except Exception as e:
-                chat_box.insert(tk.END, f"Error: {e}\n", "system")
+                safe_chat_insert( f"Error: {e}\n", "system")
         
         else:
-            chat_box.insert(tk.END, "Unknown mind-map command. Available: search, profile, stats\n", "system")
+            safe_chat_insert( "Unknown mind-map command. Available: search, profile, stats\n", "system")
         
-        chat_box.see(tk.END)
     
     def handle_hybrid_command(command: str):
         """Handle hybrid retrieval related commands"""
         if not HYBRID_RETRIEVAL_AVAILABLE:
-            chat_box.insert(tk.END, "❌ Hybrid retrieval system not available\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert( "❌ Hybrid retrieval system not available\n", "system")
             return
         
         parts = command.lower().split()
         if len(parts) < 2:
-            chat_box.insert(tk.END, "🧠 Hybrid retrieval commands:\n", "system")
-            chat_box.insert(tk.END, "  /hybrid search <query> - Search with hybrid retrieval\n", "system")
-            chat_box.insert(tk.END, "  /hybrid stats - Get hybrid retrieval statistics\n", "system")
-            chat_box.insert(tk.END, "  /hybrid config - Show configuration parameters\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert( "🧠 Hybrid retrieval commands:\n", "system")
+            safe_chat_insert( "  /hybrid search <query> - Search with hybrid retrieval\n", "system")
+            safe_chat_insert( "  /hybrid stats - Get hybrid retrieval statistics\n", "system")
+            safe_chat_insert( "  /hybrid config - Show configuration parameters\n", "system")
             return
         
         if parts[1] == "search" and len(parts) > 2:
             query = " ".join(parts[2:])
-            chat_box.insert(tk.END, f"🔍 Hybrid search for: '{query}'\n", "system")
+            safe_chat_insert( f"🔍 Hybrid search for: '{query}'\n", "system")
             try:
                 from hybrid_retrieval_system import get_hybrid_retrieval_system
                 from bm25_memory_system import get_bm25_system
@@ -5148,91 +5267,88 @@ def create_gui():
                         for i, result in enumerate(results, 1):
                             score_info = f"Final: {result['final_score']:.3f} (BM25: {result['bm25_score']:.3f}, RAG: {result['rag_score']:.3f}, Time: {result['time_importance']:.3f})"
                             content = result['content'][:100] + "..." if len(result['content']) > 100 else result['content']
-                            chat_box.insert(tk.END, f"{i}. [{score_info}] {content}\n", "system")
+                            safe_chat_insert( f"{i}. [{score_info}] {content}\n", "system")
                     else:
-                        chat_box.insert(tk.END, "No results found\n", "system")
+                        safe_chat_insert( "No results found\n", "system")
                 else:
-                    chat_box.insert(tk.END, "Hybrid or BM25 system not available\n", "system")
+                    safe_chat_insert( "Hybrid or BM25 system not available\n", "system")
             except Exception as e:
-                chat_box.insert(tk.END, f"Error: {e}\n", "system")
+                safe_chat_insert( f"Error: {e}\n", "system")
         
         elif parts[1] == "stats":
-            chat_box.insert(tk.END, "📊 Hybrid retrieval statistics:\n", "system")
+            safe_chat_insert( "📊 Hybrid retrieval statistics:\n", "system")
             try:
                 from hybrid_retrieval_system import get_hybrid_retrieval_system
                 hybrid_system = get_hybrid_retrieval_system()
                 if hybrid_system:
                     stats = hybrid_system.get_retrieval_stats()
-                    chat_box.insert(tk.END, f"• Alpha (BM25 weight): {stats['alpha']:.2f}\n", "system")
-                    chat_box.insert(tk.END, f"• RAG weight: {stats['rag_weight']:.2f}\n", "system")
-                    chat_box.insert(tk.END, f"• Time decay factor: {stats['time_decay_factor']:.2f}\n", "system")
-                    chat_box.insert(tk.END, f"• Formula: {stats['formula']}\n", "system")
-                    chat_box.insert(tk.END, f"• Final formula: {stats['final_formula']}\n", "system")
+                    safe_chat_insert( f"• Alpha (BM25 weight): {stats['alpha']:.2f}\n", "system")
+                    safe_chat_insert( f"• RAG weight: {stats['rag_weight']:.2f}\n", "system")
+                    safe_chat_insert( f"• Time decay factor: {stats['time_decay_factor']:.2f}\n", "system")
+                    safe_chat_insert( f"• Formula: {stats['formula']}\n", "system")
+                    safe_chat_insert( f"• Final formula: {stats['final_formula']}\n", "system")
                 else:
-                    chat_box.insert(tk.END, "Hybrid system not initialized\n", "system")
+                    safe_chat_insert( "Hybrid system not initialized\n", "system")
             except Exception as e:
-                chat_box.insert(tk.END, f"Error: {e}\n", "system")
+                safe_chat_insert( f"Error: {e}\n", "system")
         
         elif parts[1] == "config":
-            chat_box.insert(tk.END, "⚙️ Hybrid retrieval configuration:\n", "system")
-            chat_box.insert(tk.END, "• Alpha (α): Controls BM25 vs RAG weighting (0.0 = pure RAG, 1.0 = pure BM25)\n", "system")
-            chat_box.insert(tk.END, "• Time decay factor: Controls how much older memories decay in importance\n", "system")
-            chat_box.insert(tk.END, "• Current setting: α=0.7 (70% BM25, 30% RAG)\n", "system")
-            chat_box.insert(tk.END, "• Time decay: 0.1 (exponential decay over time)\n", "system")
-            chat_box.insert(tk.END, "• Credits: 𝜟𝒎𝜼𝜺𝒔𝒊𝜶𝝇 (Amnesia) - Layla AI Memory Architecture\n", "system")
-            chat_box.insert(tk.END, "• Credits: Teto - BM25 Indexing and Information Retrieval\n", "system")
+            safe_chat_insert( "⚙️ Hybrid retrieval configuration:\n", "system")
+            safe_chat_insert( "• Alpha (α): Controls BM25 vs RAG weighting (0.0 = pure RAG, 1.0 = pure BM25)\n", "system")
+            safe_chat_insert( "• Time decay factor: Controls how much older memories decay in importance\n", "system")
+            safe_chat_insert( "• Current setting: α=0.7 (70% BM25, 30% RAG)\n", "system")
+            safe_chat_insert( "• Time decay: 0.1 (exponential decay over time)\n", "system")
+            safe_chat_insert( "• Credits: 𝜟𝒎𝜼𝜺𝒔𝒊𝜶𝝇 (Amnesia) - Layla AI Memory Architecture\n", "system")
+            safe_chat_insert( "• Credits: Teto - BM25 Indexing and Information Retrieval\n", "system")
         
         elif parts[1] == "teacher":
-            chat_box.insert(tk.END, "🎓 Teacher Credits:\n", "system")
-            chat_box.insert(tk.END, "• 𝜟𝒎𝜼𝜺𝒔𝒊𝜶𝝇 (Amnesia) - AI Companion Memory Systems Expert\n", "system")
-            chat_box.insert(tk.END, "  - Provided Layla AI backup data with advanced memory structures\n", "system")
-            chat_box.insert(tk.END, "  - Inspired Luna's enhanced memory system with sophisticated techniques\n", "system")
-            chat_box.insert(tk.END, "  - Expertise: Knowledge graphs, conversation patterns, memory organization\n", "system")
-            chat_box.insert(tk.END, "• Teto - BM25 Indexing and Information Retrieval Expert\n", "system")
-            chat_box.insert(tk.END, "  - Provided expertise in BM25 ranking algorithm and information retrieval\n", "system")
-            chat_box.insert(tk.END, "  - Enhanced Luna's memory search with advanced indexing techniques\n", "system")
-            chat_box.insert(tk.END, "  - Expertise: BM25 ranking, search optimization, document indexing\n", "system")
+            safe_chat_insert( "🎓 Teacher Credits:\n", "system")
+            safe_chat_insert( "• 𝜟𝒎𝜼𝜺𝒔𝒊𝜶𝝇 (Amnesia) - AI Companion Memory Systems Expert\n", "system")
+            safe_chat_insert( "  - Provided Layla AI backup data with advanced memory structures\n", "system")
+            safe_chat_insert( "  - Inspired Luna's enhanced memory system with sophisticated techniques\n", "system")
+            safe_chat_insert( "  - Expertise: Knowledge graphs, conversation patterns, memory organization\n", "system")
+            safe_chat_insert( "• Teto - BM25 Indexing and Information Retrieval Expert\n", "system")
+            safe_chat_insert( "  - Provided expertise in BM25 ranking algorithm and information retrieval\n", "system")
+            safe_chat_insert( "  - Enhanced Luna's memory search with advanced indexing techniques\n", "system")
+            safe_chat_insert( "  - Expertise: BM25 ranking, search optimization, document indexing\n", "system")
         
         else:
-            chat_box.insert(tk.END, "Unknown hybrid command. Available: search, stats, config, teacher\n", "system")
+            safe_chat_insert( "Unknown hybrid command. Available: search, stats, config, teacher\n", "system")
         
-        chat_box.see(tk.END)
     
     
     def handle_cot_command(command: str):
         """Handle Chain of Thought related commands"""
         if not CHAIN_OF_THOUGHT_AVAILABLE:
-            chat_box.insert(tk.END, "❌ Chain of Thought System not available\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert( "❌ Chain of Thought System not available\n", "system")
             return
         
         parts = command.lower().split()
         if len(parts) < 2:
-            chat_box.insert(tk.END, "🧠 Chain of Thought commands:\n", "system")
-            chat_box.insert(tk.END, "  /cot status - Show CoT system status\n", "system")
-            chat_box.insert(tk.END, "  /cot toggle - Toggle CoT enhancement on/off\n", "system")
-            chat_box.insert(tk.END, "  /cot debug - Toggle debug mode\n", "system")
-            chat_box.insert(tk.END, "  /cot test <question> - Test CoT with a question\n", "system")
-            chat_box.insert(tk.END, "  /cot teachers - Show teacher credits\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert( "🧠 Chain of Thought commands:\n", "system")
+            safe_chat_insert( "  /cot status - Show CoT system status\n", "system")
+            safe_chat_insert( "  /cot toggle - Toggle CoT enhancement on/off\n", "system")
+            safe_chat_insert( "  /cot debug - Toggle debug mode\n", "system")
+            safe_chat_insert( "  /cot test <question> - Test CoT with a question\n", "system")
+            safe_chat_insert( "  /cot teachers - Show teacher credits\n", "system")
             return
         
         if parts[1] == "status":
-            chat_box.insert(tk.END, "🧠 Chain of Thought System Status:\n", "system")
+            safe_chat_insert( "🧠 Chain of Thought System Status:\n", "system")
             try:
                 from chain_of_thought_system import get_chain_of_thought_system
                 cot_system = get_chain_of_thought_system()
                 if cot_system:
                     stats = cot_system.get_cot_stats()
-                    chat_box.insert(tk.END, f"• System: {stats['system_name']}\n", "system")
-                    chat_box.insert(tk.END, f"• Enabled: {'Yes' if stats['enabled'] else 'No'}\n", "system")
-                    chat_box.insert(tk.END, f"• Debug Mode: {'Yes' if stats['debug_mode'] else 'No'}\n", "system")
-                    chat_box.insert(tk.END, f"• Question Types: {', '.join(stats['question_types'])}\n", "system")
-                    chat_box.insert(tk.END, f"• Description: {stats['description']}\n", "system")
+                    safe_chat_insert( f"• System: {stats['system_name']}\n", "system")
+                    safe_chat_insert( f"• Enabled: {'Yes' if stats['enabled'] else 'No'}\n", "system")
+                    safe_chat_insert( f"• Debug Mode: {'Yes' if stats['debug_mode'] else 'No'}\n", "system")
+                    safe_chat_insert( f"• Question Types: {', '.join(stats['question_types'])}\n", "system")
+                    safe_chat_insert( f"• Description: {stats['description']}\n", "system")
                 else:
-                    chat_box.insert(tk.END, "❌ CoT system not initialized\n", "system")
+                    safe_chat_insert( "❌ CoT system not initialized\n", "system")
             except Exception as e:
-                chat_box.insert(tk.END, f"❌ Error: {e}\n", "system")
+                safe_chat_insert( f"❌ Error: {e}\n", "system")
         
         elif parts[1] == "toggle":
             try:
@@ -5241,11 +5357,11 @@ def create_gui():
                 if cot_system:
                     cot_system.cot_enabled = not cot_system.cot_enabled
                     status = "enabled" if cot_system.cot_enabled else "disabled"
-                    chat_box.insert(tk.END, f"🧠 Chain of Thought enhancement {status}\n", "system")
+                    safe_chat_insert( f"🧠 Chain of Thought enhancement {status}\n", "system")
                 else:
-                    chat_box.insert(tk.END, "❌ CoT system not initialized\n", "system")
+                    safe_chat_insert( "❌ CoT system not initialized\n", "system")
             except Exception as e:
-                chat_box.insert(tk.END, f"❌ Error: {e}\n", "system")
+                safe_chat_insert( f"❌ Error: {e}\n", "system")
         
         elif parts[1] == "debug":
             try:
@@ -5254,72 +5370,71 @@ def create_gui():
                 if cot_system:
                     cot_system.cot_debug = not cot_system.cot_debug
                     status = "enabled" if cot_system.cot_debug else "disabled"
-                    chat_box.insert(tk.END, f"🧠 Chain of Thought debug mode {status}\n", "system")
+                    safe_chat_insert( f"🧠 Chain of Thought debug mode {status}\n", "system")
                 else:
-                    chat_box.insert(tk.END, "❌ CoT system not initialized\n", "system")
+                    safe_chat_insert( "❌ CoT system not initialized\n", "system")
             except Exception as e:
-                chat_box.insert(tk.END, f"❌ Error: {e}\n", "system")
+                safe_chat_insert( f"❌ Error: {e}\n", "system")
         
         elif parts[1] == "test" and len(parts) > 2:
             test_question = " ".join(parts[2:])
-            chat_box.insert(tk.END, f"🧠 Testing CoT with: '{test_question}'\n", "system")
+            safe_chat_insert( f"🧠 Testing CoT with: '{test_question}'\n", "system")
             try:
                 from chain_of_thought_system import get_chain_of_thought_system
                 cot_system = get_chain_of_thought_system()
                 if cot_system:
                     question_type = cot_system.detect_question_type(test_question)
                     cot_process = cot_system.generate_chain_of_thought(test_question, question_type)
-                    chat_box.insert(tk.END, f"• Question Type: {question_type}\n", "system")
-                    chat_box.insert(tk.END, f"• CoT Process:\n{cot_process}\n", "system")
+                    safe_chat_insert( f"• Question Type: {question_type}\n", "system")
+                    safe_chat_insert( f"• CoT Process:\n{cot_process}\n", "system")
                 else:
-                    chat_box.insert(tk.END, "❌ CoT system not initialized\n", "system")
+                    safe_chat_insert( "❌ CoT system not initialized\n", "system")
             except Exception as e:
-                chat_box.insert(tk.END, f"❌ Error: {e}\n", "system")
+                safe_chat_insert( f"❌ Error: {e}\n", "system")
         
         elif parts[1] == "teachers":
-            chat_box.insert(tk.END, "🎓 Chain of Thought Teacher Credits:\n", "system")
-            chat_box.insert(tk.END, "• Teto - BM25 Indexing and Information Retrieval Expert\n", "system")
-            chat_box.insert(tk.END, "  - Information retrieval and reasoning enhancement\n", "system")
-            chat_box.insert(tk.END, "  - Question type detection and analysis\n", "system")
-            chat_box.insert(tk.END, "• 𝜟𝒎𝜼𝜺𝒔𝒊𝜶𝝇 (Amnesia) - AI Companion Memory Systems Expert\n", "system")
-            chat_box.insert(tk.END, "  - Memory integration and context awareness\n", "system")
-            chat_box.insert(tk.END, "  - Enhanced reasoning with memory context\n", "system")
+            safe_chat_insert( "🎓 Chain of Thought Teacher Credits:\n", "system")
+            safe_chat_insert( "• Teto - BM25 Indexing and Information Retrieval Expert\n", "system")
+            safe_chat_insert( "  - Information retrieval and reasoning enhancement\n", "system")
+            safe_chat_insert( "  - Question type detection and analysis\n", "system")
+            safe_chat_insert( "• 𝜟𝒎𝜼𝜺𝒔𝒊𝜶𝝇 (Amnesia) - AI Companion Memory Systems Expert\n", "system")
+            safe_chat_insert( "  - Memory integration and context awareness\n", "system")
+            safe_chat_insert( "  - Enhanced reasoning with memory context\n", "system")
         
         else:
-            chat_box.insert(tk.END, "Unknown cot command. Available: status, toggle, debug, test, teachers\n", "system")
+            safe_chat_insert( "Unknown cot command. Available: status, toggle, debug, test, teachers\n", "system")
         
-        chat_box.see(tk.END)
     
     def handle_transformer_status_command(command: str):
         """Handle custom transformer status commands"""
         try:
-            chat_box.insert(tk.END, f"🧠 Custom Transformer Status:\n", "system")
-            chat_box.insert(tk.END, f"  Available: {CUSTOM_TRANSFORMER_AVAILABLE}\n", "system")
-            chat_box.insert(tk.END, f"  Model loaded: {custom_transformer is not None}\n", "system")
-            chat_box.insert(tk.END, f"  Tokenizer loaded: {custom_tokenizer is not None}\n", "system")
+            safe_chat_insert( f"🧠 Custom Transformer Status:\n", "system")
+            safe_chat_insert( f"  Available: {CUSTOM_TRANSFORMER_AVAILABLE}\n", "system")
+            safe_chat_insert( f"  Model loaded: {custom_transformer is not None}\n", "system")
+            safe_chat_insert( f"  Tokenizer loaded: {custom_tokenizer is not None}\n", "system")
             if custom_tokenizer is not None:
                 try:
                     tokenizer_type = type(custom_tokenizer).__name__
                     vocab_size = getattr(custom_tokenizer, 'vocab_size', 'Unknown')
-                    chat_box.insert(tk.END, f"  Tokenizer type: {tokenizer_type}\n", "system")
-                    chat_box.insert(tk.END, f"  Vocabulary size: {vocab_size}\n", "system")
+                    safe_chat_insert( f"  Tokenizer type: {tokenizer_type}\n", "system")
+                    safe_chat_insert( f"  Vocabulary size: {vocab_size}\n", "system")
                 except Exception as e:
-                    chat_box.insert(tk.END, f"  Tokenizer info: Error getting details ({e})\n", "system")
-            chat_box.insert(tk.END, f"  Total attempts: {transformer_response_count}\n", "system")
-            chat_box.insert(tk.END, f"  Successful responses: {transformer_success_count}\n", "system")
+                    safe_chat_insert( f"  Tokenizer info: Error getting details ({e})\n", "system")
+            safe_chat_insert( f"  Total attempts: {transformer_response_count}\n", "system")
+            safe_chat_insert( f"  Successful responses: {transformer_success_count}\n", "system")
             if transformer_response_count > 0:
                 success_rate = (transformer_success_count / transformer_response_count) * 100
-                chat_box.insert(tk.END, f"  Success rate: {success_rate:.1f}%\n", "system")
-            chat_box.insert(tk.END, f"  Custom wins: {model_performance['custom_wins']}\n", "system")
-            chat_box.insert(tk.END, f"  Ollama wins: {model_performance['ollama_wins']}\n", "system")
+                safe_chat_insert( f"  Success rate: {success_rate:.1f}%\n", "system")
+            safe_chat_insert( f"  Custom wins: {model_performance['custom_wins']}\n", "system")
+            safe_chat_insert( f"  Ollama wins: {model_performance['ollama_wins']}\n", "system")
             if model_performance['custom_wins'] + model_performance['ollama_wins'] > 0:
                 win_rate = (model_performance['custom_wins'] / (model_performance['custom_wins'] + model_performance['ollama_wins'])) * 100
-                chat_box.insert(tk.END, f"  Win rate vs Ollama: {win_rate:.1f}%\n", "system")
-            chat_box.insert(tk.END, f"  Learning samples: {len(model_performance['learning_samples'])}\n", "system")
-            chat_box.insert(tk.END, f"  Learning enabled: {TRANSFORMER_CONFIG.get('learning_mode', False)}\n", "system")
-            chat_box.insert(tk.END, f"  Reinforcement Learning: {TRANSFORMER_CONFIG.get('reinforcement_learning', False)}\n", "system")
-            chat_box.insert(tk.END, f"  Supervised Learning: {TRANSFORMER_CONFIG.get('supervised_learning', False)}\n", "system")
-            chat_box.insert(tk.END, f"  Continuous Learning: {TRANSFORMER_CONFIG.get('continuous_learning', False)}\n", "system")
+                safe_chat_insert( f"  Win rate vs Ollama: {win_rate:.1f}%\n", "system")
+            safe_chat_insert( f"  Learning samples: {len(model_performance['learning_samples'])}\n", "system")
+            safe_chat_insert( f"  Learning enabled: {TRANSFORMER_CONFIG.get('learning_mode', False)}\n", "system")
+            safe_chat_insert( f"  Reinforcement Learning: {TRANSFORMER_CONFIG.get('reinforcement_learning', False)}\n", "system")
+            safe_chat_insert( f"  Supervised Learning: {TRANSFORMER_CONFIG.get('supervised_learning', False)}\n", "system")
+            safe_chat_insert( f"  Continuous Learning: {TRANSFORMER_CONFIG.get('continuous_learning', False)}\n", "system")
             
             # Test tokenizer functionality if available
             if custom_tokenizer is not None:
@@ -5327,17 +5442,15 @@ def create_gui():
                     test_text = "Hello, this is a test."
                     test_tokens = custom_tokenizer.encode(test_text, return_tensors='pt')
                     token_count = len(test_tokens[0]) if hasattr(test_tokens, '__len__') else 'Unknown'
-                    chat_box.insert(tk.END, f"  Tokenizer test: ✅ Working (test text: {token_count} tokens)\n", "system")
+                    safe_chat_insert( f"  Tokenizer test: ✅ Working (test text: {token_count} tokens)\n", "system")
                 except Exception as e:
-                    chat_box.insert(tk.END, f"  Tokenizer test: ❌ Error ({e})\n", "system")
+                    safe_chat_insert( f"  Tokenizer test: ❌ Error ({e})\n", "system")
             else:
-                chat_box.insert(tk.END, f"  Tokenizer test: ❌ No tokenizer loaded\n", "system")
+                safe_chat_insert( f"  Tokenizer test: ❌ No tokenizer loaded\n", "system")
             
-            chat_box.see(tk.END)
             
         except Exception as e:
-            chat_box.insert(tk.END, f"❌ Transformer status error: {e}\n", "error")
-            chat_box.see(tk.END)
+            safe_chat_insert( f"❌ Transformer status error: {e}\n", "error")
     
     def handle_tokenizer_test_command(command: str):
         """Handle tokenizer test commands"""
@@ -5345,12 +5458,11 @@ def create_gui():
             parts = command.split(' ', 1)
             test_text = parts[1] if len(parts) > 1 else "Hello, this is a test message for Luna's tokenizer."
             
-            chat_box.insert(tk.END, f"🔤 Testing tokenizer with: '{test_text}'\n", "system")
+            safe_chat_insert( f"🔤 Testing tokenizer with: '{test_text}'\n", "system")
             
             if custom_tokenizer is None:
-                chat_box.insert(tk.END, f"❌ No tokenizer loaded!\n", "system")
-                chat_box.insert(tk.END, f"💡 Try selecting 'Custom Transformer' in the model dropdown to load the tokenizer.\n", "system")
-                chat_box.see(tk.END)
+                safe_chat_insert( f"❌ No tokenizer loaded!\n", "system")
+                safe_chat_insert( f"💡 Try selecting 'Custom Transformer' in the model dropdown to load the tokenizer.\n", "system")
                 return
             
             try:
@@ -5358,30 +5470,28 @@ def create_gui():
                 tokens = custom_tokenizer.encode(test_text, return_tensors='pt')
                 token_count = len(tokens[0]) if hasattr(tokens, '__len__') else 'Unknown'
                 
-                chat_box.insert(tk.END, f"✅ Encoding successful!\n", "system")
-                chat_box.insert(tk.END, f"  Token count: {token_count}\n", "system")
-                chat_box.insert(tk.END, f"  Token IDs: {tokens[0].tolist()[:10]}{'...' if len(tokens[0]) > 10 else ''}\n", "system")
+                safe_chat_insert( f"✅ Encoding successful!\n", "system")
+                safe_chat_insert( f"  Token count: {token_count}\n", "system")
+                safe_chat_insert( f"  Token IDs: {tokens[0].tolist()[:10]}{'...' if len(tokens[0]) > 10 else ''}\n", "system")
                 
                 # Test decoding
                 decoded_text = custom_tokenizer.decode(tokens[0])
-                chat_box.insert(tk.END, f"✅ Decoding successful!\n", "system")
-                chat_box.insert(tk.END, f"  Decoded text: '{decoded_text}'\n", "system")
+                safe_chat_insert( f"✅ Decoding successful!\n", "system")
+                safe_chat_insert( f"  Decoded text: '{decoded_text}'\n", "system")
                 
                 # Test tokenizer info
                 tokenizer_type = type(custom_tokenizer).__name__
                 vocab_size = getattr(custom_tokenizer, 'vocab_size', 'Unknown')
-                chat_box.insert(tk.END, f"📊 Tokenizer info:\n", "system")
-                chat_box.insert(tk.END, f"  Type: {tokenizer_type}\n", "system")
-                chat_box.insert(tk.END, f"  Vocabulary size: {vocab_size}\n", "system")
+                safe_chat_insert( f"📊 Tokenizer info:\n", "system")
+                safe_chat_insert( f"  Type: {tokenizer_type}\n", "system")
+                safe_chat_insert( f"  Vocabulary size: {vocab_size}\n", "system")
                 
             except Exception as e:
-                chat_box.insert(tk.END, f"❌ Tokenizer test failed: {e}\n", "system")
+                safe_chat_insert( f"❌ Tokenizer test failed: {e}\n", "system")
             
-            chat_box.see(tk.END)
             
         except Exception as e:
-            chat_box.insert(tk.END, f"❌ Tokenizer test command error: {e}\n", "error")
-            chat_box.see(tk.END)
+            safe_chat_insert( f"❌ Tokenizer test command error: {e}\n", "error")
     
     # Define TrainableTransformer class at module level to avoid scope issues
     class TrainableTransformer(torch.nn.Module):
@@ -5406,8 +5516,7 @@ def create_gui():
     def train_custom_model_from_conversations():
         """Train the custom model on all conversation history until it can reply properly"""
         try:
-            chat_box.insert(tk.END, f"🧠 Starting custom model training on conversation history...\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert( f"🧠 Starting custom model training on conversation history...\n", "system")
             
             def training_worker():
                 try:
@@ -5434,17 +5543,14 @@ def create_gui():
                     conn.close()
                     
                     if not conversations:
-                        chat_box.insert(tk.END, f"❌ No conversation history found to train on!\n", "error")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( f"❌ No conversation history found to train on!\n", "error")
                         return
                     
-                    chat_box.insert(tk.END, f"📚 Found {len(conversations)} conversations to train on\n", "system")
-                    chat_box.see(tk.END)
+                    safe_chat_insert( f"📚 Found {len(conversations)} conversations to train on\n", "system")
                     
                     # Check if custom model is loaded
                     if not custom_transformer:
-                        chat_box.insert(tk.END, f"❌ Custom model not loaded! Please select 'Custom Transformer' first.\n", "error")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( f"❌ Custom model not loaded! Please select 'Custom Transformer' first.\n", "error")
                         return
                     
                     # Ensure tokenizer has padding token
@@ -5460,8 +5566,7 @@ def create_gui():
                     
                     # Check if tokenizer is available, create a simple one if not
                     if not custom_tokenizer:
-                        chat_box.insert(tk.END, f"⚠️ No tokenizer found, creating simple tokenizer...\n", "system")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( f"⚠️ No tokenizer found, creating simple tokenizer...\n", "system")
                         
                         # Create a simple tokenizer with padding support
                         class SimpleTokenizer:
@@ -5500,8 +5605,7 @@ def create_gui():
                         
                         custom_tokenizer = SimpleTokenizer()
                         print("✅ Created simple tokenizer for training")
-                        chat_box.insert(tk.END, f"✅ Created simple tokenizer for training\n", "system")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( f"✅ Created simple tokenizer for training\n", "system")
                     
                     # Training parameters
                     learning_rate = 1e-4
@@ -5511,14 +5615,12 @@ def create_gui():
                     # Check if model has trainable parameters
                     model_parameters = list(custom_transformer.parameters())
                     if not model_parameters:
-                        chat_box.insert(tk.END, f"❌ Custom model has no trainable parameters! Creating a proper model...\n", "error")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( f"❌ Custom model has no trainable parameters! Creating a proper model...\n", "error")
                         
                         # Replace the model with a trainable one (using the module-level class)
                         custom_transformer = TrainableTransformer()
                         print("✅ Created trainable custom transformer model")
-                        chat_box.insert(tk.END, f"✅ Created trainable custom transformer model\n", "system")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( f"✅ Created trainable custom transformer model\n", "system")
                     
                     # Set up optimizer with proper parameter checking
                     model_parameters = list(custom_transformer.parameters())
@@ -5526,8 +5628,7 @@ def create_gui():
                         optimizer = AdamW(model_parameters, lr=learning_rate)
                         print(f"✅ Optimizer created with {len(model_parameters)} parameter groups")
                     else:
-                        chat_box.insert(tk.END, f"❌ Still no trainable parameters found! Skipping training.\n", "error")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( f"❌ Still no trainable parameters found! Skipping training.\n", "error")
                         return
                     
                     # Set model to training mode
@@ -5536,8 +5637,7 @@ def create_gui():
                     total_loss = 0
                     num_batches = 0
                     
-                    chat_box.insert(tk.END, f"🔄 Training for {epochs} epochs with {len(conversations)} samples...\n", "system")
-                    chat_box.see(tk.END)
+                    safe_chat_insert( f"🔄 Training for {epochs} epochs with {len(conversations)} samples...\n", "system")
                     
                     for epoch in range(epochs):
                         epoch_loss = 0
@@ -5607,61 +5707,53 @@ def create_gui():
                             # Update progress
                             if (i // batch_size) % 10 == 0:
                                 progress = (i // batch_size) * 100 // (len(conversations) // batch_size)
-                                chat_box.insert(tk.END, f"🔄 Training progress: {progress}% (Epoch {epoch+1}/{epochs})\n", "system")
-                                chat_box.see(tk.END)
+                                safe_chat_insert( f"🔄 Training progress: {progress}% (Epoch {epoch+1}/{epochs})\n", "system")
                         
                         avg_epoch_loss = epoch_loss / max(epoch_batches, 1)
-                        chat_box.insert(tk.END, f"📊 Epoch {epoch+1} completed - Average Loss: {avg_epoch_loss:.4f}\n", "system")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( f"📊 Epoch {epoch+1} completed - Average Loss: {avg_epoch_loss:.4f}\n", "system")
                     
                     # Save the trained model
                     torch.save(custom_transformer, "luna_model.pt")
                     
                     avg_total_loss = total_loss / max(num_batches, 1)
-                    chat_box.insert(tk.END, f"✅ Training completed!\n", "system")
-                    chat_box.insert(tk.END, f"📊 Total samples: {len(conversations)}\n", "system")
-                    chat_box.insert(tk.END, f"📊 Epochs: {epochs}\n", "system")
-                    chat_box.insert(tk.END, f"📊 Average Loss: {avg_total_loss:.4f}\n", "system")
-                    chat_box.insert(tk.END, f"💾 Model saved to luna_model.pt\n", "system")
-                    chat_box.insert(tk.END, f"🧠 Custom model is now ready to respond!\n", "system")
-                    chat_box.see(tk.END)
+                    safe_chat_insert( f"✅ Training completed!\n", "system")
+                    safe_chat_insert( f"📊 Total samples: {len(conversations)}\n", "system")
+                    safe_chat_insert( f"📊 Epochs: {epochs}\n", "system")
+                    safe_chat_insert( f"📊 Average Loss: {avg_total_loss:.4f}\n", "system")
+                    safe_chat_insert( f"💾 Model saved to luna_model.pt\n", "system")
+                    safe_chat_insert( f"🧠 Custom model is now ready to respond!\n", "system")
                     
                     # Test the model
                     test_prompt = "Hello Luna, how are you?"
                     try:
                         test_response = custom_transformer.generate(test_prompt, max_length=100)
-                        chat_box.insert(tk.END, f"🧪 Test response: {test_response[:100]}...\n", "system")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( f"🧪 Test response: {test_response[:100]}...\n", "system")
                     except Exception as test_error:
-                        chat_box.insert(tk.END, f"⚠️ Test generation failed: {test_error}\n", "system")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( f"⚠️ Test generation failed: {test_error}\n", "system")
                     
                 except Exception as training_error:
-                    chat_box.insert(tk.END, f"❌ Training error: {training_error}\n", "error")
-                    chat_box.see(tk.END)
+                    safe_chat_insert( f"❌ Training error: {training_error}\n", "error")
             
             # Start training in background thread
             threading.Thread(target=training_worker, daemon=True).start()
             
         except Exception as e:
-            chat_box.insert(tk.END, f"❌ Training setup error: {e}\n", "error")
-            chat_box.see(tk.END)
+            safe_chat_insert( f"❌ Training setup error: {e}\n", "error")
     
     # Process voice input directly without using text input field
     def process_voice_input_directly(spoken_text):
         """Process voice input directly without putting it in the text input field"""
         try:
             # Display the user's voice message in chat
-            chat_box.insert(tk.END, f"Chris (voice): {spoken_text}\n", "user")
-            chat_box.see(tk.END)
+            safe_chat_insert( f"Chris (voice): {spoken_text}\n", "user")
             
             # Generate Luna's response directly
-            response, _ = generate_luna_reply(spoken_text, "Chris", "voice")
+            reply_result = generate_luna_reply(spoken_text, "Chris", "voice")
+            response, _ = intelligent_tuple_unpack(reply_result, "Voice")
             
             if response:
                 # Display Luna's response
-                chat_box.insert(tk.END, f"Luna: {response}\n", "luna")
-                chat_box.see(tk.END)
+                safe_chat_insert( f"Luna: {response}\n", "luna")
                 
                 # Speak the response
                 speak_response(response, "voice", spoken_text)
@@ -5671,8 +5763,7 @@ def create_gui():
                 
         except Exception as e:
             print(f"❌ Error processing voice input: {e}")
-            chat_box.insert(tk.END, f"❌ Error processing voice input: {e}\n", "error")
-            chat_box.see(tk.END)
+            safe_chat_insert( f"❌ Error processing voice input: {e}\n", "error")
     
     # Enhanced send message function with interrupt support
     def send_message_enhanced():
@@ -5748,14 +5839,12 @@ def create_gui():
         
         # Check for mobile export commands
         if user_message.lower() == '/export_mobile':
-            chat_box.insert(tk.END, "📱 Exporting Luna for mobile deployment...\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert( "📱 Exporting Luna for mobile deployment...\n", "system")
             try:
                 export_mobile_luna()
-                chat_box.insert(tk.END, "✅ Mobile Luna exported successfully!\n", "system")
+                safe_chat_insert( "✅ Mobile Luna exported successfully!\n", "system")
             except Exception as e:
-                chat_box.insert(tk.END, f"❌ Export failed: {e}\n", "error")
-            chat_box.see(tk.END)
+                safe_chat_insert( f"❌ Export failed: {e}\n", "error")
             entry.delete(0, tk.END)
             return
         
@@ -5786,13 +5875,11 @@ def create_gui():
             is_generating_response = False
             
             # Add interrupt message to chat with special formatting
-            chat_box.insert(tk.END, f"🔄 INTERRUPT: {user_message}\n", "interrupt")
-            chat_box.see(tk.END)
+            safe_chat_insert( f"🔄 INTERRUPT: {user_message}\n", "interrupt")
             entry.delete(0, tk.END)
             
             # Show typing indicator for interrupt response
-            chat_box.insert(tk.END, "Luna is responding to your interrupt...\n", "typing")
-            chat_box.see(tk.END)
+            safe_chat_insert( "Luna is responding to your interrupt...\n", "typing")
             root.update()
             
             # Generate new response with interrupt context
@@ -5802,7 +5889,8 @@ def create_gui():
                     is_generating_response = True
                     
                     # Generate response with interrupt context
-                    luna_reply, _ = generate_luna_reply(user_message, "Chris", "gui")
+                    reply_result = generate_luna_reply(user_message, "Chris", "gui")
+                    luna_reply, _ = intelligent_tuple_unpack(reply_result, "GUI")
                     
                     # Remove typing indicator and add Luna's reply
                     chat_box.delete("end-2l", "end")
@@ -5811,11 +5899,10 @@ def create_gui():
                     if luna_reply.startswith("[CUSTOM_TRANSFORMER]"):
                         # Remove the marker and use orange color
                         clean_reply = luna_reply.replace("[CUSTOM_TRANSFORMER]", "")
-                        chat_box.insert(tk.END, f"Luna: {clean_reply}\n", "luna_custom")
+                        safe_chat_insert( f"Luna: {clean_reply}\n", "luna_custom")
                     else:
                         # Use normal pink color for Ollama responses
-                        chat_box.insert(tk.END, f"Luna: {luna_reply}\n", "luna")
-                    chat_box.see(tk.END)
+                        safe_chat_insert( f"Luna: {luna_reply}\n", "luna")
                     
                     # Speak the response if voice is enabled
                     if voice_enabled.get():
@@ -5831,7 +5918,7 @@ def create_gui():
                 except Exception as e:
                     print(f"❌ Interrupt response error: {e}")
                     chat_box.delete("end-2l", "end")
-                    chat_box.insert(tk.END, f"Error: {e}\n", "error")
+                    safe_chat_insert( f"Error: {e}\n", "error")
                     is_generating_response = False
                     interrupt_context = ""
             
@@ -5850,13 +5937,11 @@ def create_gui():
         start_auto_engagement_timer()
             
         # Add user message to chat
-        chat_box.insert(tk.END, f"You: {user_message}\n", "user")
-        chat_box.see(tk.END)
+        safe_chat_insert( f"You: {user_message}\n", "user")
         entry.delete(0, tk.END)
         
         # Show typing indicator
-        chat_box.insert(tk.END, "Luna is typing...\n", "typing")
-        chat_box.see(tk.END)
+        safe_chat_insert( "Luna is typing...\n", "typing")
         root.update()
         
         # Set generation flag
@@ -5872,8 +5957,7 @@ def create_gui():
                 except requests.exceptions.ConnectionError:
                     if attempt < 2:
                         chat_box.delete("end-2l", "end")
-                        chat_box.insert(tk.END, f"Connecting to server... (attempt {attempt + 1}/3)\n", "typing")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( f"Connecting to server... (attempt {attempt + 1}/3)\n", "typing")
                         root.update()
                         time.sleep(1)
                     else:
@@ -5888,10 +5972,10 @@ def create_gui():
             if luna_reply.startswith("[CUSTOM_TRANSFORMER]"):
                 # Remove the marker and use orange color
                 clean_reply = luna_reply.replace("[CUSTOM_TRANSFORMER]", "")
-                chat_box.insert(tk.END, f"Luna: {clean_reply}\n", "luna_custom")
+                safe_chat_insert( f"Luna: {clean_reply}\n", "luna_custom")
             else:
                 # Use normal pink color for Ollama responses
-                chat_box.insert(tk.END, f"Luna: {luna_reply}\n", "luna")
+                safe_chat_insert( f"Luna: {luna_reply}\n", "luna")
             
             # Reset auto-engagement timer after Luna responds
             start_auto_engagement_timer()
@@ -5944,9 +6028,8 @@ def create_gui():
         
         except Exception as e:
             chat_box.delete("end-2l", "end")
-            chat_box.insert(tk.END, f"Error: {e}\n", "error")
+            safe_chat_insert( f"Error: {e}\n", "error")
         
-        chat_box.see(tk.END)
     
     # Voice recognition function
     def listen_for_voice():
@@ -5978,14 +6061,14 @@ def create_gui():
                     
                 except sr.UnknownValueError:
                     print("🎤 Could not understand audio")
-                    chat_box.insert(tk.END, "🎤 Could not understand what you said. Please try again.\n", "error")
+                    safe_chat_insert( "🎤 Could not understand what you said. Please try again.\n", "error")
                 except sr.RequestError as e:
                     print(f"🎤 Speech recognition error: {e}")
-                    chat_box.insert(tk.END, "🎤 Speech recognition service error. Please type instead.\n", "error")
+                    safe_chat_insert( "🎤 Speech recognition service error. Please type instead.\n", "error")
                     
         except Exception as e:
             print(f"🎤 Voice recognition error: {e}")
-            chat_box.insert(tk.END, "🎤 Voice recognition failed. Please type your message.\n", "error")
+            safe_chat_insert( "🎤 Voice recognition failed. Please type your message.\n", "error")
         finally:
             # Reset button
             if voice_enabled.get():
@@ -6017,11 +6100,11 @@ def create_gui():
     #                 if info.get('enabled', False) and info.get('connected', False):
     #                     vtube_lipsync_button.config(text="🎭 Lip Sync ON", bg="#aa44aa")
     #                     auth_status = "✅ Authenticated" if info.get('authenticated', False) else "⚠️ Not Auth"
-    #                     chat_box.insert(tk.END, f"🎭 VTube Studio lip sync enabled - {auth_status}\n", "system")
+    #                     safe_chat_insert( f"🎭 VTube Studio lip sync enabled - {auth_status}\n", "system")
     #                     
     #                     # Check if virtual audio is also enabled for best experience
     #                     if virtual_audio_enabled.get():
-    #                         chat_box.insert(tk.END, "✨ Lip sync + Virtual audio = Perfect for streaming!\n", "system")
+    #                         safe_chat_insert( "✨ Lip sync + Virtual audio = Perfect for streaming!\n", "system")
     #                 else:
     #                     vtube_lipsync_enabled.set(False)  # Reset if failed
     #                     vtube_lipsync_button.config(text="🔇 Lip Sync OFF", bg="#aa4444")
@@ -6030,20 +6113,18 @@ def create_gui():
     #                         error_msg += "Install requirements: pip install websocket-client librosa numpy"
     #                     else:
     #                         error_msg += "Make sure VTube Studio is running with API enabled."
-    #                     chat_box.insert(tk.END, f"{error_msg}\n", "error")
+    #                     safe_chat_insert( f"{error_msg}\n", "error")
     #             else:
     #                 enable_vtube_lipsync(False)
     #                 vtube_lipsync_button.config(text="🔇 Lip Sync OFF", bg="#aa4444")
-    #                 chat_box.insert(tk.END, "🎭 VTube Studio lip sync disabled\n", "system")
+    #                 safe_chat_insert( "🎭 VTube Studio lip sync disabled\n", "system")
     #                     
-    #             chat_box.see(tk.END)
-    #         except Exception as e:
+    #                 #         except Exception as e:
     #             print(f"VTube lip sync toggle error: {e}")
     #             vtube_lipsync_enabled.set(False)
     #             vtube_lipsync_button.config(text="🔇 Lip Sync OFF", bg="#aa4444")
-    #             chat_box.insert(tk.END, f"❌ VTube lip sync error: {e}\n", "error")
-    #             chat_box.see(tk.END)
-    
+    #             safe_chat_insert( f"❌ VTube lip sync error: {e}\n", "error")
+    #                 
     def toggle_voice_listening():
         if voice_listening_enabled.get():
             voice_listening_enabled.set(False)
@@ -6060,16 +6141,14 @@ def create_gui():
                     # Test microphone availability
                     with sr.Microphone() as source:
                         print(f"✅ Microphone test successful: {source}")
-                        chat_box.insert(tk.END, "✅ Microphone detected and ready!\n", "system")
-                        chat_box.see(tk.END)
+                        safe_chat_insert( "✅ Microphone detected and ready!\n", "system")
                         
                         # Start continuous listening
                         continuous_voice_listening()
                 except Exception as e:
                     print(f"❌ Microphone test failed: {e}")
-                    chat_box.insert(tk.END, f"❌ Microphone test failed: {e}\n", "error")
-                    chat_box.insert(tk.END, "💡 Try checking your microphone settings or permissions.\n", "system")
-                    chat_box.see(tk.END)
+                    safe_chat_insert( f"❌ Microphone test failed: {e}\n", "error")
+                    safe_chat_insert( "💡 Try checking your microphone settings or permissions.\n", "system")
                     # Reset the button
                     voice_listening_enabled.set(False)
                     voice_input_button.config(text="🎧 Listen OFF", bg="#ff6666")
@@ -6087,7 +6166,7 @@ def create_gui():
                 print(f"🎤 Microphone detected: {source}")
         except Exception as e:
             print(f"❌ Microphone error: {e}")
-            chat_box.insert(tk.END, f"❌ Microphone not available: {e}\n", "error")
+            safe_chat_insert( f"❌ Microphone not available: {e}\n", "error")
             return
         
         # Voice separation system for virtual audio cable
@@ -6190,6 +6269,12 @@ def create_gui():
                                 snowboy_configuration=None  # Disable hotword detection
                             )
                             print("🎤 Audio captured, processing...")
+                            
+                            # Check audio length to avoid processing very short clips (likely hallucinations)
+                            audio_duration = len(audio.frame_data) / (audio.sample_rate * audio.sample_width)
+                            if audio_duration < 0.3:  # Less than 300ms is likely noise/hallucination
+                                print(f"🎤 Audio too short ({audio_duration:.2f}s) - likely hallucination, skipping")
+                                continue
                             
                             # Try Whisper first, fallback to Google Speech Recognition
                             spoken_text = None
@@ -7392,8 +7477,7 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
                 last_thought_time = current_time
                 
                 # Add Luna's thought to chat
-                chat_box.insert(tk.END, f"Luna: {thought}\n", "luna")
-                chat_box.see(tk.END)
+                safe_chat_insert( f"Luna: {thought}\n", "luna")
                 
                 # Speak the thought if voice is enabled
                 if voice_enabled.get():
@@ -7473,26 +7557,24 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
     #     try:
     #         if vtube_lipsync_enabled.get():
     #             vtube_lipsync_button.config(text="🎭 VTube ON", bg="#44aa44")
-    #             chat_box.insert(tk.END, "🎭 VTube Studio lip sync enabled\n", "system")
+    #             safe_chat_insert( "🎭 VTube Studio lip sync enabled\n", "system")
     #         else:
     #             vtube_lipsync_button.config(text="🎭 VTube OFF", bg="#aa4444")
-    #             chat_box.insert(tk.END, "🎭 VTube Studio lip sync disabled\n", "system")
-    #         chat_box.see(tk.END)
-    #     except Exception as e:
+    #             safe_chat_insert( "🎭 VTube Studio lip sync disabled\n", "system")
+    #             #     except Exception as e:
     #         print(f"⚠️ VTube lip sync toggle error: {e}")
     
     def toggle_voice_listening():
         if voice_listening_enabled.get():
             voice_listening_enabled.set(False)
             voice_input_button.config(text="🎧 Voice Input", bg="#4a90e2")
-            chat_box.insert(tk.END, "🎧 Voice listening disabled\n", "system")
+            safe_chat_insert( "🎧 Voice listening disabled\n", "system")
         else:
             voice_listening_enabled.set(True)
             voice_input_button.config(text="🎧 Listening...", bg="#e74c3c")
-            chat_box.insert(tk.END, "🎧 Voice listening enabled\n", "system")
+            safe_chat_insert( "🎧 Voice listening enabled\n", "system")
             # Start voice listening in a separate thread
             threading.Thread(target=test_and_start_listening, daemon=True).start()
-        chat_box.see(tk.END)
     
     def test_and_start_listening():
         """Test microphone and start voice listening"""
@@ -8019,7 +8101,8 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
         font=("Segoe UI", 17), 
         bg="#2e2e3e", 
         fg="#f2f2f2",
-        insertbackground="#ffffff"
+        insertbackground="#ffffff",
+        state="disabled"  # Make chat display area read-only
     )
     chat_box.tag_config("user", foreground="#a1cfff", font=("Segoe UI", 17, "bold"))
     chat_box.tag_config("luna", foreground="#ffb6c1", font=("Segoe UI", 17, "bold"))
@@ -8031,6 +8114,7 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
     chat_box.tag_config("interrupt", foreground="#ffaa00", font=("Segoe UI", 11, "bold"))
     chat_box.tag_config("discord", foreground="#7289da", font=("Segoe UI", 10, "italic"))
     chat_box.pack(fill=tk.BOTH, expand=True)
+    
     
     # Input area
     input_frame = tk.Frame(root, bg="#1e1e2f")
@@ -8063,8 +8147,7 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
         # Initialize custom transformer if selected
         if selected == "Custom Transformer":
             print("🧠 Initializing custom transformer...")
-            chat_box.insert(tk.END, f"🧠 Loading custom transformer model...\n", "system")
-            chat_box.see(tk.END)
+            safe_chat_insert( f"🧠 Loading custom transformer model...\n", "system")
             
             # Initialize in background thread to avoid blocking GUI
             def load_transformer():
@@ -8072,23 +8155,20 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
                 try:
                     custom_transformer, custom_tokenizer = initialize_custom_transformer()
                     if custom_transformer:
-                        chat_box.insert(tk.END, f"✅ Custom transformer loaded successfully!\n", "system")
+                        safe_chat_insert( f"✅ Custom transformer loaded successfully!\n", "system")
                         print("✅ Custom transformer initialized successfully")
                     else:
-                        chat_box.insert(tk.END, f"⚠️ Custom transformer failed to load - will use Ollama fallback\n", "system")
+                        safe_chat_insert( f"⚠️ Custom transformer failed to load - will use Ollama fallback\n", "system")
                         print("⚠️ Custom transformer initialization failed")
-                    chat_box.see(tk.END)
                 except Exception as e:
-                    chat_box.insert(tk.END, f"❌ Custom transformer error: {e}\n", "error")
+                    safe_chat_insert( f"❌ Custom transformer error: {e}\n", "error")
                     print(f"❌ Custom transformer initialization error: {e}")
-                    chat_box.see(tk.END)
             
             # Start loading in background thread
             threading.Thread(target=load_transformer, daemon=True).start()
         
         # Update chat box to show model change
-        chat_box.insert(tk.END, f"🔄 Switched to {selected}\n", "system")
-        chat_box.see(tk.END)
+        safe_chat_insert( f"🔄 Switched to {selected}\n", "system")
     
     model_var.trace('w', on_model_change)
     
@@ -8119,16 +8199,15 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
         
         if global_luna_self_talk_enabled:
             luna_self_talk_button.config(text="🤔 Self-Talk ON", bg="#44aa44")
-            chat_box.insert(tk.END, "🤔 Luna will share her thoughts naturally (continuing from where I left off)\n", "system")
+            safe_chat_insert( "🤔 Luna will share her thoughts naturally (continuing from where I left off)\n", "system")
             # Continue where left off - only clear generation flag, preserve patterns and memories
             is_generating_thought = False
             print(f"🔄 Self-talk enabled: Continuing with existing patterns and memories")
         else:
             luna_self_talk_button.config(text="🤐 Self-Talk OFF", bg="#aa4444")
-            chat_box.insert(tk.END, "🤐 Luna will not share her thoughts\n", "system")
+            safe_chat_insert( "🤐 Luna will not share her thoughts\n", "system")
             # Clear any ongoing generation when disabling
             is_generating_thought = False
-        chat_box.see(tk.END)
         
         # Restart auto-engagement timer to pick up the new self-talk state
         start_auto_engagement_timer()
@@ -8576,8 +8655,7 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
                 last_thought_time = current_time
                 
                 # Add Luna's thought to chat
-                chat_box.insert(tk.END, f"Luna: {thought}\n", "luna")
-                chat_box.see(tk.END)
+                safe_chat_insert( f"Luna: {thought}\n", "luna")
                 
                 # Speak the thought if voice is enabled
                 if voice_enabled.get():
@@ -8700,24 +8778,21 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
     # Initialize custom transformer if it's selected at startup
     if model_var.get() == "Custom Transformer":
         print("🧠 Initializing custom transformer at startup...")
-        chat_box.insert(tk.END, f"🧠 Loading custom transformer model at startup...\n", "system")
-        chat_box.see(tk.END)
+        safe_chat_insert( f"🧠 Loading custom transformer model at startup...\n", "system")
         
         def load_transformer_startup():
             global custom_transformer, custom_tokenizer
             try:
                 custom_transformer, custom_tokenizer = initialize_custom_transformer()
                 if custom_transformer:
-                    chat_box.insert(tk.END, f"✅ Custom transformer loaded successfully at startup!\n", "system")
+                    safe_chat_insert( f"✅ Custom transformer loaded successfully at startup!\n", "system")
                     print("✅ Custom transformer initialized successfully at startup")
                 else:
-                    chat_box.insert(tk.END, f"⚠️ Custom transformer failed to load at startup - will use Ollama fallback\n", "system")
+                    safe_chat_insert( f"⚠️ Custom transformer failed to load at startup - will use Ollama fallback\n", "system")
                     print("⚠️ Custom transformer initialization failed at startup")
-                chat_box.see(tk.END)
             except Exception as e:
-                chat_box.insert(tk.END, f"❌ Custom transformer startup error: {e}\n", "error")
+                safe_chat_insert( f"❌ Custom transformer startup error: {e}\n", "error")
                 print(f"❌ Custom transformer startup initialization error: {e}")
-                chat_box.see(tk.END)
         
         # Start loading in background thread
         threading.Thread(target=load_transformer_startup, daemon=True).start()

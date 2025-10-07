@@ -66,11 +66,11 @@ class LunaGraphitiIntegration:
             )
             
             self.is_initialized = True
-            print("✅ Graphiti integration initialized successfully")
+            print("OK: Graphiti integration initialized successfully")
             
         except Exception as e:
-            print(f"⚠️ Graphiti initialization failed: {e}")
-            print("📝 Using fallback mode - will extract conversations but not use graph features")
+            print(f"WARNING: Graphiti initialization failed: {e}")
+            print("INFO: Using fallback mode - will extract conversations but not use graph features")
             self.is_initialized = False
     
     def extract_conversations_from_db(self, limit: int = 1000) -> List[Dict[str, Any]]:
@@ -84,11 +84,9 @@ class LunaGraphitiIntegration:
             # Get recent conversations with context
             query = """
             SELECT 
-                id, user_message, luna_response, emotion, context, 
-                platform, user_id, timestamp, memory_type
+                id, content, mood, memory_type, timestamp, importance
             FROM memories 
-            WHERE user_message IS NOT NULL 
-            AND luna_response IS NOT NULL 
+            WHERE content IS NOT NULL 
             AND memory_type IN ('conversation', 'emotional')
             ORDER BY timestamp DESC 
             LIMIT ?
@@ -98,87 +96,79 @@ class LunaGraphitiIntegration:
             rows = cursor.fetchall()
             
             for row in rows:
-                conversation = {
-                    'id': row[0],
-                    'user_message': row[1],
-                    'luna_response': row[2],
-                    'emotion': row[3],
-                    'context': row[4],
-                    'platform': row[5],
-                    'user_id': row[6],
-                    'timestamp': row[7],
-                    'memory_type': row[8]
-                }
-                conversations.append(conversation)
+                # Parse the content field which contains the conversation
+                content = row[1]  # content column
+                if 'User:' in content and 'Luna:' in content:
+                    # Split the conversation into user and Luna parts
+                    parts = content.split('Luna:')
+                    if len(parts) >= 2:
+                        user_part = parts[0].replace('User:', '').strip()
+                        luna_part = parts[1].strip()
+                        
+                        conversation = {
+                            'id': row[0],
+                            'user_message': user_part,
+                            'luna_response': luna_part,
+                            'emotion': row[2],  # mood column
+                            'context': 'general',
+                            'platform': 'gui',
+                            'user_id': 'unknown',
+                            'timestamp': row[4],
+                            'memory_type': row[3]
+                        }
+                        conversations.append(conversation)
             
             conn.close()
-            print(f"📊 Extracted {len(conversations)} conversations from Luna's memory database")
+            print(f"INFO: Extracted {len(conversations)} conversations from Luna's memory database")
             
         except Exception as e:
-            print(f"❌ Error extracting conversations: {e}")
+            print(f"ERROR: Error extracting conversations: {e}")
         
         return conversations
     
-    def create_episode_from_conversation(self, conversation: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert a conversation into a Graphiti episode"""
-        episode = {
-            "source": f"luna_memory_{conversation['id']}",
-            "timestamp": conversation['timestamp'],
-            "episode": {
-                "type": "conversation",
-                "participants": [
-                    {
-                        "name": conversation['user_id'] or "User",
-                        "role": "user",
-                        "platform": conversation['platform'] or "gui"
-                    },
-                    {
-                        "name": "Luna",
-                        "role": "assistant",
-                        "platform": conversation['platform'] or "gui"
-                    }
-                ],
-                "content": [
-                    {
-                        "type": "text",
-                        "content": conversation['user_message'],
-                        "participant": conversation['user_id'] or "User"
-                    },
-                    {
-                        "type": "text", 
-                        "content": conversation['luna_response'],
-                        "participant": "Luna"
-                    }
-                ],
-                "context": {
-                    "emotion": conversation['emotion'],
-                    "memory_type": conversation['memory_type'],
-                    "platform": conversation['platform'],
-                    "conversation_id": conversation['id']
-                }
-            }
-        }
-        return episode
+    def create_episode_from_conversation(self, conversation: Dict[str, Any]) -> tuple:
+        """Convert a conversation into Graphiti episode parameters"""
+        from datetime import datetime
+        
+        # Create episode name
+        episode_name = f"conversation_{conversation['id']}"
+        
+        # Create episode body (the conversation content)
+        episode_body = f"User: {conversation['user_message']}\nLuna: {conversation['luna_response']}"
+        
+        # Create source description
+        source_description = f"Luna memory conversation from {conversation['platform']} platform"
+        
+        # Create reference time
+        if isinstance(conversation['timestamp'], str):
+            reference_time = datetime.fromisoformat(conversation['timestamp'].replace('Z', '+00:00'))
+        else:
+            reference_time = datetime.fromtimestamp(conversation['timestamp'])
+        
+        return episode_name, episode_body, source_description, reference_time
     
-    def import_conversations_to_graphiti(self, conversations: List[Dict[str, Any]]) -> bool:
+    async def import_conversations_to_graphiti(self, conversations: List[Dict[str, Any]]) -> bool:
         """Import conversations into Graphiti knowledge graph"""
         if not self.is_initialized or not self.graphiti:
             print("⚠️ Graphiti not initialized - skipping import")
             return False
         
         try:
-            episodes = []
             for conversation in conversations:
-                episode = self.create_episode_from_conversation(conversation)
-                episodes.append(episode)
-            
-            # Import episodes into Graphiti
-            result = self.graphiti.ingest(episodes)
-            print(f"✅ Imported {len(episodes)} conversations into Graphiti knowledge graph")
+                episode_name, episode_body, source_description, reference_time = self.create_episode_from_conversation(conversation)
+                
+                # Import episode into Graphiti
+                await self.graphiti.add_episode(
+                    name=episode_name,
+                    episode_body=episode_body,
+                    source_description=source_description,
+                    reference_time=reference_time
+                )
+            print(f"SUCCESS: Imported {len(conversations)} conversations into Graphiti knowledge graph")
             return True
             
         except Exception as e:
-            print(f"❌ Error importing conversations to Graphiti: {e}")
+            print(f"ERROR: Error importing conversations to Graphiti: {e}")
             return False
     
     def search_graphiti_memories(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -188,8 +178,8 @@ class LunaGraphitiIntegration:
             return self._fallback_search(query, limit)
         
         try:
-            # Use Graphiti's hybrid retrieval
-            results = self.graphiti.retrieve(query, limit=limit)
+            # Use Graphiti's search functionality
+            results = self.graphiti.search(query, limit=limit)
             
             # Format results for Luna's system
             formatted_results = []
@@ -203,11 +193,11 @@ class LunaGraphitiIntegration:
                 }
                 formatted_results.append(formatted_result)
             
-            print(f"🔍 Graphiti search found {len(formatted_results)} relevant memories")
+            print(f"INFO: Graphiti search found {len(formatted_results)} relevant memories")
             return formatted_results
             
         except Exception as e:
-            print(f"⚠️ Graphiti search failed: {e}")
+            print(f"WARNING: Graphiti search failed: {e}")
             return self._fallback_search(query, limit)
     
     def _fallback_search(self, query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -249,10 +239,10 @@ class LunaGraphitiIntegration:
                 results.append(result)
             
             conn.close()
-            print(f"🔍 Fallback search found {len(results)} relevant memories")
+            print(f"INFO: Fallback search found {len(results)} relevant memories")
             
         except Exception as e:
-            print(f"❌ Fallback search failed: {e}")
+            print(f"ERROR: Fallback search failed: {e}")
         
         return results
     
@@ -277,10 +267,10 @@ class LunaGraphitiIntegration:
             return insights
             
         except Exception as e:
-            print(f"⚠️ Error getting insights: {e}")
+            print(f"WARNING: Error getting insights: {e}")
             return {'error': str(e)}
     
-    def add_new_conversation(self, user_message: str, luna_response: str, 
+    async def add_new_conversation(self, user_message: str, luna_response: str, 
                            emotion: str = 'neutral', context: str = 'general',
                            platform: str = 'gui', user_id: str = None) -> bool:
         """Add a new conversation to both Luna's database and Graphiti"""
@@ -301,14 +291,19 @@ class LunaGraphitiIntegration:
                 'memory_type': 'conversation'
             }
             
-            episode = self.create_episode_from_conversation(conversation)
-            result = self.graphiti.ingest([episode])
+            episode_name, episode_body, source_description, reference_time = self.create_episode_from_conversation(conversation)
+            await self.graphiti.add_episode(
+                name=episode_name,
+                episode_body=episode_body,
+                source_description=source_description,
+                reference_time=reference_time
+            )
             
-            print(f"✅ Added new conversation to Graphiti knowledge graph")
+            print(f"SUCCESS: Added new conversation to Graphiti knowledge graph")
             return True
             
         except Exception as e:
-            print(f"❌ Error adding conversation to Graphiti: {e}")
+            print(f"ERROR: Error adding conversation to Graphiti: {e}")
             return False
 
 # Global instance
@@ -319,27 +314,28 @@ def initialize_luna_graphiti():
     global luna_graphiti
     
     if not GRAPHITI_AVAILABLE:
-        print("⚠️ Graphiti not available - install with: pip install graphiti-core")
+        print("WARNING: Graphiti not available - install with: pip install graphiti-core")
         return False
     
     try:
         luna_graphiti = LunaGraphitiIntegration()
         
         if luna_graphiti.is_initialized:
-            print("🧠 Luna Graphiti integration initialized")
+            print("INFO: Luna Graphiti integration initialized")
             
             # Import existing conversations
             conversations = luna_graphiti.extract_conversations_from_db(limit=500)
             if conversations:
-                luna_graphiti.import_conversations_to_graphiti(conversations)
+                import asyncio
+                asyncio.run(luna_graphiti.import_conversations_to_graphiti(conversations))
             
             return True
         else:
-            print("⚠️ Luna Graphiti integration failed to initialize")
+            print("WARNING: Luna Graphiti integration failed to initialize")
             return False
             
     except Exception as e:
-        print(f"❌ Error initializing Luna Graphiti: {e}")
+        print(f"ERROR: Error initializing Luna Graphiti: {e}")
         return False
 
 def search_luna_graphiti_memories(query: str, limit: int = 5) -> List[Dict[str, Any]]:
@@ -360,8 +356,13 @@ def add_luna_graphiti_conversation(user_message: str, luna_response: str,
     if not luna_graphiti:
         return False
     
-    return luna_graphiti.add_new_conversation(user_message, luna_response, 
-                                            emotion, context, platform, user_id)
+    import asyncio
+    try:
+        return asyncio.run(luna_graphiti.add_new_conversation(user_message, luna_response, 
+                                                            emotion, context, platform, user_id))
+    except Exception as e:
+        print(f"ERROR: Error adding conversation to Graphiti: {e}")
+        return False
 
 def get_luna_graphiti_insights() -> Dict[str, Any]:
     """Get insights from Luna's Graphiti knowledge graph"""
