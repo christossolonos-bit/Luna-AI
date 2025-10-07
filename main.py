@@ -3435,7 +3435,6 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
                 print(f"🎮 Using cached Discord response for {username}")
                 return cached_response, True
     try:
-        import time
         response_start_time = time.time()
         track_response_time()
         
