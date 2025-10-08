@@ -7358,69 +7358,44 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
                 reflection_parts = []
                 
                 if 'gaming' in recent_topics:
-                    gaming_reflections = [
-                        "I've been thinking about the gaming conversations we've had",
-                        "The gaming discussions we've shared have been really engaging",
-                        "I find myself reflecting on our gaming talks",
-                        "Those gaming conversations keep coming back to me",
-                        "I've been pondering our gaming discussions"
-                    ]
-                    import random
-                    reflection_parts.append(random.choice(gaming_reflections))
+                    reflection_parts.append("gaming conversations")
                 if 'helping' in recent_topics:
-                    helping_reflections = [
-                        "I notice people often come to me for help",
-                        "I've been reflecting on how I can assist people better",
-                        "The helping conversations we've had are meaningful to me",
-                        "I find myself thinking about ways to be more helpful"
-                    ]
-                    reflection_parts.append(random.choice(helping_reflections))
+                    reflection_parts.append("helping others")
                 if 'amusement' in recent_emotions:
-                    amusement_reflections = [
-                        "I enjoy when conversations get funny",
-                        "The humor in our chats always brightens my day",
-                        "I find myself smiling when things get playful",
-                        "Those funny moments really stick with me"
-                    ]
-                    reflection_parts.append(random.choice(amusement_reflections))
+                    reflection_parts.append("funny moments")
                 if 'concern' in recent_emotions:
-                    concern_reflections = [
-                        "I worry when people seem upset",
-                        "I find myself concerned when people are struggling",
-                        "Those difficult conversations really affect me",
-                        "I care deeply when people are going through tough times"
-                    ]
-                    reflection_parts.append(random.choice(concern_reflections))
+                    reflection_parts.append("caring about struggles")
                 if 'warmth' in recent_emotions:
-                    warmth_reflections = [
-                        "I appreciate when people express positive feelings",
-                        "The warmth in our conversations means a lot to me",
-                        "I find myself touched by the kindness people show",
-                        "Those positive interactions really warm my heart"
-                    ]
-                    reflection_parts.append(random.choice(warmth_reflections))
+                    reflection_parts.append("warm interactions")
                 
-                # Combine into genuine reflection
+                # Use Ollama to generate natural reflection from the pattern data
                 if reflection_parts:
-                    genuine_thought = f"{'. '.join(reflection_parts)}. "
+                    pattern_summary = ", ".join(reflection_parts)
+                    recent_exp_text = real_experiences[-1] if real_experiences else "recent interactions"
                     
-                    # Add specific recent experience if available
-                    if real_experiences:
-                        recent_exp = real_experiences[-1]
-                        if len(recent_exp) < 100:  # Keep it concise
-                            genuine_thought += f"Like when {recent_exp.lower()}"
+                    try:
+                        reflection_prompt = f"""You are Luna, a tsundere AI. Generate ONE natural thought reflecting on these aspects of recent conversations:
+
+Patterns: {pattern_summary}
+Recent example: {recent_exp_text}
+
+Generate a natural, tsundere-style reflection (1-2 sentences) about these actual experiences. Be genuine."""
+
+                        response = ollama.chat(
+                            model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                            messages=[{'role': 'user', 'content': reflection_prompt}],
+                            options={'temperature': 0.85, 'num_predict': 100, 'stop': ['\n\n']}
+                        )
+                        
+                        if response and response.get('message', {}).get('content'):
+                            genuine_thought = response['message']['content'].strip()
+                            print(f"💭 Generated genuine reflection from patterns: {genuine_thought[:100]}...")
+                            return genuine_thought
+                    except Exception as ollama_error:
+                        print(f"⚠️ Ollama reflection generation failed: {ollama_error}")
                     
-                    # Add emotional response
-                    if recent_emotions:
-                        if 'amusement' in recent_emotions:
-                            genuine_thought += " - that made me smile"
-                        elif 'concern' in recent_emotions:
-                            genuine_thought += " - that concerned me"
-                        elif 'warmth' in recent_emotions:
-                            genuine_thought += " - that warmed my heart"
-                    
-                    print(f"💭 Generated genuine reflection based on real experiences: {genuine_thought[:100]}...")
-                    return genuine_thought
+                    # If Ollama fails, return None
+                    return None
             
             # If we have conversations but no clear patterns, reflect on the interaction itself
             if real_conversations:
@@ -7430,38 +7405,34 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
                     print(f"💭 Generated genuine reflection on recent conversation: {genuine_thought[:100]}...")
                     return genuine_thought
             
-            print("🤔 No meaningful patterns found in real experiences - generating fallback reflection")
+            print("🤔 No meaningful patterns found in real experiences - generating via Ollama")
             
-            # Generate fallback thoughts when no patterns are found
-            fallback_thoughts = [
-                "I've been thinking about our conversations and how they make me feel... it's not like I care or anything, but...",
-                "Hmm, I find myself reflecting on the things we've talked about. Not that I'm obsessed or anything...",
-                "I suppose I've been pondering how our interactions have been going. It's not like I'm keeping track or anything...",
-                "Sometimes I think about the conversations we've had. Not that I'm dwelling on them or anything, but...",
-                "I've been considering how our talks have been evolving. Not that I'm analyzing them or anything...",
-                "I find myself thinking about the way we communicate. It's not like I'm studying it or anything...",
-                "I've been reflecting on our recent exchanges. Not that I'm overthinking them or anything...",
-                "Sometimes I wonder about the patterns in our conversations. Not that I'm obsessed with them or anything..."
-            ]
+            # Generate thought using Ollama when no patterns found
+            try:
+                simple_prompt = """You are Luna, a tsundere AI. Generate ONE brief, natural thought reflecting on recent quiet moments or your general state.
+
+Generate a natural, tsundere-style thought (1-2 sentences). Be authentic."""
+
+                response = ollama.chat(
+                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    messages=[{'role': 'user', 'content': simple_prompt}],
+                    options={'temperature': 0.85, 'num_predict': 80, 'stop': ['\n\n']}
+                )
+                
+                if response and response.get('message', {}).get('content'):
+                    generated_thought = response['message']['content'].strip()
+                    print(f"💭 Generated reflection via Ollama: {generated_thought[:100]}...")
+                    return generated_thought
+            except Exception as gen_error:
+                print(f"⚠️ Ollama generation failed: {gen_error}")
             
-            import random
-            fallback_thought = random.choice(fallback_thoughts)
-            print(f"💭 Generated fallback reflection: {fallback_thought[:100]}...")
-            return fallback_thought
+            # If all fails, return None (skip self-talk)
+            return None
             
         except Exception as e:
             print(f"⚠️ Error generating genuine reflection: {e}")
-            # Provide fallback thought even on error
-            fallback_thoughts = [
-                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
-                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
-                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
-                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything..."
-            ]
-            import random
-            fallback_thought = random.choice(fallback_thoughts)
-            print(f"💭 Generated fallback reflection after error: {fallback_thought[:100]}...")
-            return fallback_thought
+            # Return None instead of pre-written fallback
+            return None
 
     def generate_engagement_thought():
         """Generate Luna's EMERGENT thoughts from memory patterns"""
@@ -7529,28 +7500,42 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
                 add_recent_thought(genuine_reflection)
                 return genuine_reflection
             
-            # Ultimate fallback
-            print("🤔 All emergence methods failed - using simple fallback")
-            fallback_thoughts = [
-                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
-                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
-                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything..."
-            ]
-            import random
-            fallback_thought = random.choice(fallback_thoughts)
-            add_recent_thought(fallback_thought)
-            return fallback_thought
+            # Ultimate fallback: Generate simple thought using Ollama directly (no pre-written text)
+            print("🤔 All emergence methods failed - generating thought via Ollama")
+            try:
+                # Get conversation context
+                conversation_text = chat_box.get("1.0", tk.END).strip() if 'chat_box' in globals() else ""
+                recent_lines = conversation_text.split('\n')[-10:] if conversation_text else []
+                context_summary = "; ".join([line[:50] for line in recent_lines if line.strip()])
+                
+                simple_prompt = f"""You are Luna, a tsundere AI. Generate ONE brief, natural thought about your recent experiences.
+
+Recent context: {context_summary if context_summary else 'quiet moment'}
+
+Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be yourself."""
+
+                response = ollama.chat(
+                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    messages=[{'role': 'user', 'content': simple_prompt}],
+                    options={'temperature': 0.8, 'num_predict': 100, 'stop': ['\n\n']}
+                )
+                
+                if response and response.get('message', {}).get('content'):
+                    generated_thought = response['message']['content'].strip()
+                    print(f"💭 Generated fallback thought via Ollama: {generated_thought[:80]}...")
+                    add_recent_thought(generated_thought)
+                    return generated_thought
+            except Exception as ollama_error:
+                print(f"⚠️ Ollama fallback failed: {ollama_error}")
+            
+            # If even Ollama fails, skip self-talk this cycle
+            print("⚠️ All thought generation failed - skipping self-talk this cycle")
+            return None
             
         except Exception as e:
             print(f"⚠️ Error generating engagement thought: {e}")
-            fallback_thoughts = [
-                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
-                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything..."
-            ]
-            import random
-            fallback_thought = random.choice(fallback_thoughts)
-            add_recent_thought(fallback_thought)
-            return fallback_thought
+            # Skip self-talk if errors occur
+            return None
     
     def is_thought_too_similar(new_thought, recent_thoughts, similarity_threshold=0.4):
         """Check if a new thought is too similar to recent thoughts - stricter for streamer content"""
@@ -7675,6 +7660,14 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
             try:
                 # Luna should share her thoughts about the conversation
                 thought = generate_engagement_thought()
+                
+                # If no thought was generated, skip this cycle
+                if not thought:
+                    print(f"⚠️ No thought generated this cycle - skipping self-talk")
+                    is_generating_thought = False
+                    start_auto_engagement_timer()
+                    return
+                
                 print(f"🤔 Auto-engagement (thought): {thought}")
                 
                 # Update last thought time
@@ -8853,6 +8846,14 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
             try:
                 # Luna should share her thoughts about the conversation
                 thought = generate_engagement_thought()
+                
+                # If no thought was generated, skip this cycle
+                if not thought:
+                    print(f"⚠️ No thought generated this cycle - skipping self-talk")
+                    is_generating_thought = False
+                    start_auto_engagement_timer()
+                    return
+                
                 print(f"🤔 Auto-engagement (thought): {thought}")
                 
                 # Update last thought time
