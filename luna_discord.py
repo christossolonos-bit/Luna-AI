@@ -1238,8 +1238,71 @@ class LunaDiscordBot:
         print(f"🚫 Bot not approved for interaction: {bot_name}")
         return False
     
+    async def _handle_browse_command(self, message):
+        """Handle /browse command to analyze websites"""
+        try:
+            # Extract URL from command
+            command_parts = message.content.split(' ', 1)
+            if len(command_parts) < 2:
+                await message.channel.send("Usage: `/browse <url>` - I'll analyze the website for you!")
+                return
+            
+            url = command_parts[1].strip()
+            
+            # Validate URL format
+            if not url.startswith(('http://', 'https://')):
+                url = 'https://' + url
+            
+            # Send initial response
+            await message.channel.send(f"🌐 Alright, let me check out that website... give me a moment.")
+            
+            # Import web crawler
+            try:
+                from luna_web_crawler import crawl_and_analyze
+                from luna_global_awareness import add_global_conversation
+                
+                # Crawl and analyze with Luna
+                analysis = crawl_and_analyze(
+                    url=url,
+                    username=message.author.display_name,
+                    generate_luna_reply_func=self.luna_ai_callback,
+                    add_to_awareness_func=add_global_conversation if 'add_global_conversation' in dir() else None,
+                    channel=message.channel.name if hasattr(message.channel, 'name') else 'DM'
+                )
+                
+                # Send analysis to Discord
+                # Split long responses if needed (Discord has 2000 char limit)
+                if len(analysis) > 2000:
+                    # Split into chunks
+                    chunks = [analysis[i:i+2000] for i in range(0, len(analysis), 2000)]
+                    for chunk in chunks:
+                        await message.channel.send(chunk)
+                else:
+                    await message.channel.send(analysis)
+                
+                print(f"✅ Web analysis sent to Discord: {url}")
+                
+            except ImportError as e:
+                await message.channel.send(f"❌ Web crawler not available. Error: {e}")
+                print(f"❌ Web crawler import error: {e}")
+            except Exception as e:
+                await message.channel.send(f"Tch... I ran into some issues analyzing that website. Error: {str(e)}")
+                print(f"❌ Browse command error: {e}")
+        
+        except Exception as e:
+            print(f"❌ Error handling browse command: {e}")
+            try:
+                await message.channel.send(f"Sorry, I had trouble with that command. Error: {str(e)}")
+            except:
+                pass
+    
     async def on_message(self, message):
         """Handle incoming messages"""
+        # Check for /browse command first (before other processing)
+        if message.content.startswith('/browse '):
+            await self._handle_browse_command(message)
+            return
+        
         # Process commands first
         await self.bot.process_commands(message)
         

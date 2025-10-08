@@ -53,6 +53,38 @@ except Exception as e:
     GLOBAL_AWARENESS_AVAILABLE = False
     print(f"⚠️ Global Awareness System initialization failed: {e}")
 
+# 🌐 Luna Web Crawler - for analyzing websites
+try:
+    from luna_web_crawler import (
+        initialize_luna_web_crawler, get_luna_web_crawler, crawl_and_analyze
+    )
+    luna_web_crawler = initialize_luna_web_crawler()
+    WEB_CRAWLER_AVAILABLE = True
+    print("🌐 Luna Web Crawler loaded - Luna can browse and analyze websites!")
+except ImportError as e:
+    WEB_CRAWLER_AVAILABLE = False
+    print(f"⚠️ Luna Web Crawler not available: {e}")
+    print("Install required packages: pip install beautifulsoup4")
+except Exception as e:
+    WEB_CRAWLER_AVAILABLE = False
+    print(f"⚠️ Luna Web Crawler initialization failed: {e}")
+
+# 🌟 Luna Emergent Thought System - thoughts emerge from memory patterns
+try:
+    from luna_emergent_thoughts import (
+        initialize_emergent_thought_system, get_emergent_thought_system,
+        generate_emergent_self_talk, get_emergence_statistics
+    )
+    emergent_thought_system = initialize_emergent_thought_system()
+    EMERGENT_THOUGHTS_AVAILABLE = True
+    print("🌟 Emergent Thought System loaded - Luna's thoughts emerge from her memories!")
+except ImportError as e:
+    EMERGENT_THOUGHTS_AVAILABLE = False
+    print(f"⚠️ Emergent Thought System not available: {e}")
+except Exception as e:
+    EMERGENT_THOUGHTS_AVAILABLE = False
+    print(f"⚠️ Emergent Thought System initialization failed: {e}")
+
 # Initialize vector memory system globally
 vector_memory_system = None
 if VECTOR_MEMORY_AVAILABLE:
@@ -1258,8 +1290,8 @@ OLLAMA_CONFIG = {
     "top_p": 0.9,  # Better generation quality
     "top_k": 80,  # More variety in responses
     "repeat_penalty": 1.1,
-    "num_ctx": 4096,  # REDUCED context window for speed
-    "num_predict": 300,  # REDUCED token limit for speed
+    "num_ctx": 2048,  # OPTIMIZED: Further reduced for GUI responsiveness
+    "num_predict": 200,  # OPTIMIZED: Shorter for faster responses
     "stop": ["User:", "Luna:"],  # Only stop on role changes, not on double newlines
     "stream": False,  # Disable streaming for faster responses
 }
@@ -1281,8 +1313,10 @@ DISCORD_OLLAMA_CONFIG = {
 custom_transformer = None
 custom_tokenizer = None
 
-# Simple response cache for Discord to avoid repeated processing
-discord_response_cache = {}
+# Enhanced response cache for all platforms to avoid repeated processing
+response_cache = {}
+response_cache_max_size = 200
+response_cache_ttl = 600  # 10 minutes
 
 # OPTIMIZATION: Add memory retrieval cache for faster repeated queries
 memory_retrieval_cache = {}
@@ -2275,35 +2309,23 @@ def _save_memory_worker(memory_type: str, content: str, mood: str = "soft", impo
         return False
 
 def save_memory(memory_type: str, content: str, mood: str = "soft", importance: int = 1):
-    """Save memory using the queue system"""
+    """Save memory using the queue system - fully non-blocking for GUI"""
     try:
-        # OPTIMIZATION: Use direct save for high importance, queue for low importance
-        if importance >= 4:
-            # High importance - save directly for speed
-            try:
-                return _save_memory_worker(memory_type, content, mood, importance)
-            except Exception as e:
-                print(f"⚠️ Direct memory save failed: {e}")
-                # Fallback to queue
-                
-        # Submit to queue with optimized settings
-        priority = 2 if importance >= 3 else 6  # Adjusted priority levels
+        # Submit to background queue - ALWAYS non-blocking for GUI responsiveness
+        priority = 2 if importance >= 3 else 6
         operation = memory_queue.submit_operation(
             MemoryOperationType.WRITE,
             _save_memory_worker,
             priority=priority,
-            timeout=5.0,  # OPTIMIZATION: Reduced timeout
+            timeout=5.0,
             memory_type=memory_type,
             content=content,
             mood=mood,
             importance=importance
         )
         
-        # OPTIMIZATION: Non-blocking for most memories
-        if importance >= 3:
-            return memory_queue.wait_for_operation(operation, timeout=3.0)  # Reduced timeout
-        else:
-            return True  # Fire and forget for low importance
+        # Fire and forget - don't wait for completion (prevents GUI freezing)
+        return True
             
     except Exception as e:
         print(f"❌ Error queuing memory save: {e}")
@@ -2482,56 +2504,38 @@ def research_memory_database(user_input: str, limit: int = 10, context_type: str
 def get_relevant_memories(user_input: str, limit: int = 5):
     start_operation("memory_retrieval")
     try:
-        # OPTIMIZATION: Check cache first for faster repeated queries
-        cache_key = f"{user_input}:{limit}"
+        # OPTIMIZATION: Check cache first for instant response
+        cache_key = f"{user_input[:100]}:{limit}"
         if cache_key in memory_retrieval_cache:
             cached_result, timestamp = memory_retrieval_cache[cache_key]
             if time.time() - timestamp < memory_cache_ttl:
                 print(f"🚀 Memory cache hit for: '{user_input[:30]}...'")
                 return cached_result
         
-        # Use full memory retrieval for all sources
-            
-        # Try to use BM25 system for better memory retrieval (via queue)
+        # OPTIMIZATION: Use direct BM25 call with timeout protection
         try:
             from bm25_memory_system import bm25_search_memories
             
-            # OPTIMIZATION: Use direct BM25 call for faster response
-            try:
-                # Try direct call first (faster than queue)
-                bm25_memories = bm25_search_memories(user_input, limit)
-                if bm25_memories:
-                    print(f"🧠 BM25 direct retrieved {len(bm25_memories)} relevant memories")
-                    return " | ".join(bm25_memories)
-            except Exception as direct_error:
-                print(f"⚠️ BM25 direct call failed: {direct_error}")
-                
-            # Fallback to queue with very short timeout
-            operation = memory_queue.submit_operation(
-                MemoryOperationType.BM25_REBUILD,
-                bm25_search_memories,
-                1,  # HIGHEST priority
-                2.0,  # VERY SHORT timeout
-                user_input,
-                limit
-            )
-            
-            # Wait for BM25 results with VERY SHORT timeout
-            bm25_memories = memory_queue.wait_for_operation(operation, timeout=1.5)  # VERY SHORT timeout
-            
-            if bm25_memories:
-                result = " | ".join(bm25_memories)
-                print(f"🧠 BM25 retrieved {len(bm25_memories)} relevant memories")
-                # OPTIMIZATION: Cache the result
-                _cache_memory_result(cache_key, result)
-                return result
+            # Use timeout wrapper to prevent hanging
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(bm25_search_memories, user_input, limit)
+                try:
+                    bm25_memories = future.result(timeout=1.0)  # 1 second max
+                    if bm25_memories:
+                        result = " | ".join(bm25_memories)
+                        print(f"🧠 BM25 retrieved {len(bm25_memories)} memories (fast)")
+                        _cache_memory_result(cache_key, result)
+                        return result
+                except concurrent.futures.TimeoutError:
+                    print(f"⚠️ BM25 retrieval timeout, skipping for speed")
+                    return ""
         except ImportError:
             pass
         except Exception as e:
-            print(f"⚠️ BM25 memory retrieval error: {e}")
+            print(f"⚠️ BM25 error (non-blocking): {e}")
         
-        # For faster responses, skip memory retrieval during conversation if BM25 not available
-        # Memories will be saved in background but not retrieved for speed
+        # Skip memory retrieval for speed - GUI responsiveness is priority
         return ""
     finally:
         end_operation("memory_retrieval")
@@ -2900,41 +2904,26 @@ def optimize_memory_database():
         pass
 
 def save_conversation(user_message: str, luna_response: str, mood: str, voice_used: str):
-    try:
-        with db_lock:
-            conn = sqlite3.connect('luna_memories.db', timeout=10.0)  # OPTIMIZATION: Reduced timeout
-            # Enable WAL mode for better concurrency
-            conn.execute('PRAGMA journal_mode=WAL')
-            
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO conversations (user_message, luna_response, mood, voice_used)
-                VALUES (?, ?, ?, ?)
-            ''', (user_message, luna_response, mood, voice_used))
-            conn.commit()
-            conn.close()
-            
-            # Trigger compression if we have a lot of data
-            if MEMORY_COMPRESSION_AVAILABLE:
-                try:
-                    # Check if we should compress (every 100 conversations)
-                    cursor.execute('SELECT COUNT(*) FROM conversations')
-                    total_conversations = cursor.fetchone()[0]
-                    if total_conversations % 100 == 0:
-                        print("🗜️ Triggering memory compression...")
-                        # Submit compression to queue with low priority
-                        memory_queue.submit_operation(
-                            MemoryOperationType.COMPRESS,
-                            compress_luna_memories,
-                            priority=8,  # Low priority - background task
-                            timeout=300.0,  # 5 minute timeout for compression
-                            force=True
-                        )
-                except:
-                    pass
-    except Exception as e:
-        # Silently continue without saving to avoid blocking the main conversation
-        pass
+    """Save conversation in background thread - fully non-blocking"""
+    def save_in_background():
+        try:
+            with db_lock:
+                conn = sqlite3.connect('luna_memories.db', timeout=5.0)
+                conn.execute('PRAGMA journal_mode=WAL')
+                
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO conversations (user_message, luna_response, mood, voice_used)
+                    VALUES (?, ?, ?, ?)
+                ''', (user_message, luna_response, mood, voice_used))
+                conn.commit()
+                conn.close()
+                print(f"💾 Conversation saved (background)")
+        except Exception as e:
+            print(f"⚠️ Background save error: {e}")
+    
+    # Always run in background thread
+    threading.Thread(target=save_in_background, daemon=True).start()
 
 def compress_memories_manual():
     """Manually trigger memory compression using queue system"""
@@ -3206,8 +3195,8 @@ def build_prompt(user_input: str, is_twitch_message: bool = False, twitch_userna
     news_context = ""
     # News scraper removed - news context not available
     
-    # Build conversation history
-    chat_history = "\n".join(conversation_history[-10:])
+    # Build conversation history (reduced for speed)
+    chat_history = "\n".join(conversation_history[-5:])  # Only last 5 for GUI responsiveness
     
     # Add Twitch context if this is a Twitch message
     twitch_context = ""
@@ -3366,38 +3355,79 @@ def search_vector_memories(query: str, memory_type: str = None, emotion: str = N
     return vector_results
 
 def generate_luna_reply(user_input: str, username: str = "Chris", source: str = "gui"):
-    # Get relevant vector memories for context
+    # OPTIMIZATION: Check global response cache first (all platforms)
+    cache_key = f"{source}:{username}:{user_input[:100]}"
+    if cache_key in response_cache:
+        cached_response, timestamp = response_cache[cache_key]
+        if time.time() - timestamp < response_cache_ttl:
+            print(f"🚀 Cache hit for {source}/{username}: {user_input[:30]}...")
+            return cached_response
+    
+    # Get relevant vector memories for context (ALL platforms with timeout protection)
     vector_context = ""
+    user_specific_context = ""
     if vector_memory_system:
         try:
-            relevant_memories = search_vector_memories(
-                query=user_input,
-                context='gaming' if source == 'twitch' else 'streaming' if source == 'discord' else 'general',
-                limit=3
-            )
+            import concurrent.futures
             
-            if relevant_memories:
-                context_memories = []
-                for memory in relevant_memories:
-                    if memory and isinstance(memory, dict) and 'score' in memory and 'content' in memory:
-                        if memory['score'] > 0.5:  # Only use high-relevance memories
-                            context_memories.append(memory['content'][:100] + "...")
-                
-                if context_memories:
-                    vector_context = f"\nRelevant memories: {'; '.join(context_memories)}\n"
-                    print(f"🧠 Using {len(context_memories)} vector memories for context")
+            # Search for user-specific memories and general conversation context
+            def search_memories_parallel():
+                results = {}
+                try:
+                    # Search general conversation context
+                    general_memories = search_vector_memories(
+                        query=user_input,
+                        context='gaming' if source == 'twitch' else 'streaming' if source == 'discord' else 'general',
+                        limit=3
+                    )
+                    results['general'] = general_memories
+                    
+                    # Search user-specific memories (conversations with this specific user)
+                    user_memories = search_vector_memories(
+                        query=f"{username} conversation",
+                        context='gaming' if source == 'twitch' else 'streaming' if source == 'discord' else 'general',
+                        limit=2
+                    )
+                    results['user'] = user_memories
+                except Exception as e:
+                    print(f"⚠️ Memory search error: {e}")
+                    results['general'] = []
+                    results['user'] = []
+                return results
+            
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(search_memories_parallel)
+                try:
+                    memory_results = future.result(timeout=1.0)  # 1 second max for all platforms
+                    
+                    # Process general memories
+                    if memory_results.get('general'):
+                        context_memories = []
+                        for memory in memory_results['general']:
+                            if memory and isinstance(memory, dict) and 'score' in memory and 'content' in memory:
+                                if memory['score'] > 0.5:
+                                    context_memories.append(memory['content'][:100] + "...")
+                        
+                        if context_memories:
+                            vector_context = f"\nRelevant conversation context: {'; '.join(context_memories)}\n"
+                            print(f"🧠 Using {len(context_memories)} general memories for {source}")
+                    
+                    # Process user-specific memories
+                    if memory_results.get('user'):
+                        user_memories = []
+                        for memory in memory_results['user']:
+                            if memory and isinstance(memory, dict) and 'score' in memory and 'content' in memory:
+                                if memory['score'] > 0.4:  # Slightly lower threshold for user-specific
+                                    user_memories.append(memory['content'][:150] + "...")
+                        
+                        if user_memories:
+                            user_specific_context = f"\nPast conversations with {username}: {'; '.join(user_memories)}\n"
+                            print(f"🧠 Found {len(user_memories)} memories about {username} on {source}")
+                    
+                except concurrent.futures.TimeoutError:
+                    print(f"⚠️ Vector memory timeout for {source}, skipping")
         except Exception as e:
             print(f"⚠️ Error getting vector memory context: {e}")
-    
-    # OPTIMIZED: Check cache for Discord responses to avoid repeated processing
-    if source in ["discord", "discord_bot"]:
-        cache_key = f"{username}:{user_input[:50]}"
-        if cache_key in discord_response_cache:
-            cached_response, timestamp = discord_response_cache[cache_key]
-            # Use cache if less than 5 minutes old
-            if time.time() - timestamp < 300:
-                print(f"🎮 Using cached Discord response for {username}")
-                return cached_response, True
     try:
         response_start_time = time.time()
         track_response_time()
@@ -3427,6 +3457,26 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
         # Add vector memory context to the enhanced input
         if vector_context:
             enhanced_input = f"{vector_context}{enhanced_input}"
+        
+        # Add user-specific context for personalized responses
+        if user_specific_context:
+            enhanced_input = f"{user_specific_context}{enhanced_input}"
+            print(f"🧠 Added personalized context for {username}")
+        
+        # Add Global Awareness user context for cross-platform memory
+        global_awareness_context = ""
+        if GLOBAL_AWARENESS_AVAILABLE and source in ['discord', 'twitch']:
+            try:
+                from luna_global_awareness import get_global_awareness
+                awareness = get_global_awareness()
+                if awareness:
+                    user_summary = awareness.get_user_conversation_summary(username, source)
+                    if user_summary:
+                        global_awareness_context = f"\n🌍 User history: {user_summary}\n"
+                        enhanced_input = f"{global_awareness_context}{enhanced_input}"
+                        print(f"🌍 Added global awareness context for {username}")
+            except Exception as e:
+                print(f"⚠️ Error getting global awareness context: {e}")
         
         # Chain of Thought system DISABLED - was making responses too verbose and robotic
         # Users reported it was "messing up Luna's thinking" by adding unnecessary analytical frameworks
@@ -3719,7 +3769,21 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
                     if len(user_input.split()) > 3:
                         save_memory_with_rag("conversation", f"{username}: {user_input} | Luna: {reply[:100]}", mood, 2, f"Voice used: {mood}")
                     
-
+                    # Save to Global Awareness for GUI conversations
+                    if GLOBAL_AWARENESS_AVAILABLE and source == 'gui':
+                        try:
+                            add_global_conversation(
+                                platform='gui',
+                                channel='main',
+                                username=username,
+                                user_message=user_input,
+                                luna_response=reply,
+                                emotion=mood,
+                                context='general'
+                            )
+                            print(f"🌍 GUI conversation added to Global Awareness")
+                        except Exception as ga_error:
+                            print(f"⚠️ Global Awareness save error: {ga_error}")
                     
                     print(f"💾 Saved quality conversation to database and training data")
                 except Exception as e:
@@ -3848,16 +3912,17 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
         except Exception as e:
             print(f"⚠️ Expression trigger error: {e}")
         
-        # OPTIMIZED: Cache Discord responses
-        if source in ["discord", "discord_bot"] and reply:
-            cache_key = f"{username}:{user_input[:50]}"
-            discord_response_cache[cache_key] = (reply, time.time())
+        # OPTIMIZED: Cache all responses for faster retrieval
+        if reply and success:
+            cache_key = f"{source}:{username}:{user_input[:100]}"
+            response_cache[cache_key] = ((reply, success), time.time())
             # Keep cache size manageable
-            if len(discord_response_cache) > 100:
+            if len(response_cache) > response_cache_max_size:
                 # Remove oldest entries
-                oldest_key = min(discord_response_cache.keys(), 
-                               key=lambda k: discord_response_cache[k][1])
-                del discord_response_cache[oldest_key]
+                oldest_key = min(response_cache.keys(), 
+                               key=lambda k: response_cache[k][1])
+                del response_cache[oldest_key]
+            print(f"💾 Cached response for {source}/{username}")
         
         # Reset the flag
         generate_luna_reply._response_generation_in_progress = False
@@ -4934,6 +4999,7 @@ def create_gui():
         safe_chat_insert("🎭 VSeeFace: Luna automatically triggers expressions!\n", "system")
         safe_chat_insert("🎮 Twitch: Auto-connects to chat on startup!\n", "system")
         safe_chat_insert("🌍 Global Awareness: Tracks conversations across all platforms!\n", "system")
+        safe_chat_insert("🌟 Emergent Thoughts: Luna's thoughts arise from her memory patterns!\n", "system")
         # YouTube integration removed
         safe_chat_insert("📊 Perf: Click to see performance metrics\n\n", "system")
         safe_chat_insert("🎤 Voice system: ENABLED and ready!\n", "system")
@@ -5434,6 +5500,73 @@ def create_gui():
                 
         except Exception as e:
             safe_chat_insert( f"❌ Error: {e}\n", "system")
+    
+    def handle_emergence_command(command: str):
+        """Handle Emergent Thought System commands"""
+        if not EMERGENT_THOUGHTS_AVAILABLE:
+            safe_chat_insert( "❌ Emergent Thought System not available\n", "system")
+            return
+        
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "🌟 Emergent Thought commands:\n", "system")
+            safe_chat_insert( "  /emergence stats - Show emergence statistics\n", "system")
+            safe_chat_insert( "  /emergence graph - Show pattern graph details\n", "system")
+            safe_chat_insert( "  /emergence generate - Force generate an emergent thought\n", "system")
+            safe_chat_insert( "  /emergence history - Show recent emergent thoughts\n", "system")
+            return
+        
+        try:
+            from luna_emergent_thoughts import get_emergent_thought_system, generate_emergent_self_talk
+            emergence_system = get_emergent_thought_system()
+            if not emergence_system:
+                safe_chat_insert( "❌ Emergent Thought System not initialized\n", "system")
+                return
+            
+            if parts[1] == "stats":
+                stats = emergence_system.get_emergence_stats()
+                safe_chat_insert( "🌟 Emergent Thought System Statistics:\n", "system")
+                safe_chat_insert( f"• Total nodes in graph: {stats.get('total_nodes', 0)}\n", "system")
+                safe_chat_insert( f"• Total connections: {stats.get('total_connections', 0)}\n", "system")
+                safe_chat_insert( f"• Avg connections per node: {stats.get('avg_connections_per_node', 0):.2f}\n", "system")
+                safe_chat_insert( f"• Total emergences: {stats.get('total_emergences', 0)}\n", "system")
+                safe_chat_insert( f"• Recent emergences (1h): {stats.get('recent_emergences', 0)}\n", "system")
+                safe_chat_insert( f"• Hebbian threshold: {stats.get('hebbian_threshold', 0):.2f}\n", "system")
+                safe_chat_insert( f"• Activation threshold: {stats.get('activation_threshold', 0):.2f}\n", "system")
+                safe_chat_insert( f"• Decay rate: {stats.get('decay_rate', 0):.2f}\n", "system")
+            
+            elif parts[1] == "graph":
+                stats = emergence_system.get_emergence_stats()
+                safe_chat_insert( "🌟 Pattern Graph Details:\n", "system")
+                safe_chat_insert( f"• Graph represents Luna's emergent concept connections\n", "system")
+                safe_chat_insert( f"• Each node is a concept from her memories\n", "system")
+                safe_chat_insert( f"• Connections strengthen when concepts co-occur (Hebbian learning)\n", "system")
+                safe_chat_insert( f"• Current complexity: {stats.get('total_nodes', 0)} concepts, {stats.get('total_connections', 0)} links\n", "system")
+                safe_chat_insert( f"• Weak connections decay over time to prevent bloat\n", "system")
+            
+            elif parts[1] == "generate":
+                safe_chat_insert( "🌟 Generating emergent thought from memory patterns...\n", "system")
+                emergent_thought = generate_emergent_self_talk(ollama.chat, hours=48)
+                if emergent_thought:
+                    safe_chat_insert( f"Luna: {emergent_thought}\n", "luna")
+                    safe_chat_insert( "  (This thought emerged from Luna's memory graph)\n", "system")
+                else:
+                    safe_chat_insert( "❌ Could not generate emergent thought - not enough memory patterns\n", "system")
+            
+            elif parts[1] == "history":
+                if emergence_system.emergence_history:
+                    safe_chat_insert( "🌟 Recent Emergent Thoughts:\n", "system")
+                    for i, emergence in enumerate(emergence_system.emergence_history[-5:], 1):
+                        articulated = emergence['articulated'][:100] + "..." if len(emergence['articulated']) > 100 else emergence['articulated']
+                        safe_chat_insert( f"  {i}. {articulated}\n", "system")
+                else:
+                    safe_chat_insert( "  No emergent thoughts generated yet\n", "system")
+            
+            else:
+                safe_chat_insert( "Unknown emergence command. Available: stats, graph, generate, history\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
         
     
     def handle_transformer_status_command(command: str):
@@ -5862,6 +5995,12 @@ def create_gui():
             entry.delete(0, tk.END)
             return
         
+        # Check for Emergence commands
+        if user_message.lower().startswith('/emergence'):
+            handle_emergence_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
         # Check for Custom Transformer status commands
         if user_message.lower() in ['/transformer', '/custom_brain', '/brain_status']:
             handle_transformer_status_command(user_message)
@@ -5977,95 +6116,112 @@ def create_gui():
         safe_chat_insert( f"You: {user_message}\n", "user")
         entry.delete(0, tk.END)
         
-        # Show typing indicator
+        # Show typing indicator with animation
         safe_chat_insert( "Luna is typing...\n", "typing")
         root.update()
+        
+        # Add progress tracking for long operations
+        progress_start_time = time.time()
         
         # Set generation flag
         is_generating_response = True
         
-        try:
-            # Try to connect to server with retry
-            for attempt in range(3):
-                try:
-                    response = requests.post(LUNA_ENDPOINT, json={"message": user_message})
-                    luna_reply = response.json().get("response", "[No reply]")
-                    break
-                except requests.exceptions.ConnectionError:
-                    if attempt < 2:
+        # Process in background thread to keep GUI responsive
+        def process_message_async():
+            global is_generating_response
+            try:
+                # Add periodic GUI updates to prevent freezing
+                def keep_gui_alive():
+                    """Periodically update GUI to prevent freezing"""
+                    if is_generating_response:
+                        root.update_idletasks()
+                        root.after(100, keep_gui_alive)  # Check every 100ms
+                
+                # Start keep-alive mechanism
+                root.after(100, keep_gui_alive)
+                
+                # Try to connect to server with retry
+                luna_reply = None
+                for attempt in range(3):
+                    try:
+                        response = requests.post(LUNA_ENDPOINT, json={"message": user_message}, timeout=10)
+                        luna_reply = response.json().get("response", "[No reply]")
+                        response_mood = response.json().get("mood", "soft")
+                        break
+                    except requests.exceptions.Timeout:
+                        if attempt < 2:
+                            root.after(0, lambda a=attempt: safe_chat_insert(f"Luna is thinking... ({a + 1}/3)\n", "typing"))
+                            time.sleep(0.5)
+                        else:
+                            raise Exception("Response timeout - Luna is thinking too hard. Try a simpler question.")
+                    except requests.exceptions.ConnectionError:
+                        if attempt < 2:
+                            root.after(0, lambda a=attempt: safe_chat_insert(f"Connecting to server... ({a + 1}/3)\n", "typing"))
+                            time.sleep(1)
+                        else:
+                            raise Exception("Cannot connect to Luna's server. Please restart the application.")
+                    except Exception as e:
+                        raise e
+                
+                # Update GUI on main thread
+                def update_gui_with_response():
+                    global is_generating_response
+                    try:
+                        # Remove typing indicator and add Luna's reply
                         chat_box.delete("end-2l", "end")
-                        safe_chat_insert( f"Connecting to server... (attempt {attempt + 1}/3)\n", "typing")
-                        root.update()
-                        time.sleep(1)
-                    else:
-                        raise Exception("Cannot connect to Luna's server. Please restart the application.")
-                except Exception as e:
-                    raise e
-            
-            # Remove typing indicator and add Luna's reply
-            chat_box.delete("end-2l", "end")
-            
-            # Check if custom transformer was used and apply orange color
-            if luna_reply.startswith("[CUSTOM_TRANSFORMER]"):
-                # Remove the marker and use orange color
-                clean_reply = luna_reply.replace("[CUSTOM_TRANSFORMER]", "")
-                safe_chat_insert( f"Luna: {clean_reply}\n", "luna_custom")
-            else:
-                # Use normal pink color for Ollama responses
-                safe_chat_insert( f"Luna: {luna_reply}\n", "luna")
-            
-            # Reset auto-engagement timer after Luna responds
-            start_auto_engagement_timer()
-            
-            # Clear generation flag
-            is_generating_response = False
-            
-            # Speak if voice is enabled (using mood from API response)
-            if voice_enabled.get():
-                try:
-                    mood = response.json().get("mood", "soft")
-                    
-                    def speak_in_gui():
-                        """Speak the response in GUI thread"""
-                        try:
-                            # Use robust TTS function for consistency
-                            speak_response(luna_reply, "GUI", user_message)
+                        
+                        # Check if custom transformer was used and apply orange color
+                        if luna_reply.startswith("[CUSTOM_TRANSFORMER]"):
+                            # Remove the marker and use orange color
+                            clean_reply = luna_reply.replace("[CUSTOM_TRANSFORMER]", "")
+                            safe_chat_insert( f"Luna: {clean_reply}\n", "luna_custom")
+                        else:
+                            # Use normal pink color for Ollama responses
+                            safe_chat_insert( f"Luna: {luna_reply}\n", "luna")
+                        
+                        # Reset auto-engagement timer after Luna responds
+                        start_auto_engagement_timer()
+                        
+                        # Clear generation flag
+                        is_generating_response = False
+                        
+                        # Speak if voice is enabled (in background)
+                        if voice_enabled.get():
+                            def voice_worker():
+                                try:
+                                    speak_response(luna_reply, "GUI", user_message)
+                                    from voice_engine import cleanup_tts_cache
+                                    cleanup_tts_cache()
+                                except Exception as e:
+                                    print(f"🎤 Voice error: {e}")
                             
-                            # Clean up TTS cache after speaking
+                            threading.Thread(target=voice_worker, daemon=True).start()
+                        else:
                             try:
                                 from voice_engine import cleanup_tts_cache
                                 cleanup_tts_cache()
                             except Exception as cleanup_error:
                                 print(f"🗑️ TTS cache cleanup error: {cleanup_error}")
-                        except Exception as e:
-                            print(f"🎤 Voice error in GUI: {e}")
                     
-                    # Run voice in background thread to avoid blocking GUI
-                    def voice_worker():
-                        """Background worker for voice processing"""
-                        try:
-                            speak_in_gui()
-                        except Exception as e:
-                            print(f"🎤 Voice worker error: {e}")
-                    
-                    # Start voice in background thread
-                    voice_thread = threading.Thread(target=voice_worker, daemon=True)
-                    voice_thread.start()
-                    
-                except Exception as e:
-                    print(f"Voice toggle error: {e}")
-                    # Don't let voice errors affect the GUI
-            else:
-                # If voice is disabled, still clean up any TTS cache that might have been generated
-                try:
-                    from voice_engine import cleanup_tts_cache
-                    cleanup_tts_cache()
-                except Exception as cleanup_error:
-                    print(f"🗑️ Non-voice TTS cache cleanup error: {cleanup_error}")
+                    except Exception as gui_error:
+                        print(f"❌ GUI update error: {gui_error}")
+                        is_generating_response = False
+                
+                # Schedule GUI update on main thread
+                root.after(0, update_gui_with_response)
+                
+            except Exception as e:
+                # Update GUI with error on main thread
+                def show_error():
+                    global is_generating_response
+                    chat_box.delete("end-2l", "end")
+                    safe_chat_insert( f"Error: {e}\n", "error")
+                    is_generating_response = False
+                
+                root.after(0, show_error)
         
-        except Exception as e:
-            chat_box.delete("end-2l", "end")
-            safe_chat_insert( f"Error: {e}\n", "error")
+        # Start async processing thread
+        threading.Thread(target=process_message_async, daemon=True).start()
         
     
     # Voice recognition function
@@ -7308,9 +7464,9 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
             return fallback_thought
 
     def generate_engagement_thought():
-        """Generate Luna's genuine thoughts based on real experiences and memories"""
+        """Generate Luna's EMERGENT thoughts from memory patterns"""
         try:
-            # First, check for very recent chat activity that should change the topic
+            # First, check for very recent chat activity for immediate response
             recent_chat_activity = check_recent_chat_activity()
             if recent_chat_activity:
                 print(f"💬 Recent chat activity detected, generating responsive thought...")
@@ -7319,7 +7475,24 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
                     add_recent_thought(responsive_thought)
                     return responsive_thought
             
-            # Use Luna's sophisticated memory reflection system
+            # EMERGENT THOUGHT GENERATION: Thoughts arise from memory patterns
+            if EMERGENT_THOUGHTS_AVAILABLE:
+                try:
+                    print("🌟 Generating emergent thought from memory graph...")
+                    emergent_thought = generate_emergent_self_talk(ollama.chat, hours=24)
+                    
+                    if emergent_thought:
+                        # Check if too similar to recent thoughts
+                        if not is_thought_too_similar(emergent_thought, get_recent_thoughts()):
+                            print(f"🌟 EMERGENT: {emergent_thought[:100]}...")
+                            add_recent_thought(emergent_thought)
+                            return emergent_thought
+                        else:
+                            print(f"⚠️ Emergent thought too similar, trying fallback")
+                except Exception as e:
+                    print(f"⚠️ Emergent thought generation error: {e}")
+            
+            # Fallback: Use Luna's memory reflection system
             try:
                 from luna_memory_reflection import get_dynamic_self_talk_thought
                 
@@ -7328,12 +7501,12 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
                 try:
                     if 'chat_box' in globals() and chat_box:
                         chat_text = chat_box.get("1.0", tk.END).strip()
-                        recent_lines = chat_text.split('\n')[-20:]  # Last 20 lines
+                        recent_lines = chat_text.split('\n')[-20:]
                         recent_messages = [line for line in recent_lines if line.strip() and ('Chris:' in line or 'Luna' in line)]
                 except:
                     pass
                 
-                # Generate thought using Luna's memory reflection system
+                # Generate thought using memory reflection
                 dynamic_thought = get_dynamic_self_talk_thought(
                     has_recent_activity=len(recent_messages) > 0,
                     hours=72,
@@ -7350,21 +7523,18 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
             except Exception as e:
                 print(f"⚠️ Error using memory reflection system: {e}")
             
-            # Fallback to generate_genuine_reflection if memory reflection fails
+            # Last resort: Generate genuine reflection
             genuine_reflection = generate_genuine_reflection()
             if genuine_reflection:
                 add_recent_thought(genuine_reflection)
                 return genuine_reflection
             
-            # If no genuine reflection was possible, generate a simple fallback thought
-            print("🤔 No genuine reflection possible - generating simple fallback thought")
+            # Ultimate fallback
+            print("🤔 All emergence methods failed - using simple fallback")
             fallback_thoughts = [
                 "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
                 "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
-                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
-                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything...",
-                "Sometimes I think about the conversations we've had. Not that I'm dwelling on them or anything...",
-                "I find myself thinking about the way we communicate. It's not like I'm studying it or anything..."
+                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything..."
             ]
             import random
             fallback_thought = random.choice(fallback_thoughts)
@@ -7373,12 +7543,9 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
             
         except Exception as e:
             print(f"⚠️ Error generating engagement thought: {e}")
-            # Provide fallback thought even on error
             fallback_thoughts = [
                 "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
-                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
-                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
-                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything..."
+                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything..."
             ]
             import random
             fallback_thought = random.choice(fallback_thoughts)

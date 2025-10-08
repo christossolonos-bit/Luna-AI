@@ -168,6 +168,45 @@ class GlobalAwarenessSystem:
         except Exception as e:
             print(f"❌ Error adding conversation to global awareness: {e}")
     
+    def get_user_conversation_summary(self, username: str, platform: str = None) -> str:
+        """Get a text summary of user's conversations for context injection"""
+        try:
+            context = self.get_user_context(username, platform, limit=5)
+            
+            if 'error' in context or not context.get('recent_conversations'):
+                return ""
+            
+            # Create concise summary
+            summary_parts = []
+            
+            # Add platform info
+            if context.get('platforms'):
+                platforms_str = ', '.join(context['platforms'])
+                summary_parts.append(f"{username} is active on: {platforms_str}")
+            
+            # Add recent topics from conversations
+            recent_topics = set()
+            for conv in context['recent_conversations'][:3]:
+                # Extract key words from user messages
+                words = conv['user_message'].lower().split()
+                for word in words:
+                    if len(word) > 4:
+                        recent_topics.add(word)
+            
+            if recent_topics:
+                topics_str = ', '.join(list(recent_topics)[:5])
+                summary_parts.append(f"Recent topics: {topics_str}")
+            
+            # Add message count
+            if context.get('total_messages', 0) > 0:
+                summary_parts.append(f"{context['total_messages']} total messages")
+            
+            return ". ".join(summary_parts) + "." if summary_parts else ""
+            
+        except Exception as e:
+            print(f"⚠️ Error creating user summary: {e}")
+            return ""
+    
     def get_user_context(self, username: str, platform: str = None, limit: int = 10) -> Dict:
         """Get comprehensive context about a user across all platforms"""
         try:
