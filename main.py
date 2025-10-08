@@ -37,17 +37,21 @@ except ImportError as e:
     print(f"⚠️ Vector memory system not available: {e}")
     VECTOR_MEMORY_AVAILABLE = False
 
-# Import Graphiti integration
+# 🌍 Global Awareness System - tracks conversations across all platforms
 try:
-    from luna_graphiti_integration import (
-        initialize_luna_graphiti, search_luna_graphiti_memories, 
-        add_luna_graphiti_conversation, get_luna_graphiti_insights
+    from luna_global_awareness import (
+        initialize_global_awareness, get_global_awareness, add_global_conversation,
+        get_user_global_context, get_cross_platform_insights
     )
-    GRAPHITI_AVAILABLE = True
-    print("🧠 Luna Graphiti Integration loaded")
+    global_awareness_system = initialize_global_awareness()
+    GLOBAL_AWARENESS_AVAILABLE = True
+    print("🌍 Global Awareness System loaded - Luna tracks conversations across all platforms!")
 except ImportError as e:
-    GRAPHITI_AVAILABLE = False
-    print(f"⚠️ Graphiti integration not available: {e}")
+    GLOBAL_AWARENESS_AVAILABLE = False
+    print(f"⚠️ Global Awareness System not available: {e}")
+except Exception as e:
+    GLOBAL_AWARENESS_AVAILABLE = False
+    print(f"⚠️ Global Awareness System initialization failed: {e}")
 
 # Initialize vector memory system globally
 vector_memory_system = None
@@ -59,15 +63,7 @@ if VECTOR_MEMORY_AVAILABLE:
         print(f"⚠️ Failed to initialize vector memory system: {e}")
         vector_memory_system = None
 
-# Initialize Graphiti system globally
-graphiti_system = None
-if GRAPHITI_AVAILABLE:
-    try:
-        graphiti_system = initialize_luna_graphiti()
-        print("🧠 Luna Graphiti system initialized")
-    except Exception as e:
-        print(f"⚠️ Graphiti system initialization failed: {e}")
-        graphiti_system = None
+# Graphiti system removed - using global awareness system instead
 
 from collections import Counter
 import queue
@@ -3262,18 +3258,9 @@ def build_prompt(user_input: str, is_twitch_message: bool = False, twitch_userna
     if research_context:
         prompt += f"\n{research_context}\n"
     
-    # Add Chain of Thought reasoning enhancement if available
-    cot_enhancement = ""
-    if CHAIN_OF_THOUGHT_AVAILABLE:
-        try:
-            from chain_of_thought_system import get_chain_of_thought_system
-            cot_system = get_chain_of_thought_system()
-            if cot_system:
-                cot_enhancement = cot_system.get_cot_prompt_enhancement(user_input, f"Source: {source}, Username: {username}")
-                if cot_enhancement:
-                    prompt += f"\n{cot_enhancement}\n"
-        except Exception as e:
-            print(f"⚠️ CoT enhancement error: {e}")
+    # Chain of Thought reasoning enhancement DISABLED
+    # Was making Luna's responses overly analytical and verbose
+    # Users prefer natural, conversational responses without step-by-step reasoning frameworks
     
     # Standard prompt ending for all sources
     prompt += f"{chat_history}\n{username}: {user_input}\nLuna:"
@@ -3348,18 +3335,8 @@ def _generate_external_legion_reply(user_input: str, username: str = "Chris", so
 
 def search_vector_memories(query: str, memory_type: str = None, emotion: str = None, 
                           context: str = None, limit: int = 5) -> List[Dict]:
-    """Search vector memories for relevant context with Graphiti enhancement"""
-    global vector_memory_system, graphiti_system
-    
-    # Try Graphiti first for enhanced retrieval
-    graphiti_results = []
-    if GRAPHITI_AVAILABLE and graphiti_system:
-        try:
-            graphiti_results = search_luna_graphiti_memories(query, limit)
-            if graphiti_results:
-                print(f"🧠 Graphiti found {len(graphiti_results)} enhanced results")
-        except Exception as e:
-            print(f"⚠️ Graphiti search failed: {e}")
+    """Search vector memories for relevant context"""
+    global vector_memory_system
     
     # Fallback to vector memory system
     vector_results = []
@@ -3385,21 +3362,8 @@ def search_vector_memories(query: str, memory_type: str = None, emotion: str = N
         except Exception as e:
             print(f"⚠️ Error searching vector memories: {e}")
     
-    # Combine and rank results
-    all_results = graphiti_results + vector_results
-    
-    # Remove duplicates and rank by score
-    seen_contents = set()
-    unique_results = []
-    for result in all_results:
-        content_key = result['content'][:100]  # Use first 100 chars as key
-        if content_key not in seen_contents:
-            seen_contents.add(content_key)
-            unique_results.append(result)
-    
-    # Sort by score and return top results
-    unique_results.sort(key=lambda x: x.get('score', 0), reverse=True)
-    return unique_results[:limit]
+    # Return vector results directly
+    return vector_results
 
 def generate_luna_reply(user_input: str, username: str = "Chris", source: str = "gui"):
     # Get relevant vector memories for context
@@ -3464,24 +3428,11 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
         if vector_context:
             enhanced_input = f"{vector_context}{enhanced_input}"
         
-        # Add Chain of Thought reasoning for complex questions
-        try:
-            from chain_of_thought_system import ChainOfThoughtSystem
-            cot_system = ChainOfThoughtSystem()
-            
-            # Check if this is a complex question that would benefit from CoT
-            question_type = cot_system.detect_question_type(user_input)
-            if question_type in ['factual', 'mathematical', 'logical']:
-                print(f"🧠 Chain of Thought detected: {question_type} question")
-                # Add CoT context to help Luna reason through the problem
-                cot_context = cot_system.generate_chain_of_thought(user_input, question_type)
-                if cot_context:
-                    enhanced_input = f"[Chain of Thought: {cot_context}] {enhanced_input}"
-                    print(f"🔗 Added CoT context for {question_type} reasoning")
-        except ImportError as e:
-            print(f"⚠️ Chain of Thought system not available: {e}")
-        except Exception as e:
-            print(f"⚠️ Error using Chain of Thought system: {e}")
+        # Chain of Thought system DISABLED - was making responses too verbose and robotic
+        # Users reported it was "messing up Luna's thinking" by adding unnecessary analytical frameworks
+        # to simple conversations like greetings and casual questions.
+        # 
+        # Original CoT code removed to restore natural conversation flow
         
         # 🎯 Get pairing engine suggestions if available
         pairing_suggestions = []
@@ -4514,24 +4465,25 @@ def intelligent_tuple_unpack(reply_result, platform_name="Unknown"):
 
 def save_conversation_to_vector_memory(user_message: str, luna_response: str, 
                                      emotion: str = 'neutral', context: str = 'general',
-                                     platform: str = 'gui', user_id: str = None):
-    """Save conversation to vector memory system and Graphiti for enhanced memory processing"""
-    global vector_memory_system, graphiti_system
+                                     platform: str = 'gui', user_id: str = None, channel: str = None, username: str = None):
+    """Save conversation to vector memory system and global awareness"""
+    global vector_memory_system
     
-    # Save to Graphiti knowledge graph first
-    if GRAPHITI_AVAILABLE and graphiti_system:
+    # Add to Global Awareness System
+    if GLOBAL_AWARENESS_AVAILABLE and username and channel:
         try:
-            add_luna_graphiti_conversation(
+            add_global_conversation(
+                platform=platform,
+                channel=channel,
+                username=username,
                 user_message=user_message,
                 luna_response=luna_response,
                 emotion=emotion,
                 context=context,
-                platform=platform,
                 user_id=user_id
             )
-            print(f"🧠 Conversation added to Graphiti knowledge graph")
         except Exception as e:
-            print(f"⚠️ Error saving to Graphiti: {e}")
+            print(f"⚠️ Error adding to global awareness: {e}")
     
     # Continue with existing vector memory system
     if not vector_memory_system:
@@ -4634,7 +4586,9 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
                     emotion='neutral',  # Will be determined automatically
                     context='gaming',
                     platform='twitch',
-                    user_id=username
+                    user_id=username,
+                    channel=channel,
+                    username=username
                 )
                 
                 return response
@@ -4689,14 +4643,16 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                 # Speak the response using TTS
                 speak_response(response, "Discord", message_text)
                 
-                # Save conversation to vector memory
+                # Save conversation to vector memory and global awareness
                 save_conversation_to_vector_memory(
                     user_message=message_text,
                     luna_response=response,
                     emotion='neutral',  # Will be determined automatically
                     context='streaming',
                     platform='discord',
-                    user_id=username
+                    user_id=username,
+                    channel=channel,
+                    username=username
                 )
                 
                 return response
@@ -4977,6 +4933,7 @@ def create_gui():
         safe_chat_insert("🧠 Custom Transformer: Luna's own AI model! (Orange text = Custom brain, Pink = Ollama)\n", "system")
         safe_chat_insert("🎭 VSeeFace: Luna automatically triggers expressions!\n", "system")
         safe_chat_insert("🎮 Twitch: Auto-connects to chat on startup!\n", "system")
+        safe_chat_insert("🌍 Global Awareness: Tracks conversations across all platforms!\n", "system")
         # YouTube integration removed
         safe_chat_insert("📊 Perf: Click to see performance metrics\n\n", "system")
         safe_chat_insert("🎤 Voice system: ENABLED and ready!\n", "system")
@@ -5402,6 +5359,81 @@ def create_gui():
         
         else:
             safe_chat_insert( "Unknown cot command. Available: status, toggle, debug, test, teachers\n", "system")
+    
+    def handle_awareness_command(command: str):
+        """Handle Global Awareness System commands"""
+        if not GLOBAL_AWARENESS_AVAILABLE:
+            safe_chat_insert( "❌ Global Awareness System not available\n", "system")
+            return
+        
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "🌍 Global Awareness commands:\n", "system")
+            safe_chat_insert( "  /awareness stats - Show system statistics\n", "system")
+            safe_chat_insert( "  /awareness user <username> - Get user context across platforms\n", "system")
+            safe_chat_insert( "  /awareness search <query> - Search conversations across platforms\n", "system")
+            safe_chat_insert( "  /awareness recent - Show recent activity summary\n", "system")
+            return
+        
+        try:
+            from luna_global_awareness import get_global_awareness
+            awareness = get_global_awareness()
+            if not awareness:
+                safe_chat_insert( "❌ Global Awareness System not initialized\n", "system")
+                return
+            
+            if parts[1] == "stats":
+                stats = awareness.get_system_stats()
+                safe_chat_insert( "🌍 Global Awareness System Statistics:\n", "system")
+                safe_chat_insert( f"• Total conversations: {stats.get('total_conversations', 0)}\n", "system")
+                safe_chat_insert( f"• Unique users: {stats.get('unique_users', 0)}\n", "system")
+                safe_chat_insert( f"• Recent activity (24h): {stats.get('recent_activity_24h', 0)} messages\n", "system")
+                safe_chat_insert( "• Platform breakdown:\n", "system")
+                for platform, count in stats.get('platform_breakdown', {}).items():
+                    safe_chat_insert( f"  - {platform}: {count} conversations\n", "system")
+            
+            elif parts[1] == "user" and len(parts) > 2:
+                username = " ".join(parts[2:])
+                context = awareness.get_user_context(username)
+                insights = awareness.get_cross_platform_insights(username)
+                
+                safe_chat_insert( f"🌍 User Context: {username}\n", "system")
+                safe_chat_insert( f"• Insights: {insights}\n", "system")
+                if context.get('platforms'):
+                    safe_chat_insert( f"• Platforms: {', '.join(context['platforms'])}\n", "system")
+                if context.get('total_messages'):
+                    safe_chat_insert( f"• Total messages: {context['total_messages']}\n", "system")
+                if context.get('recent_conversations'):
+                    safe_chat_insert( f"• Recent conversations: {len(context['recent_conversations'])} shown\n", "system")
+            
+            elif parts[1] == "search" and len(parts) > 2:
+                query = " ".join(parts[2:])
+                results = awareness.search_conversations(query, limit=5)
+                safe_chat_insert( f"🌍 Search results for '{query}':\n", "system")
+                if results:
+                    for i, result in enumerate(results, 1):
+                        platform = result['platform']
+                        username = result['username']
+                        message = result['user_message'][:50] + "..." if len(result['user_message']) > 50 else result['user_message']
+                        safe_chat_insert( f"  {i}. [{platform}] {username}: {message}\n", "system")
+                else:
+                    safe_chat_insert( "  No results found\n", "system")
+            
+            elif parts[1] == "recent":
+                summary = awareness.get_recent_activity_summary(24)
+                safe_chat_insert( "🌍 Recent Activity (Last 24 Hours):\n", "system")
+                for platform, stats in summary.get('platform_activity', {}).items():
+                    safe_chat_insert( f"• {platform}: {stats['messages']} messages from {stats['users']} users\n", "system")
+                if summary.get('most_active_users'):
+                    safe_chat_insert( "• Most active users:\n", "system")
+                    for user_info in summary['most_active_users'][:5]:
+                        safe_chat_insert( f"  - {user_info['username']} ({user_info['platform']}): {user_info['messages']} messages\n", "system")
+            
+            else:
+                safe_chat_insert( "Unknown awareness command. Available: stats, user, search, recent\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
         
     
     def handle_transformer_status_command(command: str):
@@ -5821,6 +5853,12 @@ def create_gui():
         # Check for Chain of Thought commands
         if user_message.lower().startswith('/cot'):
             handle_cot_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
+        # Check for Global Awareness commands
+        if user_message.lower().startswith('/awareness'):
+            handle_awareness_command(user_message)
             entry.delete(0, tk.END)
             return
         
