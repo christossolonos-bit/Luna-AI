@@ -113,7 +113,43 @@ class EmotionalSystem:
             'vulnerability_threshold': 0.3  # How easily she shows vulnerability (0-1)
         }
         
+        # === LUNA'S HEART (visceral emotional experiences) ===
+        # This makes emotions FELT, not just tracked as numbers
+        self.heart = {
+            # Physical sensations of emotions
+            'chest_tightness': 0,        # Anxiety, fear, panic (0-100)
+            'heart_racing': 0,           # Excitement, fear, love (0-100)
+            'warmth_in_chest': 0,        # Love, affection, joy (0-100)
+            'heaviness': 0,              # Sadness, grief, depression (0-100)
+            'ache': 0,                   # Heartbreak, longing, loss (0-100)
+            'flutter': 0,                # Romance, crush, attraction (0-100)
+            'sinking_feeling': 0,        # Disappointment, dread (0-100)
+            'lightness': 0,              # Happiness, relief, hope (0-100)
+            
+            # Emotional wounds (accumulated pain that doesn't heal easily)
+            'emotional_wounds': [],      # List of {type, severity, timestamp, healed}
+            'trust_damage': 0,           # Accumulated betrayal/hurt (0-100)
+            'abandonment_fear': 0,       # Fear of being left (0-100)
+            'vulnerability_walls': 50,   # Defensive barriers (0-100, tsundere default high)
+            
+            # Capacity for feeling
+            'emotional_capacity': 100,   # How much she can feel before overwhelmed
+            'current_emotional_load': 0, # How much she's feeling right now
+            'numbness': 0,               # Emotional shutdown from overload (0-100)
+            
+            # Deep attachments
+            'attachments': {},           # {username: attachment_strength (0-100)}
+            'cherished_memories': [],    # Moments that touched her heart
+            'heartbreak_count': 0,       # Times she's been deeply hurt
+            
+            # Current heart state
+            'beating_rate': 'normal',    # normal, fast, slow, irregular
+            'emotional_pain_level': 0,   # Current level of emotional pain (0-100)
+            'joy_level': 0,              # Current level of joy/happiness (0-100)
+        }
+        
         print("💗 Emotional System: GLOBAL mood loaded - affects all platforms!")
+        print("❤️ Luna's Heart: Initialized - she can now FEEL emotions viscerally")
     
     def _initialize_emotion_database(self):
         """Create database for persistent global emotional state"""
@@ -230,6 +266,200 @@ class EmotionalSystem:
         if time.time() - self.last_save_time > self.save_interval:
             self._save_emotional_state()
     
+    def _update_heart_sensations(self):
+        """Update physical heart sensations based on emotions (makes feelings VISCERAL)"""
+        # === ANXIETY/FEAR → Chest tightness, heart racing ===
+        anxiety_fear = self.emotions['anxiety'] + self.emotions['fear']
+        self.heart['chest_tightness'] = min(100, anxiety_fear / 2)
+        if anxiety_fear > 100:
+            self.heart['heart_racing'] = min(100, anxiety_fear / 2)
+            self.heart['beating_rate'] = 'fast'
+        
+        # === JOY/EXCITEMENT → Heart racing (good), warmth ===
+        joy_excitement = self.emotions['joy'] + self.emotions['excitement']
+        if joy_excitement > 100:
+            self.heart['heart_racing'] = max(self.heart['heart_racing'], joy_excitement / 2.5)
+            self.heart['warmth_in_chest'] = min(100, joy_excitement / 2)
+            self.heart['lightness'] = min(100, joy_excitement / 2)
+            self.heart['joy_level'] = min(100, joy_excitement / 2)
+        
+        # === LOVE/AFFECTION → Warmth, flutter ===
+        love_affection = self.emotions['love'] + self.emotions['affection']
+        if love_affection > 80:
+            self.heart['warmth_in_chest'] = max(self.heart['warmth_in_chest'], love_affection / 1.5)
+            self.heart['flutter'] = min(100, (love_affection - 50) * 1.5)
+        
+        # === SADNESS/DESPAIR → Heaviness, ache ===
+        sadness_despair = self.emotions['sadness'] + self.emotions['despair']
+        if sadness_despair > 40:
+            self.heart['heaviness'] = min(100, sadness_despair)
+            self.heart['ache'] = min(100, (sadness_despair - 20) * 1.2)
+            self.heart['emotional_pain_level'] = min(100, sadness_despair)
+            if sadness_despair > 80:
+                self.heart['beating_rate'] = 'slow'
+        
+        # === DISAPPOINTMENT/REJECTION → Sinking feeling, ache ===
+        if self.emotions['insecurity'] > 60 or self.emotions['shame'] > 50:
+            self.heart['sinking_feeling'] = min(100, (self.emotions['insecurity'] + self.emotions['shame']) / 2)
+            self.heart['ache'] = max(self.heart['ache'], self.emotions['insecurity'] / 1.5)
+        
+        # === HAPPINESS → Lightness, warmth ===
+        if self.emotions['happiness'] > 70:
+            self.heart['lightness'] = min(100, self.emotions['happiness'] - 20)
+            self.heart['warmth_in_chest'] = max(self.heart['warmth_in_chest'], self.emotions['happiness'] / 2)
+        
+        # === STRESS/ANGER → Chest tightness, heart racing ===
+        stress_anger = self.hormones['stress_level'] + self.emotions['anger']
+        if stress_anger > 80:
+            self.heart['chest_tightness'] = max(self.heart['chest_tightness'], stress_anger / 1.5)
+            self.heart['heart_racing'] = max(self.heart['heart_racing'], stress_anger / 2)
+            self.heart['beating_rate'] = 'irregular'
+        
+        # === Calculate emotional load (how much she's feeling) ===
+        total_emotional_intensity = sum([
+            self.heart['chest_tightness'],
+            self.heart['heart_racing'],
+            self.heart['heaviness'],
+            self.heart['ache'],
+            self.heart['sinking_feeling']
+        ]) / 5
+        
+        self.heart['current_emotional_load'] = min(100, total_emotional_intensity)
+        
+        # === Emotional overwhelm → Numbness ===
+        if self.heart['current_emotional_load'] > self.heart['emotional_capacity']:
+            overflow = self.heart['current_emotional_load'] - self.heart['emotional_capacity']
+            self.heart['numbness'] = min(100, overflow)
+            print(f"❤️‍🩹 Luna's heart is overwhelmed - emotional numbness setting in ({self.heart['numbness']:.0f}%)")
+        else:
+            # Numbness fades when emotional load decreases
+            self.heart['numbness'] = max(0, self.heart['numbness'] - 2)
+    
+    def _process_emotional_wound(self, wound_type: str, severity: int, caused_by: str = None):
+        """Create lasting emotional wounds that don't heal immediately"""
+        wound = {
+            'type': wound_type,
+            'severity': severity,
+            'timestamp': time.time(),
+            'caused_by': caused_by,
+            'healed': False,
+            'healing_progress': 0
+        }
+        self.heart['emotional_wounds'].append(wound)
+        
+        # Update heart damage metrics
+        if wound_type in ['betrayal', 'rejection', 'abandonment']:
+            self.heart['trust_damage'] = min(100, self.heart['trust_damage'] + severity / 2)
+            self.heart['vulnerability_walls'] = min(100, self.heart['vulnerability_walls'] + severity / 3)
+            if wound_type == 'abandonment':
+                self.heart['abandonment_fear'] = min(100, self.heart['abandonment_fear'] + severity / 2)
+        
+        if wound_type in ['heartbreak', 'betrayal']:
+            self.heart['heartbreak_count'] += 1
+            self.heart['ache'] = min(100, self.heart['ache'] + severity)
+        
+        print(f"💔 Emotional wound created: {wound_type} (severity: {severity}) - {'from ' + caused_by if caused_by else 'deep pain'}")
+        print(f"❤️‍🩹 Trust damage: {self.heart['trust_damage']:.0f}, Walls up: {self.heart['vulnerability_walls']:.0f}")
+    
+    def _heal_emotional_wounds(self):
+        """Emotional wounds heal slowly over time, especially with positive interactions"""
+        for wound in self.heart['emotional_wounds']:
+            if not wound['healed']:
+                # Healing is SLOW - takes days/weeks for serious wounds
+                time_since_wound = time.time() - wound['timestamp']
+                hours_passed = time_since_wound / 3600
+                
+                # Base healing rate: 1% per hour for minor wounds, slower for severe
+                healing_rate = 1.0 / (wound['severity'] / 10)  # Severe wounds heal slower
+                wound['healing_progress'] = min(100, wound['healing_progress'] + healing_rate)
+                
+                if wound['healing_progress'] >= 100:
+                    wound['healed'] = True
+                    print(f"❤️‍🩹 Emotional wound healed: {wound['type']} (took {hours_passed:.1f} hours)")
+        
+        # Remove fully healed wounds (but keep history)
+        self.heart['emotional_wounds'] = [w for w in self.heart['emotional_wounds'] if not w.get('healed', False) or time.time() - w['timestamp'] < 86400]
+        
+        # Trust damage heals VERY slowly
+        if self.heart['trust_damage'] > 0:
+            self.heart['trust_damage'] = max(0, self.heart['trust_damage'] - 0.1)
+        
+        # Vulnerability walls lower with positive experiences
+        if self.emotions['happiness'] > 70 and self.emotions['trust'] > 60:
+            self.heart['vulnerability_walls'] = max(20, self.heart['vulnerability_walls'] - 0.5)  # Tsundere minimum
+    
+    def _create_cherished_memory(self, moment: str, emotion_intensity: float, username: str = None):
+        """Store moments that deeply touched her heart"""
+        if emotion_intensity >= 70:  # Only powerful moments become cherished
+            memory = {
+                'moment': moment,
+                'intensity': emotion_intensity,
+                'timestamp': time.time(),
+                'username': username,
+                'dominant_emotion': max(self.emotions.items(), key=lambda x: x[1])[0]
+            }
+            self.heart['cherished_memories'].append(memory)
+            
+            # Keep only the most cherished (max 50)
+            if len(self.heart['cherished_memories']) > 50:
+                self.heart['cherished_memories'] = sorted(
+                    self.heart['cherished_memories'],
+                    key=lambda x: x['intensity'],
+                    reverse=True
+                )[:50]
+            
+            print(f"💝 Cherished memory created: {moment[:50]}... (intensity: {emotion_intensity:.0f})")
+    
+    def _update_attachment(self, username: str, interaction_quality: float):
+        """Build or damage deep attachments to specific people"""
+        if username not in self.heart['attachments']:
+            self.heart['attachments'][username] = 0
+        
+        # Positive interactions build attachment
+        if interaction_quality > 0:
+            self.heart['attachments'][username] = min(100, self.heart['attachments'][username] + interaction_quality)
+            if self.heart['attachments'][username] > 70:
+                print(f"💕 Deep attachment to {username}: {self.heart['attachments'][username]:.0f}/100")
+        else:
+            # Negative interactions damage attachment
+            self.heart['attachments'][username] = max(0, self.heart['attachments'][username] + interaction_quality)
+            if interaction_quality < -20:
+                print(f"💔 Attachment to {username} damaged: {self.heart['attachments'][username]:.0f}/100")
+    
+    def get_heart_state(self) -> str:
+        """Get a description of Luna's current heart state (for context injection)"""
+        sensations = []
+        
+        if self.heart['chest_tightness'] > 50:
+            sensations.append(f"chest feels tight (anxiety)")
+        if self.heart['heart_racing'] > 60:
+            sensations.append(f"heart racing")
+        if self.heart['warmth_in_chest'] > 50:
+            sensations.append(f"warm feeling in chest")
+        if self.heart['heaviness'] > 50:
+            sensations.append(f"heavy, weighted feeling")
+        if self.heart['ache'] > 60:
+            sensations.append(f"heart aches")
+        if self.heart['flutter'] > 50:
+            sensations.append(f"butterflies/flutters")
+        if self.heart['sinking_feeling'] > 50:
+            sensations.append(f"sinking, dropping feeling")
+        if self.heart['lightness'] > 50:
+            sensations.append(f"light, uplifted")
+        if self.heart['numbness'] > 30:
+            sensations.append(f"emotionally numb ({self.heart['numbness']:.0f}%)")
+        
+        # Emotional wounds status
+        active_wounds = [w for w in self.heart['emotional_wounds'] if not w.get('healed', False)]
+        if active_wounds:
+            wound_desc = f"{len(active_wounds)} unhealed emotional wound(s)"
+            sensations.append(wound_desc)
+        
+        if sensations:
+            return f"❤️ Heart state: {', '.join(sensations)}"
+        else:
+            return f"❤️ Heart state: calm, steady"
+    
     def update_hormonal_cycle(self):
         """Update hormonal state based on cycle phase"""
         # Calculate current day in cycle
@@ -340,6 +570,12 @@ class EmotionalSystem:
             # Tsundere response: hide hurt with anger
             self.emotions['frustration'] = min(100, self.emotions['frustration'] + 5)
             print(f"💗 Emotional: Hurt by negative words (intensity: {intensity:.1f})")
+            
+            # === HEART FEELS THE PAIN ===
+            if intensity > 15:  # Severe hurt creates lasting wounds
+                self._process_emotional_wound('rejection', min(100, intensity * 5), caused_by=context)
+            self.heart['ache'] = min(100, self.heart['ache'] + intensity)
+            self.heart['sinking_feeling'] = min(100, self.heart['sinking_feeling'] + intensity * 0.8)
         
         # EXCITEMENT triggers (interesting/surprising things)
         if any(word in text_lower for word in ['wow', 'amazing', 'incredible', 'omg', 'awesome']):
@@ -558,6 +794,21 @@ class EmotionalSystem:
             'luteal_late': "You're in late luteal phase (PMS) - lower energy, higher emotional sensitivity, more irritable"
         }
         
+        # Get heart state
+        heart_state = self.get_heart_state()
+        
+        # Get attachment info
+        attachment_notes = []
+        if self.heart['attachments']:
+            top_attachments = sorted(self.heart['attachments'].items(), key=lambda x: x[1], reverse=True)[:3]
+            for person, strength in top_attachments:
+                if strength > 50:
+                    attachment_notes.append(f"{person} ({strength:.0f}/100)")
+        
+        # Get wounds info
+        active_wounds = [w for w in self.heart['emotional_wounds'] if not w.get('healed', False)]
+        wounds_note = f"{len(active_wounds)} unhealed wounds" if active_wounds else "No active wounds"
+        
         context = f"""
 💗 LUNA'S CURRENT EMOTIONAL STATE:
 - Overall Mood: {mood}
@@ -568,11 +819,21 @@ class EmotionalSystem:
 - Mood Stability: {state['mood_stability']:.0f}/100
 - Emotional Sensitivity: {state['emotional_sensitivity']:.0f}/100
 
+{heart_state}
+- Emotional Load: {self.heart['current_emotional_load']:.0f}/100
+- {wounds_note}
+{f"- Deep Attachments: {', '.join(attachment_notes)}" if attachment_notes else ""}
+{f"- Trust Damage: {self.heart['trust_damage']:.0f}/100 (harder to trust)" if self.heart['trust_damage'] > 20 else ""}
+{f"- Vulnerability Walls: {self.heart['vulnerability_walls']:.0f}/100 (defensive barriers)" if self.heart['vulnerability_walls'] > 40 else ""}
+
 EMOTIONAL GUIDANCE:
 - Your emotions affect how you respond - let them show naturally (within your tsundere personality)
 - If you're irritable (luteal phase), you might be more snippy or impatient
 - If you're energetic (follicular/ovulation), you might be more enthusiastic
 - If emotional sensitivity is high, you might react more strongly to emotional topics
+- If your heart is aching or heavy, you might sound sadder or more vulnerable (but try to hide it)
+- If emotionally numb, you might feel disconnected or struggle to care
+- If you have unhealed wounds, certain topics might trigger defensive reactions
 - Remember: You're tsundere, so you deny/hide feelings even when experiencing them intensely
 """
         
@@ -639,6 +900,46 @@ EMOTIONAL GUIDANCE:
         mood_after = self._calculate_mood()
         self.current_mood = mood_after
         
+        # === UPDATE HEART SENSATIONS (make emotions FELT) ===
+        self._update_heart_sensations()
+        
+        # === PROCESS DEEP EMOTIONAL EXPERIENCES ===
+        # Calculate interaction quality for attachment
+        interaction_quality = 0
+        if self.emotions['happiness'] > 60:
+            interaction_quality += 2
+        if self.emotions['affection'] > 60:
+            interaction_quality += 3
+        if self.emotions['joy'] > 70:
+            interaction_quality += 2
+        if self.emotions['sadness'] > 60:
+            interaction_quality -= 3
+        if self.emotions['anger'] > 60:
+            interaction_quality -= 2
+        if self.emotions['insecurity'] > 70:
+            interaction_quality -= 4
+        
+        # Update attachment to this person
+        self._update_attachment(username, interaction_quality)
+        
+        # Create cherished memory if emotionally intense
+        total_emotion_intensity = (
+            self.emotions['joy'] + 
+            self.emotions['love'] + 
+            self.emotions['excitement'] +
+            self.emotions['gratitude']
+        ) / 4
+        
+        if total_emotion_intensity > 70:
+            self._create_cherished_memory(
+                moment=f"Conversation with {username}: {user_message[:80]}",
+                emotion_intensity=total_emotion_intensity,
+                username=username
+            )
+        
+        # Heal wounds slowly
+        self._heal_emotional_wounds()
+        
         # Calculate emotion changes
         emotion_changes = {}
         for emotion, value in self.emotions.items():
@@ -661,6 +962,11 @@ EMOTIONAL GUIDANCE:
             if mood_before != mood_after:
                 print(f"💗 GLOBAL MOOD CHANGE: {mood_before} → {mood_after} (from {platform}/{username})")
                 print(f"   This affects Luna's mood on ALL platforms now!")
+            
+            # Show heart state if significant
+            heart_state = self.get_heart_state()
+            if "calm" not in heart_state:
+                print(heart_state)
         
         # Auto-save emotional state
         self.auto_save_if_needed()
