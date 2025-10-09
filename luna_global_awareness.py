@@ -171,41 +171,49 @@ class GlobalAwarenessSystem:
     def get_user_conversation_summary(self, username: str, platform: str = None) -> str:
         """Get a text summary of user's conversations for context injection"""
         try:
-            context = self.get_user_context(username, platform, limit=5)
+            context = self.get_user_context(username, platform, limit=10)
             
             if 'error' in context or not context.get('recent_conversations'):
-                return ""
+                return f"{username} is chatting with you (no previous history found)"
             
-            # Create concise summary
+            # Create detailed summary with actual conversation examples
             summary_parts = []
             
-            # Add platform info
-            if context.get('platforms'):
-                platforms_str = ', '.join(context['platforms'])
-                summary_parts.append(f"{username} is active on: {platforms_str}")
+            # Add user's previous interactions
+            conversations = context.get('recent_conversations', [])
+            if conversations:
+                # Get the most recent conversation
+                latest = conversations[0]
+                summary_parts.append(f"Previous chat with {username}: They said '{latest['user_message'][:60]}...' and you replied '{latest['luna_response'][:60]}...'")
+                
+                # Add conversation count
+                total_msgs = context.get('total_messages', len(conversations))
+                summary_parts.append(f"You've talked {total_msgs} times before")
+                
+                # Extract topics from recent messages
+                recent_topics = set()
+                for conv in conversations[:5]:
+                    words = conv['user_message'].lower().split()
+                    for word in words:
+                        if len(word) > 4 and word not in ['chris', 'luna', 'about', 'what', 'that', 'this', 'with', 'from', 'have', 'been', 'they', 'your', 'their']:
+                            recent_topics.add(word)
+                
+                if recent_topics:
+                    topics_str = ', '.join(list(recent_topics)[:5])
+                    summary_parts.append(f"Common topics: {topics_str}")
+                
+                # Add platform info
+                platforms = context.get('platforms', [])
+                if len(platforms) > 1:
+                    summary_parts.append(f"Also talks on: {', '.join(platforms)}")
             
-            # Add recent topics from conversations
-            recent_topics = set()
-            for conv in context['recent_conversations'][:3]:
-                # Extract key words from user messages
-                words = conv['user_message'].lower().split()
-                for word in words:
-                    if len(word) > 4:
-                        recent_topics.add(word)
-            
-            if recent_topics:
-                topics_str = ', '.join(list(recent_topics)[:5])
-                summary_parts.append(f"Recent topics: {topics_str}")
-            
-            # Add message count
-            if context.get('total_messages', 0) > 0:
-                summary_parts.append(f"{context['total_messages']} total messages")
-            
-            return ". ".join(summary_parts) + "." if summary_parts else ""
+            full_summary = " | ".join(summary_parts) if summary_parts else f"{username} is new here"
+            print(f"🌍 Generated context for {username}: {full_summary[:100]}...")
+            return full_summary
             
         except Exception as e:
             print(f"⚠️ Error creating user summary: {e}")
-            return ""
+            return f"{username} is chatting with you"
     
     def get_user_context(self, username: str, platform: str = None, limit: int = 10) -> Dict:
         """Get comprehensive context about a user across all platforms"""

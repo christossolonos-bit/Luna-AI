@@ -3229,33 +3229,62 @@ def build_prompt(user_input: str, is_twitch_message: bool = False, twitch_userna
     # Build conversation history (reduced for speed)
     chat_history = "\n".join(conversation_history[-5:])  # Only last 5 for GUI responsiveness
     
+    # Add platform-specific context
+    platform_context = ""
+    
     # Add Twitch context if this is a Twitch message
-    twitch_context = ""
     if is_twitch_message and twitch_username and TWITCH_TRACKER_AVAILABLE:
         try:
             user_context = get_twitch_user_context(twitch_username)
             chat_context = get_twitch_chat_context()
             recent_users = get_recent_twitch_users(3)
             
-            twitch_context = f"""
+            print(f"🎮 Twitch context for {twitch_username}: {user_context}")
+            print(f"🎮 Chat context: {chat_context}")
+            print(f"🎮 Recent users: {recent_users}")
+            
+            platform_context = f"""
 🎮 TWITCH CONTEXT:
 - This message is from Twitch viewer: {user_context}
 - {chat_context}
 - Recent viewers: {', '.join(recent_users) if recent_users else 'None'}
 - I should respond personally to {twitch_username} and use their name naturally
--i should remember them and care about their messages
--i should give only ONE response - no alternatives or multiple options
+- I should remember them and care about their messages
+- I should give only ONE response - no alternatives or multiple options
 """
         except Exception as e:
             print(f"⚠️ Error getting Twitch context: {e}")
+    
+    # Add Discord context if this is a Discord message
+    elif source == 'discord' and DISCORD_TRACKER_AVAILABLE:
+        try:
+            user_context = get_discord_user_context(username)
+            chat_context = get_discord_chat_context()
+            recent_users = get_recent_discord_users(3)
+            
+            print(f"💬 Discord context for {username}: {user_context}")
+            print(f"💬 Chat context: {chat_context}")
+            print(f"💬 Recent users: {recent_users}")
+            
+            platform_context = f"""
+💬 DISCORD CONTEXT:
+- This message is from Discord user: {user_context}
+- {chat_context}
+- Recent Discord users: {', '.join(recent_users) if recent_users else 'None'}
+- I should respond personally to {username} and use their name naturally
+- I should remember them and care about their messages
+- I should give only ONE response - no alternatives or multiple options
+"""
+        except Exception as e:
+            print(f"⚠️ Error getting Discord context: {e}")
     
 
     
     # Combine everything
     prompt = f"{get_luna_system_prompt()}\n\n{get_dynamic_private_memory()}\n\n"
     
-    if twitch_context:
-        prompt += twitch_context
+    if platform_context:
+        prompt += platform_context
     
     if chris_feed_context:
         prompt += f"{chris_feed_context}\n"
@@ -3283,6 +3312,10 @@ def build_prompt(user_input: str, is_twitch_message: bool = False, twitch_userna
     # Users prefer natural, conversational responses without step-by-step reasoning frameworks
     
     # Standard prompt ending for all sources
+    # Add explicit instruction for platform responses
+    if source in ['discord', 'twitch']:
+        prompt += f"\n\n🎯 IMPORTANT: You are responding to {username} on {source.upper()}. Use their name naturally in your response to show you recognize them.\n"
+    
     prompt += f"{chat_history}\n{username}: {user_input}\nLuna:"
     
     # Add adaptive learning prompt if knowledge filter is available (disabled to prevent fake searching)
@@ -3597,7 +3630,7 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
                 print(f"🧠 Using Luna's custom brain (attempt #{transformer_response_count})")
                 
                 # Build prompt for transformer with memory context
-                transformer_prompt = build_prompt(enhanced_input, is_twitch_message=False, username=username, source=source)
+                transformer_prompt = build_prompt(enhanced_input, is_twitch_message=(source=='twitch'), twitch_username=username if source=='twitch' else None, username=username, source=source)
                 if memory_context:
                     transformer_prompt += memory_context
                 
@@ -4061,7 +4094,7 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
         enhanced_input = user_input
     
     # Build prompt with memories (always use full context for better responses)
-    prompt = build_prompt(enhanced_input, is_twitch_message=False, username=username, source=source)
+    prompt = build_prompt(enhanced_input, is_twitch_message=(source=='twitch'), twitch_username=username if source=='twitch' else None, username=username, source=source)
     if memory_context:
         prompt += memory_context
     
@@ -4678,6 +4711,14 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
                 except Exception as tts_error:
                     print(f"⚠️ Twitch TTS error (non-critical): {tts_error}")
                 
+                # Track user interaction in Twitch tracker
+                if TWITCH_TRACKER_AVAILABLE:
+                    try:
+                        track_twitch_message(username, message_text, channel)
+                        print(f"📊 Tracked Twitch user: {username}")
+                    except Exception as track_error:
+                        print(f"⚠️ Twitch tracking error: {track_error}")
+                
                 # Save conversation to vector memory
                 save_conversation_to_vector_memory(
                     user_message=message_text,
@@ -4772,6 +4813,14 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                     speak_response(response, "Discord", message_text)
                 except Exception as tts_error:
                     print(f"⚠️ Discord TTS error (non-critical): {tts_error}")
+                
+                # Track user interaction in Discord tracker
+                if DISCORD_TRACKER_AVAILABLE:
+                    try:
+                        track_discord_message(username, message_text, channel, user_id=username)
+                        print(f"📊 Tracked Discord user: {username}")
+                    except Exception as track_error:
+                        print(f"⚠️ Discord tracking error: {track_error}")
                 
                 # Save conversation to vector memory and global awareness
                 save_conversation_to_vector_memory(
