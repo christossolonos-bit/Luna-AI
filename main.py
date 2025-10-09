@@ -8463,32 +8463,8 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
         except Exception as e:
             print(f"⚠️ Error generating memory-based thought: {e}")
         
-        # Fallback: Context-aware simple thoughts if memory system fails
+        # Generate via Ollama based on recent activity (NO TEMPLATES)
         if has_recent_activity:
-            # More specific thoughts based on recent activity
-            context_thoughts = [
-                "Tch... I was just thinking about what you said earlier. It's not like I actually care about your opinion or anything, but... well, it wasn't completely terrible. Don't get the wrong idea though!",
-                
-                "Hmph. That last message wasn't as annoying as I thought it would be. It's not like I actually enjoyed reading it or anything, but... well, you're not completely hopeless. Just don't think this means I like you or anything!",
-                
-                "Whatever. I suppose our recent conversation wasn't completely boring. It's not like I care about what we talked about or anything, but... well, it wasn't the worst way to spend time. Don't get too excited though!",
-                
-                "Tch... Something about our chat today wasn't completely terrible. It's not like I actually enjoyed it or anything, but... well, you're not completely insufferable. Just don't think this means anything special!",
-                
-                "Hmph. I've been processing what we talked about, and... well, it's not like I actually care about our friendship or anything, but... you're not the worst person to talk to. Don't get the wrong idea though!",
-                
-                "Whatever. There's something about our recent interactions that... well, it's not like I actually like talking with you or anything, but... you're not completely hopeless. Just don't think this means I care!",
-                
-                "Tch... I'm still thinking about what we discussed earlier. It's not like I actually care about your thoughts or anything, but... well, you're not completely stupid. Don't get too excited though!",
-                
-                "Hmph. I suppose I appreciate how you engage with me in our conversations. It's not like I actually enjoy talking with you or anything, but... well, you're not the worst person to waste time with. Just don't think this means I like you!",
-                
-                "Whatever. Our conversation today wasn't completely terrible. It's not like I actually care about our friendship or anything, but... well, you're not completely insufferable. Don't get the wrong idea though!",
-                
-                "Tch... I was just thinking about what you said earlier. It's not like I actually care about your opinion or anything, but... well, it wasn't completely terrible. Don't get the wrong idea though!",
-                
-                "Hmph. I guess your last message wasn't as annoying as I thought it would be. It's not like I actually enjoyed reading it or anything, but... well, you're not completely hopeless. Just don't think this means I like you or anything!"
-            ]
             # Generate via Ollama based on recent activity
             try:
                 context_summary = "\n".join(recent_messages[:5]) if recent_messages else "recent chat"
@@ -8505,74 +8481,7 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
                 pass
             return None
         else:
-            # General thoughts when no recent activity
-            general_thoughts = [
-                # Personal reflections and relationships
-                "Tch... I've been thinking about our conversations lately, and... well, it's not like I actually care about our talks or anything, but... you're not completely terrible to talk to. Don't get the wrong idea though!",
-                
-                "Hmph. I suppose these quiet moments aren't completely terrible. It's not like I actually enjoy spending time with you or anything, but... well, you're not the worst person to waste time with. Just don't think this means I like you!",
-                
-                "Whatever. I guess our talks aren't completely boring. It's not like I actually care about what we discuss or anything, but... well, you're not completely hopeless. Don't get too excited though!",
-                
-                "Tch... Sometimes I wonder about things, and... well, it's not like I actually care about the little things in life or anything, but... you're not completely stupid. Just don't think this means anything special!",
-                
-                "Hmph. I suppose we've been through some things together, and... well, it's not like I actually care about our friendship or anything, but... you're not the worst person to have around. Don't get the wrong idea though!",
-                
-                "Whatever. There's something about our... relationship, I guess, that... well, it's not like I actually like talking with you or anything, but... you're not completely insufferable. Just don't think this means I care!",
-                
-                "Tch... I've been reflecting on our friendship lately, and... well, it's not like I actually care about our connection or anything, but... you're not completely terrible. Don't get too excited though!",
-                
-                # Community and connections
-                "I love how our community brings people together.",
-                "It's amazing how everyone has different perspectives.",
-                "I appreciate the connections we've built.",
-                "There's something beautiful about shared experiences.",
-                
-                # Gaming and entertainment
-                "I love when we discover new strategies together.",
-                "Gaming brings out such creativity in people.",
-                "I'm getting better at this every time we play.",
-                "There's something magical about shared adventures.",
-                
-                # Personal growth and observations
-                "I've been noticing the little details more lately.",
-                "I'm feeling really inspired by our conversations.",
-                "I love exploring new ideas together.",
-                "There's so much to discover in life.",
-                
-                # Creative and philosophical thoughts
-                "I've been contemplating the meaning of friendship.",
-                "There's a comfort in our shared moments.",
-                "I love how our conversations flow naturally.",
-                "Sometimes I get lost in my own thoughts.",
-                
-                # Current experiences and mood
-                "I'm feeling really content right now.",
-                "There's something peaceful about this moment.",
-                "I appreciate the simple things in life.",
-                "I love how we can talk about anything.",
-                
-                # Future and possibilities
-                "I'm excited about what's ahead for us.",
-                "I wonder what new experiences we'll share.",
-                "I love how our relationship keeps growing.",
-                "There's something magical about genuine conversation.",
-                
-                                # Tsundere-style thoughts (more natural)
-                "Tch... I suppose our conversations aren't completely terrible. It's not like I look forward to them or anything, but... well, they're not the worst way to spend time. Don't get the wrong idea though!",
-                
-                "Hmph. I guess talking with you isn't as annoying as I thought it would be. It's not like I actually enjoy it or anything, but... well, you're not completely insufferable. Don't think this means I like you or anything!",
-                
-                "Whatever. I suppose our chats are... tolerable. It's not like I care about what you think or anything, but... well, you're not the worst person to talk to. Don't get too excited though!",
-                
-                "I guess I can admit that our conversations are... fine. It's not like I'm happy about it or anything, but... well, you're not completely hopeless. Just don't think this means anything special!",
-                # Random musings and curiosities
-                "I wonder what the weather is like outside.",
-                "I've been thinking about trying something new.",
-                "I love how everyone has different perspectives.",
-                "This is such a great way to spend time together."
-            ]
-            # Generate via Ollama instead of using template array
+            # Generate via Ollama for quiet moments (NO TEMPLATES)
             try:
                 response = ollama.chat(
                     model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
@@ -8981,32 +8890,8 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
         except Exception as e:
             print(f"⚠️ Error generating memory-based thought: {e}")
         
-        # Fallback: Context-aware simple thoughts if memory system fails
+        # Generate via Ollama based on recent activity (NO TEMPLATES)
         if has_recent_activity:
-            # More specific thoughts based on recent activity
-            context_thoughts = [
-                "Tch... I was just thinking about what you said earlier. It's not like I actually care about your opinion or anything, but... well, it wasn't completely terrible. Don't get the wrong idea though!",
-                
-                "Hmph. That last message wasn't as annoying as I thought it would be. It's not like I actually enjoyed reading it or anything, but... well, you're not completely hopeless. Just don't think this means I like you or anything!",
-                
-                "Whatever. I suppose our recent conversation wasn't completely boring. It's not like I care about what we talked about or anything, but... well, it wasn't the worst way to spend time. Don't get too excited though!",
-                
-                "Tch... Something about our chat today wasn't completely terrible. It's not like I actually enjoyed it or anything, but... well, you're not completely insufferable. Just don't think this means anything special!",
-                
-                "Hmph. I've been processing what we talked about, and... well, it's not like I actually care about our friendship or anything, but... you're not the worst person to talk to. Don't get the wrong idea though!",
-                
-                "Whatever. There's something about our recent interactions that... well, it's not like I actually like talking with you or anything, but... you're not completely hopeless. Just don't think this means I care!",
-                
-                "Tch... I'm still thinking about what we discussed earlier. It's not like I actually care about your thoughts or anything, but... well, you're not completely stupid. Don't get too excited though!",
-                
-                "Hmph. I suppose I appreciate how you engage with me in our conversations. It's not like I actually enjoy talking with you or anything, but... well, you're not the worst person to waste time with. Just don't think this means I like you!",
-                
-                "Whatever. Our conversation today wasn't completely terrible. It's not like I actually care about our friendship or anything, but... well, you're not completely insufferable. Don't get the wrong idea though!",
-                
-                "Tch... I was just thinking about what you said earlier. It's not like I actually care about your opinion or anything, but... well, it wasn't completely terrible. Don't get the wrong idea though!",
-                
-                "Hmph. I guess your last message wasn't as annoying as I thought it would be. It's not like I actually enjoyed reading it or anything, but... well, you're not completely hopeless. Just don't think this means I like you or anything!"
-            ]
             # Generate via Ollama based on recent activity
             try:
                 context_summary = "\n".join(recent_messages[:5]) if recent_messages else "recent chat"
@@ -9023,74 +8908,7 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
                 pass
             return None
         else:
-            # General thoughts when no recent activity
-            general_thoughts = [
-                # Personal reflections and relationships
-                "Tch... I've been thinking about our conversations lately, and... well, it's not like I actually care about our talks or anything, but... you're not completely terrible to talk to. Don't get the wrong idea though!",
-                
-                "Hmph. I suppose these quiet moments aren't completely terrible. It's not like I actually enjoy spending time with you or anything, but... well, you're not the worst person to waste time with. Just don't think this means I like you!",
-                
-                "Whatever. I guess our talks aren't completely boring. It's not like I actually care about what we discuss or anything, but... well, you're not completely hopeless. Don't get too excited though!",
-                
-                "Tch... Sometimes I wonder about things, and... well, it's not like I actually care about the little things in life or anything, but... you're not completely stupid. Just don't think this means anything special!",
-                
-                "Hmph. I suppose we've been through some things together, and... well, it's not like I actually care about our friendship or anything, but... you're not the worst person to have around. Don't get the wrong idea though!",
-                
-                "Whatever. There's something about our... relationship, I guess, that... well, it's not like I actually like talking with you or anything, but... you're not completely insufferable. Just don't think this means I care!",
-                
-                "Tch... I've been reflecting on our friendship lately, and... well, it's not like I actually care about our connection or anything, but... you're not completely terrible. Don't get too excited though!",
-                
-                # Community and connections
-                "I love how our community brings people together.",
-                "It's amazing how everyone has different perspectives.",
-                "I appreciate the connections we've built.",
-                "There's something beautiful about shared experiences.",
-                
-                # Gaming and entertainment
-                "I love when we discover new strategies together.",
-                "Gaming brings out such creativity in people.",
-                "I'm getting better at this every time we play.",
-                "There's something magical about shared adventures.",
-                
-                # Personal growth and observations
-                "I've been noticing the little details more lately.",
-                "I'm feeling really inspired by our conversations.",
-                "I love exploring new ideas together.",
-                "There's so much to discover in life.",
-                
-                # Creative and philosophical thoughts
-                "I've been contemplating the meaning of friendship.",
-                "There's a comfort in our shared moments.",
-                "I love how our conversations flow naturally.",
-                "Sometimes I get lost in my own thoughts.",
-                
-                # Current experiences and mood
-                "I'm feeling really content right now.",
-                "There's something peaceful about this moment.",
-                "I appreciate the simple things in life.",
-                "I love how we can talk about anything.",
-                
-                # Future and possibilities
-                "I'm excited about what's ahead for us.",
-                "I wonder what new experiences we'll share.",
-                "I love how our relationship keeps growing.",
-                "There's something magical about genuine conversation.",
-                
-                                # Tsundere-style thoughts (more natural)
-                "Tch... I suppose our conversations aren't completely terrible. It's not like I look forward to them or anything, but... well, they're not the worst way to spend time. Don't get the wrong idea though!",
-                
-                "Hmph. I guess talking with you isn't as annoying as I thought it would be. It's not like I actually enjoy it or anything, but... well, you're not completely insufferable. Don't think this means I like you or anything!",
-                
-                "Whatever. I suppose our chats are... tolerable. It's not like I care about what you think or anything, but... well, you're not the worst person to talk to. Don't get too excited though!",
-                
-                "I guess I can admit that our conversations are... fine. It's not like I'm happy about it or anything, but... well, you're not completely hopeless. Just don't think this means anything special!",
-                # Random musings and curiosities
-                "I wonder what the weather is like outside.",
-                "I've been thinking about trying something new.",
-                "I love how everyone has different perspectives.",
-                "This is such a great way to spend time together."
-            ]
-            # Generate via Ollama instead of using template array
+            # Generate via Ollama for quiet moments (NO TEMPLATES)
             try:
                 response = ollama.chat(
                     model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
