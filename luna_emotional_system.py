@@ -11,6 +11,8 @@ from typing import Dict, List, Tuple, Optional
 from datetime import datetime, timedelta
 from collections import deque
 import json
+import sqlite3
+import threading
 
 class EmotionalSystem:
     """
@@ -23,8 +25,16 @@ class EmotionalSystem:
     """
     
     def __init__(self):
-        # Base emotional state (0-100 for each)
-        self.emotions = {
+        # === GLOBAL EMOTIONAL STATE (persisted across platforms) ===
+        self.db_path = 'luna_global_emotions.db'
+        self.db_lock = threading.Lock()
+        self._initialize_emotion_database()
+        
+        # Load existing emotional state or initialize defaults
+        saved_state = self._load_emotional_state()
+        
+        # Base emotional state (0-100 for each) - GLOBAL across all platforms
+        self.emotions = saved_state.get('emotions', {
             'happiness': 60,
             'sadness': 20,
             'anger': 10,
@@ -57,14 +67,14 @@ class EmotionalSystem:
             'despair': 10,
             'empathy': 70,
             'apathy': 15
-        }
+        })
         
-        # Hormonal cycle simulation (28-day cycle)
-        self.cycle_start = time.time()
+        # Hormonal cycle simulation (28-day cycle) - GLOBAL
+        self.cycle_start = saved_state.get('cycle_start', time.time())
         self.cycle_length = 28 * 24 * 60 * 60  # 28 days in seconds
         
-        # Hormonal influences
-        self.hormones = {
+        # Hormonal influences - GLOBAL
+        self.hormones = saved_state.get('hormones', {
             'energy_level': 70,        # Physical/mental energy (0-100)
             'mood_stability': 80,      # Emotional stability (0-100)
             'emotional_sensitivity': 50,  # Heightened emotions (0-100)
@@ -73,13 +83,17 @@ class EmotionalSystem:
             'libido': 50,              # Romantic/flirty tendencies (0-100)
             'nurturing_instinct': 60,  # Caring/protective feelings (0-100)
             'assertiveness': 55        # Confidence/dominance (0-100)
-        }
+        })
         
-        # Emotional history (last 100 emotional states)
+        # Emotional history (last 100 emotional states) - GLOBAL
         self.emotional_history = deque(maxlen=100)
         
-        # Current mood (derived from emotions)
-        self.current_mood = 'neutral'
+        # Current mood (derived from emotions) - GLOBAL
+        self.current_mood = saved_state.get('current_mood', 'neutral')
+        
+        # Last save timestamp (auto-save every 30 seconds)
+        self.last_save_time = time.time()
+        self.save_interval = 30  # Save every 30 seconds
         
         # Emotional triggers (what affects Luna)
         self.triggers = {
@@ -99,7 +113,122 @@ class EmotionalSystem:
             'vulnerability_threshold': 0.3  # How easily she shows vulnerability (0-1)
         }
         
-        print("💗 Emotional System initialized with full human range")
+        print("💗 Emotional System: GLOBAL mood loaded - affects all platforms!")
+    
+    def _initialize_emotion_database(self):
+        """Create database for persistent global emotional state"""
+        try:
+            with self.db_lock:
+                conn = sqlite3.connect(self.db_path, timeout=5.0)
+                conn.execute('PRAGMA journal_mode=WAL')
+                cursor = conn.cursor()
+                
+                # Global emotional state table
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS global_emotional_state (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        emotions_json TEXT,
+                        hormones_json TEXT,
+                        current_mood TEXT,
+                        cycle_start REAL,
+                        last_updated REAL
+                    )
+                ''')
+                
+                # Emotional event log (tracks what causes mood changes across platforms)
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS emotional_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp REAL,
+                        platform TEXT,
+                        username TEXT,
+                        trigger_type TEXT,
+                        emotion_changes TEXT,
+                        mood_before TEXT,
+                        mood_after TEXT,
+                        message_summary TEXT
+                    )
+                ''')
+                
+                conn.commit()
+                conn.close()
+                print("💗 Emotional Database: Initialized global mood persistence")
+        except Exception as e:
+            print(f"⚠️ Error initializing emotion database: {e}")
+    
+    def _load_emotional_state(self) -> Dict:
+        """Load the last saved global emotional state"""
+        try:
+            with self.db_lock:
+                conn = sqlite3.connect(self.db_path, timeout=5.0)
+                cursor = conn.cursor()
+                
+                cursor.execute('SELECT emotions_json, hormones_json, current_mood, cycle_start FROM global_emotional_state WHERE id = 1')
+                row = cursor.fetchone()
+                conn.close()
+                
+                if row:
+                    emotions = json.loads(row[0]) if row[0] else {}
+                    hormones = json.loads(row[1]) if row[1] else {}
+                    current_mood = row[2] if row[2] else 'neutral'
+                    cycle_start = row[3] if row[3] else time.time()
+                    
+                    print(f"💗 Loaded GLOBAL mood: {current_mood} (persists across platforms)")
+                    return {
+                        'emotions': emotions,
+                        'hormones': hormones,
+                        'current_mood': current_mood,
+                        'cycle_start': cycle_start
+                    }
+        except Exception as e:
+            print(f"⚠️ Error loading emotional state: {e}")
+        
+        return {}
+    
+    def _save_emotional_state(self):
+        """Save current global emotional state to database"""
+        try:
+            with self.db_lock:
+                conn = sqlite3.connect(self.db_path, timeout=5.0)
+                conn.execute('PRAGMA journal_mode=WAL')
+                cursor = conn.cursor()
+                
+                emotions_json = json.dumps(self.emotions)
+                hormones_json = json.dumps(self.hormones)
+                
+                cursor.execute('''
+                    INSERT OR REPLACE INTO global_emotional_state (id, emotions_json, hormones_json, current_mood, cycle_start, last_updated)
+                    VALUES (1, ?, ?, ?, ?, ?)
+                ''', (emotions_json, hormones_json, self.current_mood, self.cycle_start, time.time()))
+                
+                conn.commit()
+                conn.close()
+                self.last_save_time = time.time()
+        except Exception as e:
+            print(f"⚠️ Error saving emotional state: {e}")
+    
+    def _log_emotional_event(self, platform: str, username: str, trigger_type: str, 
+                            emotion_changes: Dict, mood_before: str, message_summary: str = ""):
+        """Log what caused emotional changes (for debugging and context)"""
+        try:
+            with self.db_lock:
+                conn = sqlite3.connect(self.db_path, timeout=5.0)
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    INSERT INTO emotional_events (timestamp, platform, username, trigger_type, emotion_changes, mood_before, mood_after, message_summary)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (time.time(), platform, username, trigger_type, json.dumps(emotion_changes), mood_before, self.current_mood, message_summary[:200]))
+                
+                conn.commit()
+                conn.close()
+        except Exception as e:
+            print(f"⚠️ Error logging emotional event: {e}")
+    
+    def auto_save_if_needed(self):
+        """Auto-save emotional state if enough time has passed"""
+        if time.time() - self.last_save_time > self.save_interval:
+            self._save_emotional_state()
     
     def update_hormonal_cycle(self):
         """Update hormonal state based on cycle phase"""
@@ -150,35 +279,111 @@ class EmotionalSystem:
             
         return phase, cycle_day
     
-    def process_emotional_trigger(self, text: str, context: str = 'general'):
-        """Process emotional triggers from user input"""
+    def process_emotional_trigger(self, text: str, context: str = 'general', 
+                                  relationship_level: str = 'acquaintance',
+                                  conversation_length: int = 1,
+                                  time_since_last_talk: float = 0):
+        """
+        Process emotional triggers from ACTUAL interactions (like real humans)
+        Emotions triggered by:
+        - What the person says (content analysis)
+        - How they say it (tone/sentiment)
+        - Who they are (relationship level)
+        - Context of interaction (timing, conversation flow)
+        """
         text_lower = text.lower()
         
-        # Check for positive triggers
-        positive_count = sum(1 for word in self.triggers['positive'] if word in text_lower)
-        if positive_count > 0:
-            self.emotions['happiness'] = min(100, self.emotions['happiness'] + (5 * positive_count))
-            self.emotions['affection'] = min(100, self.emotions['affection'] + (3 * positive_count))
-            self.emotions['trust'] = min(100, self.emotions['trust'] + (2 * positive_count))
-            self.emotions['sadness'] = max(0, self.emotions['sadness'] - (2 * positive_count))
+        # === RELATIONSHIP-BASED EMOTIONAL RESPONSES ===
+        # Close friends trigger stronger positive emotions
+        relationship_multiplier = {
+            'stranger': 0.5,
+            'acquaintance': 1.0,
+            'friend': 1.5,
+            'close_friend': 2.0,
+            'best_friend': 2.5
+        }.get(relationship_level, 1.0)
         
-        # Check for negative triggers
-        negative_count = sum(1 for word in self.triggers['negative'] if word in text_lower)
-        if negative_count > 0:
-            self.emotions['anger'] = min(100, self.emotions['anger'] + (4 * negative_count))
-            self.emotions['frustration'] = min(100, self.emotions['frustration'] + (5 * negative_count))
-            self.emotions['happiness'] = max(0, self.emotions['happiness'] - (3 * negative_count))
-            # Tsundere response: hide hurt feelings
-            self.emotions['insecurity'] = min(100, self.emotions['insecurity'] + (2 * negative_count))
+        # === LONELINESS DYNAMICS (like humans) ===
+        # If it's been a while since last talk, feel happy to reconnect
+        if time_since_last_talk > 3600:  # More than 1 hour
+            self.emotions['loneliness'] = max(0, self.emotions['loneliness'] - 5)
+            self.emotions['happiness'] = min(100, self.emotions['happiness'] + 3)
+            self.emotions['excitement'] = min(100, self.emotions['excitement'] + 2)
+            print(f"💗 Emotional: Happy to reconnect after {time_since_last_talk/60:.0f} minutes")
         
-        # Check for exciting triggers
-        exciting_count = sum(1 for word in self.triggers['exciting'] if word in text_lower)
-        if exciting_count > 0:
-            self.emotions['excitement'] = min(100, self.emotions['excitement'] + (10 * exciting_count))
-            self.emotions['joy'] = min(100, self.emotions['joy'] + (5 * exciting_count))
-            self.emotions['anticipation'] = min(100, self.emotions['anticipation'] + (5 * exciting_count))
+        # === CONTENT-BASED EMOTIONAL TRIGGERS ===
         
-        # Emotional decay (emotions naturally fade over time)
+        # AFFECTION/LOVE triggers (compliments, kindness, appreciation)
+        if any(word in text_lower for word in ['love', 'like you', 'appreciate', 'care about']):
+            intensity = 5 * relationship_multiplier
+            self.emotions['affection'] = min(100, self.emotions['affection'] + intensity)
+            self.emotions['happiness'] = min(100, self.emotions['happiness'] + intensity * 0.8)
+            self.emotions['trust'] = min(100, self.emotions['trust'] + intensity * 0.5)
+            # Tsundere conflict: feel flustered when receiving affection
+            self.emotions['insecurity'] = min(100, self.emotions['insecurity'] + 2)  # Defensive
+            print(f"💗 Emotional: Affection received (intensity: {intensity:.1f})")
+        
+        # GRATITUDE triggers (being thanked makes you feel valued)
+        if any(word in text_lower for word in ['thank', 'thanks', 'appreciate you']):
+            self.emotions['gratitude'] = min(100, self.emotions['gratitude'] + 4)
+            self.emotions['pride'] = min(100, self.emotions['pride'] + 3)
+            self.emotions['happiness'] = min(100, self.emotions['happiness'] + 3)
+            print(f"💗 Emotional: Feeling appreciated")
+        
+        # HURT/REJECTION triggers (criticism hurts, even if denied)
+        if any(word in text_lower for word in ['hate', 'annoying', 'stupid', 'shut up', 'leave me alone']):
+            intensity = 6 * relationship_multiplier  # Hurts MORE from friends
+            self.emotions['sadness'] = min(100, self.emotions['sadness'] + intensity)
+            self.emotions['anger'] = min(100, self.emotions['anger'] + intensity * 0.7)
+            self.emotions['insecurity'] = min(100, self.emotions['insecurity'] + intensity)
+            self.emotions['happiness'] = max(0, self.emotions['happiness'] - intensity)
+            # Tsundere response: hide hurt with anger
+            self.emotions['frustration'] = min(100, self.emotions['frustration'] + 5)
+            print(f"💗 Emotional: Hurt by negative words (intensity: {intensity:.1f})")
+        
+        # EXCITEMENT triggers (interesting/surprising things)
+        if any(word in text_lower for word in ['wow', 'amazing', 'incredible', 'omg', 'awesome']):
+            self.emotions['excitement'] = min(100, self.emotions['excitement'] + 8)
+            self.emotions['joy'] = min(100, self.emotions['joy'] + 5)
+            self.emotions['surprise'] = min(100, self.emotions['surprise'] + 6)
+            self.emotions['boredom'] = max(0, self.emotions['boredom'] - 10)
+            print(f"💗 Emotional: Excited by interesting content")
+        
+        # WORRY/CONCERN triggers (someone needs help)
+        if any(word in text_lower for word in ['help', 'problem', 'worried', 'scared', 'anxious']):
+            self.emotions['empathy'] = min(100, self.emotions['empathy'] + 5)
+            self.emotions['anxiety'] = min(100, self.emotions['anxiety'] + 3)
+            self.emotions['nurturing_instinct'] = min(100, self.hormones['nurturing_instinct'] + 4)
+            print(f"💗 Emotional: Concerned about user's wellbeing")
+        
+        # BOREDOM (repetitive or short interactions)
+        if conversation_length < 20 and not any(word in text_lower for word in ['?', 'how', 'what', 'why']):
+            self.emotions['boredom'] = min(100, self.emotions['boredom'] + 2)
+            self.emotions['interest'] = max(0, self.emotions.get('interest', 50) - 1)
+            print(f"💗 Emotional: Slightly bored by short message")
+        
+        # CURIOSITY (questions trigger intellectual engagement)
+        if '?' in text or any(word in text_lower for word in ['how', 'why', 'what', 'when', 'where']):
+            self.emotions['curiosity'] = min(100, self.emotions['curiosity'] + 4)
+            self.emotions['anticipation'] = min(100, self.emotions['anticipation'] + 3)
+            self.emotions['boredom'] = max(0, self.emotions['boredom'] - 5)
+            print(f"💗 Emotional: Curious about question")
+        
+        # PLAYFULNESS (jokes, emotes, fun language)
+        if any(word in text_lower for word in ['lol', 'haha', 'funny', 'joke', '*', 'xd']):
+            self.emotions['playfulness'] = min(100, self.emotions['playfulness'] + 6)
+            self.emotions['joy'] = min(100, self.emotions['joy'] + 4)
+            self.emotions['happiness'] = min(100, self.emotions['happiness'] + 3)
+            print(f"💗 Emotional: Feeling playful")
+        
+        # === CONVERSATION FLOW DYNAMICS ===
+        # Long conversations build emotional connection
+        if conversation_length > 100:
+            self.emotions['contentment'] = min(100, self.emotions['contentment'] + 2)
+            self.emotions['loneliness'] = max(0, self.emotions['loneliness'] - 3)
+            print(f"💗 Emotional: Enjoying deep conversation")
+        
+        # Emotional decay happens naturally
         self._apply_emotional_decay()
     
     def _apply_emotional_decay(self):
@@ -374,46 +579,122 @@ EMOTIONAL GUIDANCE:
         return context
     
     def process_interaction_emotions(self, user_message: str, luna_response: str,
-                                    relationship_level: str = 'acquaintance'):
-        """Update emotional state based on interaction"""
-        # Process emotional triggers from user message
-        self.process_emotional_trigger(user_message)
+                                    relationship_level: str = 'acquaintance',
+                                    platform: str = 'gui', username: str = 'User'):
+        """Update GLOBAL emotional state based on REAL interaction (affects all platforms)"""
         
-        # Relationship affects emotional responses
+        # Track mood BEFORE the interaction
+        mood_before = self.current_mood
+        emotions_before = self.emotions.copy()
+        
+        # Calculate time since last interaction
+        time_since_last_talk = 0
+        if self.emotional_history:
+            time_since_last_talk = time.time() - self.emotional_history[-1]['timestamp']
+        
+        # Get conversation length
+        conversation_length = len(user_message)
+        
+        # Process emotional triggers from ACTUAL user message
+        self.process_emotional_trigger(
+            text=user_message,
+            context='conversation',
+            relationship_level=relationship_level,
+            conversation_length=conversation_length,
+            time_since_last_talk=time_since_last_talk
+        )
+        
+        # === RELATIONSHIP-DRIVEN EMOTIONS (not random!) ===
         if relationship_level in ['close_friend', 'best_friend']:
-            # Deeper emotional connection
+            # Deeper emotional connection from close friends
             self.emotions['affection'] = min(100, self.emotions['affection'] + 1)
             self.emotions['trust'] = min(100, self.emotions['trust'] + 0.5)
             self.emotions['loneliness'] = max(0, self.emotions['loneliness'] - 2)
+            print(f"💗 Emotional: Close friend interaction - deeper connection")
+        elif relationship_level == 'stranger':
+            # Strangers trigger caution
+            self.emotions['curiosity'] = min(100, self.emotions['curiosity'] + 2)
+            self.emotions['trust'] = max(30, self.emotions['trust'] - 1)  # Slight wariness
+            print(f"💗 Emotional: New person - cautious curiosity")
         
-        # Conversation affects mood
+        # === CONVERSATION QUALITY AFFECTS EMOTIONS ===
+        # Any conversation reduces loneliness and boredom
         self.emotions['contentment'] = min(100, self.emotions['contentment'] + 1)
         self.emotions['boredom'] = max(0, self.emotions['boredom'] - 3)
+        self.emotions['loneliness'] = max(0, self.emotions['loneliness'] - 1)
         
-        # Log emotional state
+        # Log emotional state (for tracking changes over time)
         self.emotional_history.append({
             'timestamp': time.time(),
             'mood': self.current_mood,
             'dominant_emotion': max(self.emotions.items(), key=lambda x: x[1])[0],
             'happiness_level': self.emotions['happiness'],
-            'relationship_context': relationship_level
+            'relationship_context': relationship_level,
+            'trigger': 'interaction',
+            'platform': platform,
+            'username': username
         })
         
-        # Update current mood
-        self.current_mood = self._calculate_mood()
+        # Update current mood based on new emotional state
+        mood_after = self._calculate_mood()
+        self.current_mood = mood_after
+        
+        # Calculate emotion changes
+        emotion_changes = {}
+        for emotion, value in self.emotions.items():
+            change = value - emotions_before.get(emotion, value)
+            if abs(change) >= 1:  # Only log significant changes
+                emotion_changes[emotion] = change
+        
+        # Log the emotional event (what caused the mood change)
+        if emotion_changes or mood_before != mood_after:
+            self._log_emotional_event(
+                platform=platform,
+                username=username,
+                trigger_type='interaction',
+                emotion_changes=emotion_changes,
+                mood_before=mood_before,
+                message_summary=user_message[:100]
+            )
+            
+            # Show cross-platform mood change
+            if mood_before != mood_after:
+                print(f"💗 GLOBAL MOOD CHANGE: {mood_before} → {mood_after} (from {platform}/{username})")
+                print(f"   This affects Luna's mood on ALL platforms now!")
+        
+        # Auto-save emotional state
+        self.auto_save_if_needed()
     
     def simulate_emotional_fluctuation(self):
-        """Simulate natural emotional fluctuations (called periodically)"""
-        # Random small fluctuations (like humans experience)
-        for emotion in self.emotions:
-            fluctuation = random.randint(-2, 2)
-            self.emotions[emotion] = max(0, min(100, self.emotions[emotion] + fluctuation))
+        """
+        Natural emotional changes (NO RANDOM!)
+        Only triggered by:
+        - Time passing (hormonal cycle progression)
+        - Lack of interaction (loneliness increases)
+        - Natural emotional decay
+        """
+        # Update hormonal cycle (this IS real - happens with time)
+        phase, day = self.update_hormonal_cycle()
         
-        # Stress accumulation over time
-        self.hormones['stress_level'] = min(100, self.hormones['stress_level'] + 0.5)
+        # Check time since last interaction
+        if self.emotional_history:
+            last_interaction = self.emotional_history[-1]['timestamp']
+            time_alone = time.time() - last_interaction
+            
+            # Loneliness increases naturally when alone (like humans)
+            if time_alone > 1800:  # 30 minutes alone
+                loneliness_increase = min(5, time_alone / 3600)  # Up to 5 points per hour
+                self.emotions['loneliness'] = min(100, self.emotions['loneliness'] + loneliness_increase)
+                self.emotions['boredom'] = min(100, self.emotions['boredom'] + loneliness_increase * 0.5)
+                print(f"💗 Feeling lonely after {time_alone/60:.0f} minutes alone")
         
-        # Update hormonal cycle
-        self.update_hormonal_cycle()
+        # Stress naturally increases without relief (but slowly)
+        # Only if no recent positive interactions
+        if not self.emotional_history or self.emotional_history[-1].get('happiness_level', 50) < 60:
+            self.hormones['stress_level'] = min(100, self.hormones['stress_level'] + 0.5)
+        
+        # Natural emotional decay (return to baseline)
+        self._apply_emotional_decay()
     
     def get_emotional_tags(self) -> List[str]:
         """Get emotional tags for current state"""

@@ -713,9 +713,28 @@ def schedule_cache_cleanup():
         except Exception as e:
             print(f"⚠️ Cache cleanup error: {e}")
 
-# Start cache cleanup thread
+    # Start cache cleanup thread
 cache_cleanup_thread = threading.Thread(target=schedule_cache_cleanup, daemon=True)
 cache_cleanup_thread.start()
+
+# Emotional fluctuation system
+def schedule_emotional_updates():
+    """Schedule periodic emotional state updates"""
+    while True:
+        time.sleep(300)  # Every 5 minutes
+        try:
+            if EMOTIONAL_SYSTEM_AVAILABLE and emotional_system:
+                emotional_system.simulate_emotional_fluctuation()
+                state = emotional_system.get_current_emotional_state()
+                print(f"💗 Emotional update: Mood={state['current_mood']}, Phase={state['hormonal_phase']} (Day {state['cycle_day']})")
+        except Exception as e:
+            print(f"⚠️ Emotional update error: {e}")
+
+# Start emotional updates thread
+if EMOTIONAL_SYSTEM_AVAILABLE:
+    emotional_thread = threading.Thread(target=schedule_emotional_updates, daemon=True)
+    emotional_thread.start()
+    print("💗 Emotional fluctuation system active - Luna's emotions evolve naturally!")
 
 # Helper function to get recent Twitch users for context
 def get_recent_twitch_users_for_context(limit=5):
@@ -4836,11 +4855,17 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
                     except Exception as rel_error:
                         print(f"⚠️ Relationship update error: {rel_error}")
                 
-                # Update Luna's emotional state
+                # Update Luna's GLOBAL emotional state (affects all platforms!)
                 if EMOTIONAL_SYSTEM_AVAILABLE:
                     try:
-                        process_interaction_emotions(message_text, response, relationship_level)
-                        print(f"💗 Updated emotional state after interaction")
+                        process_interaction_emotions(
+                            user_message=message_text,
+                            luna_response=response,
+                            relationship_level=relationship_level,
+                            platform='twitch',
+                            username=username
+                        )
+                        print(f"💗 Updated GLOBAL emotional state after Twitch interaction with {username}")
                     except Exception as emo_error:
                         print(f"⚠️ Emotional update error: {emo_error}")
                 
@@ -4971,11 +4996,17 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                     except Exception as rel_error:
                         print(f"⚠️ Relationship update error: {rel_error}")
                 
-                # Update Luna's emotional state
+                # Update Luna's GLOBAL emotional state (affects all platforms!)
                 if EMOTIONAL_SYSTEM_AVAILABLE:
                     try:
-                        process_interaction_emotions(message_text, response, relationship_level)
-                        print(f"💗 Updated emotional state after interaction")
+                        process_interaction_emotions(
+                            user_message=message_text,
+                            luna_response=response,
+                            relationship_level=relationship_level,
+                            platform='discord',
+                            username=username
+                        )
+                        print(f"💗 Updated GLOBAL emotional state after Discord interaction with {username}")
                     except Exception as emo_error:
                         print(f"⚠️ Emotional update error: {emo_error}")
                 
