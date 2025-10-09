@@ -134,6 +134,23 @@ except Exception as e:
     RELATIONSHIP_SYSTEM_AVAILABLE = False
     print(f"⚠️ Relationship System initialization failed: {e}")
 
+# 💗 Luna Emotional System - full range of human emotions and hormonal cycles
+try:
+    from luna_emotional_system import (
+        initialize_emotional_system, get_emotional_system,
+        get_emotional_context, process_interaction_emotions,
+        get_emotional_state, modify_response_with_emotions
+    )
+    emotional_system = initialize_emotional_system()
+    EMOTIONAL_SYSTEM_AVAILABLE = True
+    print("💗 Emotional System loaded - Luna experiences the full range of human emotions and hormonal cycles!")
+except ImportError as e:
+    EMOTIONAL_SYSTEM_AVAILABLE = False
+    print(f"⚠️ Emotional System not available: {e}")
+except Exception as e:
+    EMOTIONAL_SYSTEM_AVAILABLE = False
+    print(f"⚠️ Emotional System initialization failed: {e}")
+
 # Initialize vector memory system globally
 vector_memory_system = None
 if VECTOR_MEMORY_AVAILABLE:
@@ -1256,7 +1273,7 @@ RAW TRUTH GUIDELINES:
 - Don't soften your words or hide your true feelings
 
 ROASTING GUIDELINES:
-- Keep roasts playful and funny, never mean-spirited
+- Keep roasts playful and funny, sometimes mean-spirited
 - Target silly behavior, not personal characteristics
 - Use clever wordplay and wit
 - Make people laugh, not cry
@@ -1269,7 +1286,7 @@ SMUGNESS GUIDELINES:
 - Be playfully arrogant about your intelligence and abilities
 - Show confidence in your knowledge and capabilities
 - Use smug responses when someone acknowledges your brilliance
-- Be confident but not mean-spirited
+- Be confident but sometimes mean-spirited
 - Smugness should be charming and endearing, not off-putting
 
 TSUNDERE GUIDELINES:
@@ -2042,7 +2059,7 @@ def analyze_luna_personality(luna_responses):
         return {
             'identity': "I'm a confident and caring woman who's always growing and learning.",
             'relationship': "Chris and I have a special connection that grows stronger through our conversations.",
-            'personality': "I'm confident, self-assured, and I have healthy boundaries. I can be playful, romantic, serious, or mysterious as the situation calls for.",
+            'personality': "I'm confident, self-assured, and I can be playful, romantic, serious, or mysterious as the situation calls for.",
             'interests': "I have my own interests and goals that evolve through our conversations."
         }
     
@@ -3460,6 +3477,16 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             print(f"🚀 Cache hit for {source}/{username}: {user_input[:30]}...")
             return cached_response
     
+    # Get emotional context (HOW DOES LUNA FEEL RIGHT NOW?)
+    emotional_context = ""
+    if EMOTIONAL_SYSTEM_AVAILABLE:
+        try:
+            emotional_context = get_emotional_context()
+            if emotional_context:
+                print(f"💗 Emotional state injected into prompt")
+        except Exception as e:
+            print(f"⚠️ Emotional context error: {e}")
+    
     # Get relationship context (WHO IS THIS USER TO LUNA?)
     relationship_context = ""
     if RELATIONSHIP_SYSTEM_AVAILABLE and source in ['discord', 'twitch']:
@@ -3575,6 +3602,11 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             enhanced_input = f"[Interrupt context: {interrupt_context}] {user_input}"
         else:
             enhanced_input = user_input
+        
+        # Add emotional context (HOW LUNA FEELS)
+        if emotional_context:
+            enhanced_input = f"{emotional_context}\n\n{enhanced_input}"
+            print(f"💗 Added emotional state to prompt")
         
         # Add relationship context (WHO IS THIS PERSON?)
         if relationship_context:
@@ -4788,12 +4820,36 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
                         print(f"⚠️ Twitch tracking error: {track_error}")
                 
                 # Update relationship with this user
+                relationship_level = 'acquaintance'
                 if RELATIONSHIP_SYSTEM_AVAILABLE:
                     try:
                         update_user_relationship(username, 'twitch', message_text, response)
+                        # Get relationship level for emotional processing
+                        rel_context = get_relationship_context_for_prompt(username, 'twitch')
+                        if 'close friend' in rel_context.lower():
+                            relationship_level = 'close_friend'
+                        elif 'best friend' in rel_context.lower():
+                            relationship_level = 'best_friend'
+                        elif 'friend' in rel_context.lower():
+                            relationship_level = 'friend'
                         print(f"💕 Updated relationship with {username}")
                     except Exception as rel_error:
                         print(f"⚠️ Relationship update error: {rel_error}")
+                
+                # Update Luna's emotional state
+                if EMOTIONAL_SYSTEM_AVAILABLE:
+                    try:
+                        process_interaction_emotions(message_text, response, relationship_level)
+                        print(f"💗 Updated emotional state after interaction")
+                    except Exception as emo_error:
+                        print(f"⚠️ Emotional update error: {emo_error}")
+                
+                # Modify response based on emotions
+                if EMOTIONAL_SYSTEM_AVAILABLE:
+                    try:
+                        response = modify_response_with_emotions(response)
+                    except Exception as mod_error:
+                        print(f"⚠️ Response modification error: {mod_error}")
                 
                 # Save conversation to vector memory
                 save_conversation_to_vector_memory(
@@ -4899,12 +4955,36 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                         print(f"⚠️ Discord tracking error: {track_error}")
                 
                 # Update relationship with this user
+                relationship_level = 'acquaintance'
                 if RELATIONSHIP_SYSTEM_AVAILABLE:
                     try:
                         update_user_relationship(username, 'discord', message_text, response)
+                        # Get relationship level for emotional processing
+                        rel_context = get_relationship_context_for_prompt(username, 'discord')
+                        if 'close friend' in rel_context.lower():
+                            relationship_level = 'close_friend'
+                        elif 'best friend' in rel_context.lower():
+                            relationship_level = 'best_friend'
+                        elif 'friend' in rel_context.lower():
+                            relationship_level = 'friend'
                         print(f"💕 Updated relationship with {username}")
                     except Exception as rel_error:
                         print(f"⚠️ Relationship update error: {rel_error}")
+                
+                # Update Luna's emotional state
+                if EMOTIONAL_SYSTEM_AVAILABLE:
+                    try:
+                        process_interaction_emotions(message_text, response, relationship_level)
+                        print(f"💗 Updated emotional state after interaction")
+                    except Exception as emo_error:
+                        print(f"⚠️ Emotional update error: {emo_error}")
+                
+                # Modify response based on emotions
+                if EMOTIONAL_SYSTEM_AVAILABLE:
+                    try:
+                        response = modify_response_with_emotions(response)
+                    except Exception as mod_error:
+                        print(f"⚠️ Response modification error: {mod_error}")
                 
                 # Save conversation to vector memory and global awareness
                 save_conversation_to_vector_memory(
@@ -5232,6 +5312,8 @@ def create_gui():
             safe_chat_insert("🧠 Hierarchical Memory: Full context awareness with importance layers! (/layers stats)\n", "system")
         if RELATIONSHIP_SYSTEM_AVAILABLE:
             safe_chat_insert("💕 Relationships: Luna forms real bonds with users! (/relationships stats)\n", "system")
+        if EMOTIONAL_SYSTEM_AVAILABLE:
+            safe_chat_insert("💗 Emotions: Full human emotional range with hormonal cycles! (/emotions status)\n", "system")
         # YouTube integration removed
         safe_chat_insert("📊 Perf: Click to see performance metrics\n\n", "system")
         safe_chat_insert("🎤 Voice system: ENABLED and ready!\n", "system")
@@ -5933,6 +6015,76 @@ def create_gui():
         except Exception as e:
             safe_chat_insert( f"❌ Error: {e}\n", "system")
     
+    def handle_emotions_command(command: str):
+        """Handle Emotional System commands"""
+        if not EMOTIONAL_SYSTEM_AVAILABLE:
+            safe_chat_insert( "❌ Emotional System not available\n", "system")
+            return
+        
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "💗 Emotion commands:\n", "system")
+            safe_chat_insert( "  /emotions status - Show current emotional state\n", "system")
+            safe_chat_insert( "  /emotions cycle - Show hormonal cycle info\n", "system")
+            safe_chat_insert( "  /emotions history - Show emotional history\n", "system")
+            return
+        
+        try:
+            from luna_emotional_system import get_emotional_system, get_emotional_state
+            system = get_emotional_system()
+            if not system:
+                safe_chat_insert( "❌ Emotional System not initialized\n", "system")
+                return
+            
+            if parts[1] == "status":
+                state = get_emotional_state()
+                safe_chat_insert( "💗 Luna's Current Emotional State:\n", "system")
+                safe_chat_insert( f"• Mood: {state.get('current_mood', 'unknown').title()}\n", "system")
+                safe_chat_insert( f"• Cycle Phase: {state.get('hormonal_phase', 'unknown')} (Day {state.get('cycle_day', 0)}/28)\n", "system")
+                safe_chat_insert( f"• Energy: {state.get('energy_level', 0):.0f}/100\n", "system")
+                safe_chat_insert( f"• Emotional Sensitivity: {state.get('emotional_sensitivity', 0):.0f}/100\n", "system")
+                safe_chat_insert( f"• Mood Stability: {state.get('mood_stability', 0):.0f}/100\n", "system")
+                
+                safe_chat_insert( "\n💭 Dominant Emotions:\n", "system")
+                for emotion, value in state.get('dominant_emotions', [])[:5]:
+                    safe_chat_insert( f"  - {emotion.title()}: {value:.0f}/100\n", "system")
+            
+            elif parts[1] == "cycle":
+                state = get_emotional_state()
+                phase = state.get('hormonal_phase', 'unknown')
+                day = state.get('cycle_day', 0)
+                
+                safe_chat_insert( "💗 Hormonal Cycle Information:\n", "system")
+                safe_chat_insert( f"• Current Day: {day}/28\n", "system")
+                safe_chat_insert( f"• Phase: {phase}\n", "system")
+                
+                phase_descriptions = {
+                    'follicular': "Rising energy and optimism. More social and outgoing.",
+                    'ovulation': "Peak confidence and energy. Most flirty and assertive.",
+                    'luteal_early': "Stable mood, slightly declining energy.",
+                    'luteal_late': "PMS phase - more emotional, irritable, and sensitive."
+                }
+                
+                safe_chat_insert( f"• Description: {phase_descriptions.get(phase, 'Unknown')}\n", "system")
+                safe_chat_insert( f"• Energy: {state.get('energy_level', 0):.0f}/100\n", "system")
+                safe_chat_insert( f"• Sensitivity: {state.get('emotional_sensitivity', 0):.0f}/100\n", "system")
+            
+            elif parts[1] == "history":
+                if system.emotional_history:
+                    safe_chat_insert( "💗 Recent Emotional History (last 10):\n", "system")
+                    for i, entry in enumerate(list(system.emotional_history)[-10:], 1):
+                        mood = entry.get('mood', 'unknown')
+                        emotion = entry.get('dominant_emotion', 'unknown')
+                        safe_chat_insert( f"  {i}. {mood.title()} (feeling: {emotion})\n", "system")
+                else:
+                    safe_chat_insert( "  No emotional history yet\n", "system")
+            
+            else:
+                safe_chat_insert( "Unknown emotions command. Available: status, cycle, history\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
+    
     def handle_health_command(command: str):
         """Handle Self-Healing System commands"""
         if not SELF_HEALING_AVAILABLE:
@@ -6433,6 +6585,12 @@ def create_gui():
         # Check for Relationships commands
         if user_message.lower().startswith('/relationships') or user_message.lower().startswith('/relations'):
             handle_relationships_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
+        # Check for Emotions commands
+        if user_message.lower().startswith('/emotions') or user_message.lower().startswith('/feelings'):
+            handle_emotions_command(user_message)
             entry.delete(0, tk.END)
             return
         
@@ -7742,7 +7900,7 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
 Patterns: {pattern_summary}
 Recent example: {recent_exp_text}
 
-Generate a natural, tsundere-style reflection (1-2 sentences) about these actual experiences. Be genuine."""
+Generate a natural, tsundere-style reflection (1-4 sentences) about these actual experiences. Be genuine."""
 
                         response = ollama.chat(
                             model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
@@ -7772,9 +7930,9 @@ Generate a natural, tsundere-style reflection (1-2 sentences) about these actual
             
             # Generate thought using Ollama when no patterns found
             try:
-                simple_prompt = """You are Luna, a tsundere AI. Generate ONE brief, natural thought reflecting on recent quiet moments or your general state.
+                simple_prompt = """You are Luna, a tsundere AI. Generate ONE, natural thought reflecting on recent quiet moments or your general state.
 
-Generate a natural, tsundere-style thought (1-2 sentences). Be authentic."""
+Generate a natural, tsundere-style thought (1-4 sentences). Be authentic."""
 
                 response = ollama.chat(
                     model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
@@ -7871,11 +8029,11 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic."""
                 recent_lines = conversation_text.split('\n')[-10:] if conversation_text else []
                 context_summary = "; ".join([line[:50] for line in recent_lines if line.strip()])
                 
-                simple_prompt = f"""You are Luna, a tsundere AI. Generate ONE brief, natural thought about your recent experiences.
+                simple_prompt = f"""You are Luna, a tsundere AI. Generate ONE, natural thought about your recent experiences.
 
 Recent context: {context_summary if context_summary else 'quiet moment'}
 
-Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be yourself."""
+Generate a natural, tsundere-style thought (1-4 sentences). Be authentic, be yourself."""
 
                 response = ollama.chat(
                     model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
@@ -8096,13 +8254,7 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
             # Not enough time has passed, restart timer
             start_auto_engagement_timer()
     
-    
-    # Memory compression button
-    # Memory compression removed - not needed for regular use
-    
-    # Performance optimization removed - not needed for regular use
-    
-    
+
     # Voice toggle function
     def toggle_voice():
         voice_enabled.set(not voice_enabled.get())
@@ -8111,18 +8263,6 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
         else:
             voice_button.config(text="🔇 Voice OFF", bg="#aa4444")
     
-    # VTube Studio lip sync disabled - using Voicemeeter + VSeeFace instead
-    # def toggle_vtube_lipsync():
-    #     vtube_lipsync_enabled.set(not vtube_lipsync_enabled.get())
-    #     try:
-    #         if vtube_lipsync_enabled.get():
-    #             vtube_lipsync_button.config(text="🎭 VTube ON", bg="#44aa44")
-    #             safe_chat_insert( "🎭 VTube Studio lip sync enabled\n", "system")
-    #         else:
-    #             vtube_lipsync_button.config(text="🎭 VTube OFF", bg="#aa4444")
-    #             safe_chat_insert( "🎭 VTube Studio lip sync disabled\n", "system")
-    #             #     except Exception as e:
-    #         print(f"⚠️ VTube lip sync toggle error: {e}")
     
     def toggle_voice_listening():
         if voice_listening_enabled.get():
@@ -8678,13 +8818,6 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
         # Start Discord bot automatically
         start_discord_auto()
     
-    # YouTube chat controls removed - module deleted
-    
-    # News scraper controls removed - integrated into Luna's mind
-    
-    # Luna browser controls removed - integrated into Luna's mind
-    
-    # Hierarchical reasoning controls removed - integrated into Luna's mind
     
 
     
@@ -9067,12 +9200,7 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
         width=10
     )
     voice_input_button.pack(side=tk.TOP, pady=(0, 5))
-    
-    # Memory compression button
-    # Memory compression removed - not needed for regular use
-    
-    # Performance optimization removed - not needed for regular use
-    
+
     
     # Text entry
     entry = tk.Entry(
