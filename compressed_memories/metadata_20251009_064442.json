@@ -1,12 +1,12 @@
 {
   "compression_info": {
     "compression_level": 9,
-    "compressed_at": "2025-10-09T08:44:44.403977",
+    "compressed_at": "2025-10-09T06:44:42.171222",
     "algorithm": "gzip"
   },
   "statistics": {
     "total_memories": 21771,
-    "total_conversations": 13869,
+    "total_conversations": 13868,
     "memory_types": {
       "conversation": 13225,
       "emotional": 8497,

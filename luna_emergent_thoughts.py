@@ -390,15 +390,25 @@ Your articulated thought:"""
                 }
             ]
             
-            response = ollama_chat_func(
-                model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
-                messages=messages,
-                options={
-                    'temperature': 0.85,
-                    'num_predict': 150,
-                    'stop': ['\n\n', 'User:', 'Luna:']
-                }
-            )
+            # Add timeout protection for Ollama call
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    ollama_chat_func,
+                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    messages=messages,
+                    options={
+                        'temperature': 0.85,
+                        'num_predict': 150,
+                        'stop': ['\n\n', 'User:', 'Luna:']
+                    }
+                )
+                
+                try:
+                    response = future.result(timeout=8.0)  # 8 second timeout
+                except concurrent.futures.TimeoutError:
+                    print(f"⚠️ Ollama articulation timeout - skipping")
+                    return None
             
             if response and response.get('message', {}).get('content'):
                 articulated = response['message']['content'].strip()

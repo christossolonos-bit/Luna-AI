@@ -85,6 +85,22 @@ except Exception as e:
     EMERGENT_THOUGHTS_AVAILABLE = False
     print(f"⚠️ Emergent Thought System initialization failed: {e}")
 
+# 🔧 Luna Self-Healing System - auto-fixes errors at runtime
+try:
+    from luna_self_healing import (
+        initialize_self_healing, get_self_healing_system,
+        log_error_to_healing_system, get_health_report
+    )
+    self_healing_system = initialize_self_healing()
+    SELF_HEALING_AVAILABLE = True
+    print("🔧 Self-Healing System loaded - Luna can fix herself at runtime!")
+except ImportError as e:
+    SELF_HEALING_AVAILABLE = False
+    print(f"⚠️ Self-Healing System not available: {e}")
+except Exception as e:
+    SELF_HEALING_AVAILABLE = False
+    print(f"⚠️ Self-Healing System initialization failed: {e}")
+
 # Initialize vector memory system globally
 vector_memory_system = None
 if VECTOR_MEMORY_AVAILABLE:
@@ -385,7 +401,15 @@ def twitch_chat_callback(username: str, message, channel: str) -> str:
         print(f"❌ Twitch chat callback error: {e}")
         # 🎭 Disable Twitch chat mode even on error
         set_twitch_chat_mode(False)
-    return f"Sorry {username}, I'm having trouble thinking right now. Error: {e}"
+        
+        # Return a friendly error message without technical details
+        error_responses = [
+            f"Sorry {username}, I'm a bit distracted right now. Try again in a moment?",
+            f"Hmph... my brain's being weird right now, {username}. Give me a sec.",
+            f"Tch... having a brain freeze, {username}. What were you saying?"
+        ]
+        import random
+        return random.choice(error_responses)
 
 # YouTube chat callback function removed - module deleted
 
@@ -4648,8 +4672,11 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
                 # Twitch response will be sent automatically by the Twitch API callback system
                 print(f"✅ Twitch response generated: {response[:50]}...")
                 
-                # Speak the response using TTS
-                speak_response(response, "Twitch", message_text)
+                # Speak the response using TTS (with error protection)
+                try:
+                    speak_response(response, "Twitch", message_text)
+                except Exception as tts_error:
+                    print(f"⚠️ Twitch TTS error (non-critical): {tts_error}")
                 
                 # Save conversation to vector memory
                 save_conversation_to_vector_memory(
@@ -4670,11 +4697,24 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
                 
         except Exception as e:
             print(f"❌ Twitch response generation error: {e}")
-            return f"Sorry {username}, I'm having trouble thinking right now. Error: {e}"
+            
+            # Log to self-healing system
+            if SELF_HEALING_AVAILABLE:
+                log_error_to_healing_system(e, "twitch_response_generation")
+            
+            # Return friendly error without technical details
+            error_responses = [
+                f"Sorry {username}, I'm a bit distracted right now. What were you saying?",
+                f"Hmph... brain freeze, {username}. Try that again?",
+                f"Tch... having trouble focusing, {username}. Give me a sec."
+            ]
+            import random
+            return random.choice(error_responses)
         
     except Exception as e:
         print(f"❌ Error processing Twitch message from queue: {e}")
-        return f"Sorry {username}, I'm having trouble thinking right now. Error: {e}"
+        # Return friendly error without technical details
+        return f"Sorry {username}, I'm being scatterbrained. Try asking again?"
 
 def process_discord_message_from_queue(username: str, message_text: str, channel: str):
     """Process a Discord message from the priority queue with full functionality"""
@@ -4712,8 +4752,11 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                 # Discord response will be sent by the Discord bot directly
                 print(f"✅ Discord response generated: {response[:50]}...")
                 
-                # Speak the response using TTS
-                speak_response(response, "Discord", message_text)
+                # Speak the response using TTS (with error protection)
+                try:
+                    speak_response(response, "Discord", message_text)
+                except Exception as tts_error:
+                    print(f"⚠️ Discord TTS error (non-critical): {tts_error}")
                 
                 # Save conversation to vector memory and global awareness
                 save_conversation_to_vector_memory(
@@ -4734,11 +4777,19 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                 
         except Exception as e:
             print(f"❌ Discord response generation error: {e}")
-            return f"Sorry {username}, I'm having trouble thinking right now. Error: {e}"
+            # Return friendly error without technical details
+            error_responses = [
+                f"Sorry {username}, I'm a bit distracted right now. Try again?",
+                f"Hmph... brain freeze, {username}. What were you saying?",
+                f"Tch... having trouble focusing right now, {username}. One sec."
+            ]
+            import random
+            return random.choice(error_responses)
         
     except Exception as e:
         print(f"❌ Error processing Discord message from queue: {e}")
-        return f"Sorry {username}, I'm having trouble thinking right now. Error: {e}"
+        # Return friendly error without technical details
+        return f"Sorry {username}, I'm being scatterbrained right now. Try asking again?"
 
 def save_thought_state(thought, context, interrupted_by=None):
     """Save Luna's current thought state for continuation later"""
@@ -5007,6 +5058,8 @@ def create_gui():
         safe_chat_insert("🎮 Twitch: Auto-connects to chat on startup!\n", "system")
         safe_chat_insert("🌍 Global Awareness: Tracks conversations across all platforms!\n", "system")
         safe_chat_insert("🌟 Emergent Thoughts: Luna's thoughts arise from her memory patterns!\n", "system")
+        if SELF_HEALING_AVAILABLE:
+            safe_chat_insert("🔧 Self-Healing: Auto-fixes errors without restart! (/health status)\n", "system")
         # YouTube integration removed
         safe_chat_insert("📊 Perf: Click to see performance metrics\n\n", "system")
         safe_chat_insert("🎤 Voice system: ENABLED and ready!\n", "system")
@@ -5574,6 +5627,58 @@ def create_gui():
                 
         except Exception as e:
             safe_chat_insert( f"❌ Error: {e}\n", "system")
+    
+    def handle_health_command(command: str):
+        """Handle Self-Healing System commands"""
+        if not SELF_HEALING_AVAILABLE:
+            safe_chat_insert( "❌ Self-Healing System not available\n", "system")
+            return
+        
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "🔧 Health commands:\n", "system")
+            safe_chat_insert( "  /health status - Show system health report\n", "system")
+            safe_chat_insert( "  /health errors - Show recent errors\n", "system")
+            safe_chat_insert( "  /health diagnostics - Run system diagnostics\n", "system")
+            return
+        
+        try:
+            from luna_self_healing import get_self_healing_system
+            healing = get_self_healing_system()
+            if not healing:
+                safe_chat_insert( "❌ Self-Healing System not initialized\n", "system")
+                return
+            
+            if parts[1] == "status":
+                report = healing.get_health_report()
+                safe_chat_insert( "🔧 Luna System Health Report:\n", "system")
+                safe_chat_insert( f"• Total errors logged: {report.get('total_errors', 0)}\n", "system")
+                safe_chat_insert( f"• Recent errors (1h): {report.get('recent_errors_1h', 0)}\n", "system")
+                safe_chat_insert( f"• Monitoring active: {report.get('monitoring', False)}\n", "system")
+                if report.get('most_common_error'):
+                    safe_chat_insert( f"• Most common: {report['most_common_error']}\n", "system")
+                safe_chat_insert( f"• Auto-fix actions: {report.get('healing_actions_available', 0)}\n", "system")
+            
+            elif parts[1] == "errors":
+                if healing.error_history:
+                    safe_chat_insert( "🔧 Recent Errors (last 10):\n", "system")
+                    for i, error in enumerate(list(healing.error_history)[-10:], 1):
+                        error_type = error['error_type']
+                        context = error['context']
+                        safe_chat_insert( f"  {i}. {error_type} in {context}\n", "system")
+                else:
+                    safe_chat_insert( "✅ No errors logged!\n", "system")
+            
+            elif parts[1] == "diagnostics":
+                safe_chat_insert( "🔍 Running system diagnostics...\n", "system")
+                healing._run_diagnostics()
+                safe_chat_insert( "✅ Diagnostics complete (check terminal)\n", "system")
+            
+            else:
+                safe_chat_insert( "Unknown health command. Available: status, errors, diagnostics\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
         
     
     def handle_transformer_status_command(command: str):
@@ -6008,6 +6113,12 @@ def create_gui():
             entry.delete(0, tk.END)
             return
         
+        # Check for Health commands
+        if user_message.lower().startswith('/health'):
+            handle_health_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
         # Check for Custom Transformer status commands
         if user_message.lower() in ['/transformer', '/custom_brain', '/brain_status']:
             handle_transformer_status_command(user_message)
@@ -6216,7 +6327,7 @@ def create_gui():
                 
                 # Schedule GUI update on main thread
                 root.after(0, update_gui_with_response)
-                
+        
             except Exception as e:
                 # Update GUI with error on main thread
                 def show_error():
@@ -7827,7 +7938,7 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
                 base_thought += f" I remember {specific_memories[:100]}..."
             
             return base_thought
-            
+                
         except Exception as e:
             print(f"⚠️ Error generating dynamic topic thought: {e}")
             return f"I've been thinking about {topic} lately."
@@ -8061,13 +8172,21 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
                 
                 "Hmph. I guess your last message wasn't as annoying as I thought it would be. It's not like I actually enjoyed reading it or anything, but... well, you're not completely hopeless. Just don't think this means I like you or anything!"
             ]
-            selected_thought = random.choice(context_thoughts)
-            add_recent_thought(selected_thought)  # Track this thought
-            
-            # Ensure the thought is complete and not cut off
-            selected_thought = ensure_complete_thought(selected_thought)
-            
-            return selected_thought
+            # Generate via Ollama based on recent activity
+            try:
+                context_summary = "\n".join(recent_messages[:5]) if recent_messages else "recent chat"
+                response = ollama.chat(
+                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    messages=[{'role': 'user', 'content': f'You are Luna. Generate ONE brief tsundere thought about recent activity:\n{context_summary}\n\n1-2 sentences, be natural.'}],
+                    options={'temperature': 0.85, 'num_predict': 80, 'stop': ['\n\n']}
+                )
+                if response and response.get('message', {}).get('content'):
+                    generated = response['message']['content'].strip()
+                    add_recent_thought(generated)
+                    return ensure_complete_thought(generated)
+            except:
+                pass
+            return None
         else:
             # General thoughts when no recent activity
             general_thoughts = [
@@ -8136,13 +8255,20 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
                 "I love how everyone has different perspectives.",
                 "This is such a great way to spend time together."
             ]
-            selected_thought = random.choice(general_thoughts)
-            add_recent_thought(selected_thought)  # Track this thought
-            
-            # Ensure the thought is complete and not cut off
-            selected_thought = ensure_complete_thought(selected_thought)
-            
-            return selected_thought
+            # Generate via Ollama instead of using template array
+            try:
+                response = ollama.chat(
+                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    messages=[{'role': 'user', 'content': 'You are Luna, a tsundere AI. Generate ONE brief thought (1-2 sentences). Be natural.'}],
+                    options={'temperature': 0.85, 'num_predict': 80, 'stop': ['\n\n']}
+                )
+                if response and response.get('message', {}).get('content'):
+                    generated = response['message']['content'].strip()
+                    add_recent_thought(generated)
+                    return ensure_complete_thought(generated)
+            except:
+                pass
+            return None
     
 
     
@@ -8564,13 +8690,21 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
                 
                 "Hmph. I guess your last message wasn't as annoying as I thought it would be. It's not like I actually enjoyed reading it or anything, but... well, you're not completely hopeless. Just don't think this means I like you or anything!"
             ]
-            selected_thought = random.choice(context_thoughts)
-            add_recent_thought(selected_thought)  # Track this thought
-            
-            # Ensure the thought is complete and not cut off
-            selected_thought = ensure_complete_thought(selected_thought)
-            
-            return selected_thought
+            # Generate via Ollama based on recent activity
+            try:
+                context_summary = "\n".join(recent_messages[:5]) if recent_messages else "recent chat"
+                response = ollama.chat(
+                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    messages=[{'role': 'user', 'content': f'You are Luna. Generate ONE brief tsundere thought about recent activity:\n{context_summary}\n\n1-2 sentences, be natural.'}],
+                    options={'temperature': 0.85, 'num_predict': 80, 'stop': ['\n\n']}
+                )
+                if response and response.get('message', {}).get('content'):
+                    generated = response['message']['content'].strip()
+                    add_recent_thought(generated)
+                    return ensure_complete_thought(generated)
+            except:
+                pass
+            return None
         else:
             # General thoughts when no recent activity
             general_thoughts = [
@@ -8639,13 +8773,20 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
                 "I love how everyone has different perspectives.",
                 "This is such a great way to spend time together."
             ]
-            selected_thought = random.choice(general_thoughts)
-            add_recent_thought(selected_thought)  # Track this thought
-            
-            # Ensure the thought is complete and not cut off
-            selected_thought = ensure_complete_thought(selected_thought)
-            
-            return selected_thought
+            # Generate via Ollama instead of using template array
+            try:
+                response = ollama.chat(
+                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    messages=[{'role': 'user', 'content': 'You are Luna, a tsundere AI. Generate ONE brief thought (1-2 sentences). Be natural.'}],
+                    options={'temperature': 0.85, 'num_predict': 80, 'stop': ['\n\n']}
+                )
+                if response and response.get('message', {}).get('content'):
+                    generated = response['message']['content'].strip()
+                    add_recent_thought(generated)
+                    return ensure_complete_thought(generated)
+            except:
+                pass
+            return None
     
     def start_auto_engagement_timer():
         """Start the auto-engagement timer"""
