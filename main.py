@@ -495,25 +495,32 @@ def speak_response(response: str, platform: str, context: str = ""):
         should_speak = (hasattr(voice_enabled, 'get') and voice_enabled.get()) or voice_enabled == True
         
         if should_speak:
-            # Use the synchronous speak function for all platforms
-                try:
-                    from voice_engine import speak
-                    print(f"🎤 Speaking {platform} response: {response[:50]}...")
-                    result = speak(response, "chat", fast_mode=True, context=context)
-                    if result and result.get("success"):
+            # Use the synchronous speak function for all platforms with better error handling
+            try:
+                from voice_engine import speak
+                print(f"🎤 Speaking {platform} response: {response[:50]}...")
+                
+                # Validate response before speaking
+                if not response or not isinstance(response, str) or len(response.strip()) == 0:
+                    print(f"⚠️ Invalid response for TTS, skipping speech")
+                    return
+                
+                result = speak(response, "chat", fast_mode=True, context=context)
+                
+                # Safe result checking
+                if result is None:
+                    print(f"⚠️ Voice engine returned None - TTS may have failed silently")
+                elif isinstance(result, dict):
+                    if result.get("success"):
                         print(f"✅ {platform} response added to TTS queue successfully")
-                    elif result and not result.get("success"):
-                        print(f"⚠️ TTS queue error for {platform} response: {result.get('error', 'Unknown error')}")
                     else:
-                        print(f"⚠️ Voice engine returned unexpected result for {platform} response: {result}")
-                except Exception as speak_error:
-                    print(f"⚠️ Error in voice engine for {platform} response: {speak_error}")
-                    # Additional error handling for subscriptable errors
-                    if "'NoneType' object is not subscriptable" in str(speak_error):
-                        print(f"🔧 Detected subscriptable error - voice engine may have returned None")
-                        print(f"🔧 This is likely a voice engine internal issue, not a critical error")
-                        # Don't crash the system - continue without TTS for this response
-                        print(f"🔧 Continuing without TTS for this {platform} response")
+                        print(f"⚠️ TTS queue error for {platform}: {result.get('error', 'Unknown error')}")
+                else:
+                    print(f"⚠️ Voice engine returned unexpected type: {type(result)}")
+                    
+            except Exception as speak_error:
+                print(f"⚠️ Voice error for {platform} (non-critical): {speak_error}")
+                # Don't crash - just skip TTS for this response
         else:
             print(f"🔇 Voice disabled, not speaking {platform} response")
     except Exception as voice_error:
@@ -6862,79 +6869,7 @@ Your natural thought:"""
             print(f"⚠️ Error generating conversational thought: {e}")
             return None
 
-    def generate_engagement_thought():
-        """Generate Luna's thoughts based on recent conversations, Twitch chat, and community activity"""
-        try:
-            # Check if Luna should continue a previous thought
-            if should_continue_thought():
-                print(f"💭 Continuing previous thought...")
-                continuation = generate_thought_continuation()
-                if continuation:
-                    # Check if this continuation is too similar to recent thoughts
-                    if is_thought_too_similar(continuation, get_recent_thoughts()):
-                        print(f"💭 Continuation too similar to recent thoughts, clearing state")
-                        clear_thought_state()
-                        # Generate a fresh thought instead
-                        return generate_dynamic_thought()
-                    
-                    update_thought_prompts(continuation)
-                    return continuation
-                else:
-                    clear_thought_state()
-            
-            # Generate a new thought based on recent activity
-            return generate_dynamic_thought()
-            
-        except Exception as e:
-            print(f"⚠️ Error generating engagement thought: {e}")
-            # Provide fallback thought even on error
-            fallback_thoughts = [
-                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
-                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
-                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
-                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything..."
-            ]
-            import random
-            fallback_thought = random.choice(fallback_thoughts)
-            add_recent_thought(fallback_thought)
-            return fallback_thought
-
-    def generate_engagement_thought():
-        """Generate Luna's thoughts based on recent conversations, Twitch chat, and community activity"""
-        try:
-            # Check if Luna should continue a previous thought
-            if should_continue_thought():
-                print(f"💭 Continuing previous thought...")
-                continuation = generate_thought_continuation()
-                if continuation:
-                    # Check if this continuation is too similar to recent thoughts
-                    if is_thought_too_similar(continuation, get_recent_thoughts()):
-                        print(f"💭 Continuation too similar to recent thoughts, clearing state")
-                        clear_thought_state()
-                        # Generate a fresh thought instead
-                        return generate_dynamic_thought()
-                    
-                    update_thought_prompts(continuation)
-                    return continuation
-                else:
-                    clear_thought_state()
-            
-            # Generate a new thought based on recent activity
-            return generate_dynamic_thought()
-            
-        except Exception as e:
-            print(f"⚠️ Error generating engagement thought: {e}")
-            # Provide fallback thought even on error
-            fallback_thoughts = [
-                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
-                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
-                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
-                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything..."
-            ]
-            import random
-            fallback_thought = random.choice(fallback_thoughts)
-            add_recent_thought(fallback_thought)
-            return fallback_thought
+    # Duplicate generate_engagement_thought functions removed - using the emergent one at line 7437
 
     def generate_dynamic_thought():
         """Generate a simple, dynamic thought using Ollama - no pre-written content"""
@@ -7914,83 +7849,7 @@ Generate a natural, tsundere-style thought (1-2 sentences). Be authentic, be you
             print(f"⚠️ Error generating conversational thought: {e}")
             return f"I've been thinking about {topic} lately."
     
-    def generate_engagement_thought():
-        """Generate Luna's genuine thoughts based on real experiences and memories"""
-        try:
-            # First, check for very recent chat activity that should change the topic
-            recent_chat_activity = check_recent_chat_activity()
-            if recent_chat_activity:
-                print(f"💬 Recent chat activity detected, generating responsive thought...")
-                responsive_thought = generate_chat_responsive_thought(recent_chat_activity)
-                if responsive_thought:
-                    add_recent_thought(responsive_thought)
-                    return responsive_thought
-            
-            # Use Luna's sophisticated memory reflection system
-            try:
-                from luna_memory_reflection import get_dynamic_self_talk_thought
-                
-                # Get recent chat messages for context
-                recent_messages = []
-                try:
-                    if 'chat_box' in globals() and chat_box:
-                        chat_text = chat_box.get("1.0", tk.END).strip()
-                        recent_lines = chat_text.split('\n')[-20:]  # Last 20 lines
-                        recent_messages = [line for line in recent_lines if line.strip() and ('Chris:' in line or 'Luna' in line)]
-                except:
-                    pass
-                
-                # Generate thought using Luna's memory reflection system
-                dynamic_thought = get_dynamic_self_talk_thought(
-                    has_recent_activity=len(recent_messages) > 0,
-                    hours=72,
-                    recent_messages=recent_messages
-                )
-                
-                if dynamic_thought:
-                    print(f"🧠 Generated dynamic self-talk using memory reflection: {dynamic_thought[:100]}...")
-                    add_recent_thought(dynamic_thought)
-                    return dynamic_thought
-                    
-            except ImportError as e:
-                print(f"⚠️ Memory reflection system not available: {e}")
-            except Exception as e:
-                print(f"⚠️ Error using memory reflection system: {e}")
-            
-            # Fallback to generate_genuine_reflection if memory reflection fails
-            genuine_reflection = generate_genuine_reflection()
-            if genuine_reflection:
-                add_recent_thought(genuine_reflection)
-                return genuine_reflection
-            
-            # If no genuine reflection was possible, generate a simple fallback thought
-            print("🤔 No genuine reflection possible - generating simple fallback thought")
-            fallback_thoughts = [
-                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
-                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
-                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
-                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything...",
-                "Sometimes I think about the conversations we've had. Not that I'm dwelling on them or anything...",
-                "I find myself thinking about the way we communicate. It's not like I'm studying it or anything..."
-            ]
-            import random
-            fallback_thought = random.choice(fallback_thoughts)
-            add_recent_thought(fallback_thought)
-            return fallback_thought
-                
-        except Exception as e:
-            print(f"⚠️ Error generating engagement thought: {e}")
-            # Provide fallback thought even on error
-            fallback_thoughts = [
-                "Tch... I suppose I'm thinking about things. It's not like I care or anything, but...",
-                "Hmph... I find myself reflecting on our conversations. Not that I'm obsessed or anything...",
-                "Whatever... I've been thinking about how our talks have been going. It's not like I'm keeping track or anything...",
-                "I suppose I've been pondering our interactions. Not that I'm analyzing them or anything..."
-            ]
-            import random
-            fallback_thought = random.choice(fallback_thoughts)
-            add_recent_thought(fallback_thought)
-            return fallback_thought
+    # Duplicate generate_engagement_thought removed - using emergent version defined earlier
     
     def add_recent_thought(thought):
         """Add a thought to the recent thoughts list"""
@@ -9300,36 +9159,14 @@ Keep it to 1-2 sentences, be specific about the topics, and maintain Luna's tsun
         except Exception as ollama_error:
             print(f"⚠️ Error generating dynamic thought with Ollama: {ollama_error}")
         
-        # Fallback to simple context-aware thought if Ollama fails
-        if recent_user_messages and unique_topics:
-            # Create a simple but context-aware fallback
-            topic = unique_topics[0] if unique_topics else "our conversation"
-            fallback_thoughts = [
-                f"Tch... I was thinking about what you said about {topic}. It's not like I actually care or anything, but... well, it wasn't completely terrible. Don't get the wrong idea though!",
-                f"Hmph. That thing you mentioned about {topic}... well, it wasn't as annoying as I thought it would be. Don't think this means I like you or anything!",
-                f"Whatever. I suppose our talk about {topic} wasn't completely boring. It's not like I enjoyed it or anything, but... you're not completely hopeless.",
-                f"Tch... I'm still processing what you said about {topic}. It's not like I care about your opinion or anything, but... well, you're not completely stupid."
-            ]
-            selected_thought = random.choice(fallback_thoughts)
-        else:
-            # Very simple fallback for when there's no context
-            simple_fallbacks = [
-                "Tch... I suppose these quiet moments aren't completely terrible. It's not like I enjoy them or anything, but... well, they're not the worst.",
-                "Hmph. I guess I can admit that our conversations are... tolerable. It's not like I look forward to them or anything, but... well, they're not completely boring.",
-                "Whatever. I suppose talking with you isn't as annoying as I thought it would be. It's not like I actually like it or anything, but... well, you're not completely insufferable."
-            ]
-            selected_thought = random.choice(simple_fallbacks)
-        
-        add_recent_thought(selected_thought)  # Track this thought
-        print(f"🧠 Generated fallback thought: {selected_thought}")
-        return selected_thought
+        # If Ollama fails, return None (skip self-talk rather than use templates)
+        print("⚠️ Dynamic thought generation failed - skipping self-talk this cycle")
+        return None
         
     except Exception as e:
         print(f"⚠️ Error in generate_dynamic_thought: {e}")
-        # Ultimate fallback
-        ultimate_fallback = "Tch... I suppose I'm thinking about things. It's not like I care or anything, but... well, there's always something to think about. Don't get the wrong idea though!"
-        add_recent_thought(ultimate_fallback)
-        return ultimate_fallback
+        # Return None instead of hardcoded fallback
+        return None
 
 def get_memory_insights() -> Dict[str, Any]:
     """Get insights about Luna's memory patterns"""
