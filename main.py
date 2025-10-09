@@ -101,6 +101,39 @@ except Exception as e:
     SELF_HEALING_AVAILABLE = False
     print(f"⚠️ Self-Healing System initialization failed: {e}")
 
+# 🧠 Luna Hierarchical Memory System - layered memory retrieval with importance ranking
+try:
+    from luna_hierarchical_memory import (
+        initialize_hierarchical_memory, get_hierarchical_memory,
+        get_intelligent_memory_context, get_memory_stats
+    )
+    hierarchical_memory_system = initialize_hierarchical_memory()
+    HIERARCHICAL_MEMORY_AVAILABLE = True
+    print("🧠 Hierarchical Memory System loaded - Luna has full context awareness with importance layers!")
+except ImportError as e:
+    HIERARCHICAL_MEMORY_AVAILABLE = False
+    print(f"⚠️ Hierarchical Memory System not available: {e}")
+except Exception as e:
+    HIERARCHICAL_MEMORY_AVAILABLE = False
+    print(f"⚠️ Hierarchical Memory System initialization failed: {e}")
+
+# 💕 Luna Relationship System - tracks evolving relationships with users
+try:
+    from luna_relationship_system import (
+        initialize_relationship_system, get_relationship_system,
+        update_user_relationship, get_relationship_context_for_prompt,
+        get_relationship_stats
+    )
+    relationship_system = initialize_relationship_system()
+    RELATIONSHIP_SYSTEM_AVAILABLE = True
+    print("💕 Relationship System loaded - Luna forms real relationships with users!")
+except ImportError as e:
+    RELATIONSHIP_SYSTEM_AVAILABLE = False
+    print(f"⚠️ Relationship System not available: {e}")
+except Exception as e:
+    RELATIONSHIP_SYSTEM_AVAILABLE = False
+    print(f"⚠️ Relationship System initialization failed: {e}")
+
 # Initialize vector memory system globally
 vector_memory_system = None
 if VECTOR_MEMORY_AVAILABLE:
@@ -3427,6 +3460,31 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             print(f"🚀 Cache hit for {source}/{username}: {user_input[:30]}...")
             return cached_response
     
+    # Get relationship context (WHO IS THIS USER TO LUNA?)
+    relationship_context = ""
+    if RELATIONSHIP_SYSTEM_AVAILABLE and source in ['discord', 'twitch']:
+        try:
+            relationship_context = get_relationship_context_for_prompt(username, source)
+            if relationship_context:
+                print(f"💕 Relationship context: {relationship_context[:100]}...")
+        except Exception as e:
+            print(f"⚠️ Relationship context error: {e}")
+    
+    # Get hierarchical memory context (FULL CONTEXT AWARENESS)
+    hierarchical_context = ""
+    if HIERARCHICAL_MEMORY_AVAILABLE:
+        try:
+            hierarchical_context = get_intelligent_memory_context(
+                user_input=user_input,
+                username=username,
+                platform=source,
+                source=source
+            )
+            if hierarchical_context:
+                print(f"🧠 Using hierarchical memory context for {username}")
+        except Exception as e:
+            print(f"⚠️ Hierarchical memory error: {e}")
+    
     # Get relevant vector memories for context (ALL platforms with timeout protection)
     vector_context = ""
     user_specific_context = ""
@@ -3517,6 +3575,16 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             enhanced_input = f"[Interrupt context: {interrupt_context}] {user_input}"
         else:
             enhanced_input = user_input
+        
+        # Add relationship context (WHO IS THIS PERSON?)
+        if relationship_context:
+            enhanced_input = f"💕 RELATIONSHIP: {relationship_context}\n\n{enhanced_input}"
+            print(f"💕 Added relationship context to prompt")
+        
+        # Add hierarchical memory context (HIGHEST PRIORITY)
+        if hierarchical_context:
+            enhanced_input = f"{hierarchical_context}\n\n{enhanced_input}"
+            print(f"🧠 Added hierarchical memory layers to prompt")
         
         # Add vector memory context to the enhanced input
         if vector_context:
@@ -4719,6 +4787,14 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
                     except Exception as track_error:
                         print(f"⚠️ Twitch tracking error: {track_error}")
                 
+                # Update relationship with this user
+                if RELATIONSHIP_SYSTEM_AVAILABLE:
+                    try:
+                        update_user_relationship(username, 'twitch', message_text, response)
+                        print(f"💕 Updated relationship with {username}")
+                    except Exception as rel_error:
+                        print(f"⚠️ Relationship update error: {rel_error}")
+                
                 # Save conversation to vector memory
                 save_conversation_to_vector_memory(
                     user_message=message_text,
@@ -4821,6 +4897,14 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                         print(f"📊 Tracked Discord user: {username}")
                     except Exception as track_error:
                         print(f"⚠️ Discord tracking error: {track_error}")
+                
+                # Update relationship with this user
+                if RELATIONSHIP_SYSTEM_AVAILABLE:
+                    try:
+                        update_user_relationship(username, 'discord', message_text, response)
+                        print(f"💕 Updated relationship with {username}")
+                    except Exception as rel_error:
+                        print(f"⚠️ Relationship update error: {rel_error}")
                 
                 # Save conversation to vector memory and global awareness
                 save_conversation_to_vector_memory(
@@ -5144,6 +5228,10 @@ def create_gui():
         safe_chat_insert("🌟 Emergent Thoughts: Luna's thoughts arise from her memory patterns!\n", "system")
         if SELF_HEALING_AVAILABLE:
             safe_chat_insert("🔧 Self-Healing: Auto-fixes errors without restart! (/health status)\n", "system")
+        if HIERARCHICAL_MEMORY_AVAILABLE:
+            safe_chat_insert("🧠 Hierarchical Memory: Full context awareness with importance layers! (/layers stats)\n", "system")
+        if RELATIONSHIP_SYSTEM_AVAILABLE:
+            safe_chat_insert("💕 Relationships: Luna forms real bonds with users! (/relationships stats)\n", "system")
         # YouTube integration removed
         safe_chat_insert("📊 Perf: Click to see performance metrics\n\n", "system")
         safe_chat_insert("🎤 Voice system: ENABLED and ready!\n", "system")
@@ -5712,6 +5800,139 @@ def create_gui():
         except Exception as e:
             safe_chat_insert( f"❌ Error: {e}\n", "system")
     
+    def handle_layers_command(command: str):
+        """Handle Hierarchical Memory Layer commands"""
+        if not HIERARCHICAL_MEMORY_AVAILABLE:
+            safe_chat_insert( "❌ Hierarchical Memory System not available\n", "system")
+            return
+        
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "🧠 Memory Layers commands:\n", "system")
+            safe_chat_insert( "  /layers stats - Show memory statistics\n", "system")
+            safe_chat_insert( "  /layers test <query> - Test memory retrieval for a query\n", "system")
+            safe_chat_insert( "  /layers Chris - Show all memory layers for user 'Chris'\n", "system")
+            return
+        
+        try:
+            from luna_hierarchical_memory import get_hierarchical_memory, get_memory_stats
+            system = get_hierarchical_memory()
+            if not system:
+                safe_chat_insert( "❌ Hierarchical Memory System not initialized\n", "system")
+                return
+            
+            if parts[1] == "stats":
+                stats = get_memory_stats()
+                safe_chat_insert( "🧠 Memory Statistics:\n", "system")
+                safe_chat_insert( f"• Total memories: {stats.get('total_memories', 0)}\n", "system")
+                safe_chat_insert( f"• Total conversations: {stats.get('total_conversations', 0)}\n", "system")
+                safe_chat_insert( f"• Recent (24h): {stats.get('recent_conversations_24h', 0)} conversations\n", "system")
+                safe_chat_insert( f"• Critical memories: {stats.get('critical_memories', 0)}\n", "system")
+                if stats.get('importance_distribution'):
+                    safe_chat_insert( f"• Importance distribution: {stats['importance_distribution']}\n", "system")
+            
+            elif parts[1] == "test" and len(parts) > 2:
+                query = " ".join(parts[2:])
+                safe_chat_insert( f"🧠 Testing memory retrieval for: '{query}'\n", "system")
+                
+                layers = system.get_layered_context(query, "Chris", "gui", max_memories_per_layer=2)
+                
+                for layer_name, memories in layers.items():
+                    if memories:
+                        safe_chat_insert( f"\n{layer_name.upper()}: {len(memories)} memories\n", "system")
+                        for mem in memories[:2]:
+                            safe_chat_insert( f"  - {mem['content'][:80]}...\n", "system")
+            
+            else:
+                # Assume it's a username
+                target_user = " ".join(parts[1:])
+                safe_chat_insert( f"🧠 Memory layers for '{target_user}':\n", "system")
+                
+                layers = system.get_layered_context("", target_user, "gui", max_memories_per_layer=3)
+                
+                total_found = sum(len(v) for v in layers.values())
+                safe_chat_insert( f"Found {total_found} memories across all layers\n\n", "system")
+                
+                for layer_name, memories in layers.items():
+                    if memories:
+                        safe_chat_insert( f"{layer_name.upper()}: {len(memories)}\n", "system")
+                        for mem in memories[:2]:
+                            safe_chat_insert( f"  - {mem['content'][:100]}...\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
+    
+    def handle_relationships_command(command: str):
+        """Handle Relationship System commands"""
+        if not RELATIONSHIP_SYSTEM_AVAILABLE:
+            safe_chat_insert( "❌ Relationship System not available\n", "system")
+            return
+        
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "💕 Relationship commands:\n", "system")
+            safe_chat_insert( "  /relationships stats - Show relationship statistics\n", "system")
+            safe_chat_insert( "  /relationships list - List all relationships\n", "system")
+            safe_chat_insert( "  /relationships <username> - Show relationship with specific user\n", "system")
+            safe_chat_insert( "  /relationships twitch - Show all Twitch relationships\n", "system")
+            safe_chat_insert( "  /relationships discord - Show all Discord relationships\n", "system")
+            return
+        
+        try:
+            from luna_relationship_system import get_relationship_system, get_relationship_stats
+            system = get_relationship_system()
+            if not system:
+                safe_chat_insert( "❌ Relationship System not initialized\n", "system")
+                return
+            
+            if parts[1] == "stats":
+                stats = get_relationship_stats()
+                safe_chat_insert( "💕 Relationship Statistics:\n", "system")
+                safe_chat_insert( f"• Total relationships: {stats.get('total_relationships', 0)}\n", "system")
+                
+                if stats.get('level_distribution'):
+                    safe_chat_insert( "\n📊 By relationship level:\n", "system")
+                    for level, count in stats['level_distribution'].items():
+                        safe_chat_insert( f"  - {level}: {count}\n", "system")
+                
+                if stats.get('platform_distribution'):
+                    safe_chat_insert( "\n🌍 By platform:\n", "system")
+                    for platform, count in stats['platform_distribution'].items():
+                        safe_chat_insert( f"  - {platform}: {count}\n", "system")
+            
+            elif parts[1] == "list":
+                relationships = system.get_all_relationships()
+                safe_chat_insert( f"💕 All Relationships ({len(relationships)}):\n", "system")
+                
+                for rel in relationships[:10]:  # Show top 10
+                    safe_chat_insert( f"  - {rel['username']} ({rel['platform']}): {rel['level']} - {rel['interactions']} talks\n", "system")
+            
+            elif parts[1] in ['twitch', 'discord', 'gui']:
+                platform = parts[1]
+                relationships = system.get_all_relationships(platform)
+                safe_chat_insert( f"💕 {platform.title()} Relationships ({len(relationships)}):\n", "system")
+                
+                for rel in relationships[:10]:
+                    safe_chat_insert( f"  - {rel['username']}: {rel['level']} ({rel['interactions']} talks, trust:{rel['trust']}, affection:{rel['affection']})\n", "system")
+            
+            else:
+                # Assume it's a username
+                target_user = " ".join(parts[1:])
+                summary = system.get_relationship_summary(target_user, 'gui')  # Default to GUI
+                
+                safe_chat_insert( f"💕 Relationship with {target_user}:\n", "system")
+                safe_chat_insert( f"{summary}\n", "system")
+                
+                # Also check cross-platform
+                cross_platform = system.get_cross_platform_relationship(target_user)
+                if cross_platform and cross_platform.get('platforms'):
+                    safe_chat_insert( f"\n🌍 Cross-platform presence: {', '.join(cross_platform['platforms'])}\n", "system")
+                    safe_chat_insert( f"Overall level: {cross_platform.get('overall_level', 'unknown')}\n", "system")
+                    safe_chat_insert( f"Total interactions: {cross_platform.get('total_interactions', 0)}\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
+    
     def handle_health_command(command: str):
         """Handle Self-Healing System commands"""
         if not SELF_HEALING_AVAILABLE:
@@ -6200,6 +6421,18 @@ def create_gui():
         # Check for Health commands
         if user_message.lower().startswith('/health'):
             handle_health_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
+        # Check for Memory Layers commands
+        if user_message.lower().startswith('/layers'):
+            handle_layers_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
+        # Check for Relationships commands
+        if user_message.lower().startswith('/relationships') or user_message.lower().startswith('/relations'):
+            handle_relationships_command(user_message)
             entry.delete(0, tk.END)
             return
         
