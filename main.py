@@ -4702,6 +4702,21 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
             if SELF_HEALING_AVAILABLE:
                 log_error_to_healing_system(e, "twitch_response_generation")
             
+            # SKIP AND RETRY for NoneType subscriptable errors
+            if "'NoneType' object is not subscriptable" in str(e):
+                print(f"🔧 Auto-healing: Skipping NoneType error, retrying without TTS...")
+                try:
+                    # Retry without TTS
+                    reply_result = generate_luna_reply(message_text, username, "twitch")
+                    response, success = intelligent_tuple_unpack(reply_result, "Twitch-Retry")
+                    
+                    if response and success:
+                        print(f"✅ Retry successful (no TTS): {response[:50]}...")
+                        # Don't call speak_response this time
+                        return response
+                except Exception as retry_error:
+                    print(f"⚠️ Retry also failed: {retry_error}")
+            
             # Return friendly error without technical details
             error_responses = [
                 f"Sorry {username}, I'm a bit distracted right now. What were you saying?",
@@ -4777,6 +4792,26 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                 
         except Exception as e:
             print(f"❌ Discord response generation error: {e}")
+            
+            # Log to self-healing system
+            if SELF_HEALING_AVAILABLE:
+                log_error_to_healing_system(e, "discord_response_generation")
+            
+            # SKIP AND RETRY for NoneType subscriptable errors
+            if "'NoneType' object is not subscriptable" in str(e):
+                print(f"🔧 Auto-healing: Skipping NoneType error, retrying without TTS...")
+                try:
+                    # Retry without TTS
+                    reply_result = generate_luna_reply(message_text, username, "discord")
+                    response, success = intelligent_tuple_unpack(reply_result, "Discord-Retry")
+                    
+                    if response and success:
+                        print(f"✅ Retry successful (no TTS): {response[:50]}...")
+                        # Don't call speak_response this time
+                        return response
+                except Exception as retry_error:
+                    print(f"⚠️ Retry also failed: {retry_error}")
+            
             # Return friendly error without technical details
             error_responses = [
                 f"Sorry {username}, I'm a bit distracted right now. Try again?",

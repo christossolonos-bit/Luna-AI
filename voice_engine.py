@@ -2009,46 +2009,74 @@ async def speak_segment(segment: str, voice_profile: dict, mood: str = "soft", f
         print(f"❌ Segment TTS error: {e}")
 
 async def ensure_segment_cached(segment: str, voice_profile: dict) -> str:
-    """Ensure a segment is synthesized and cached; return cache path."""
-    ensure_cache_dir_exists()
-    cache_path = get_tts_cache_path(segment, voice_profile)
-    if os.path.exists(cache_path):
-        return cache_path
-
-    communicate = edge_tts.Communicate(
-        segment,
-        voice_profile["voice"],
-        rate=voice_profile["rate"],
-        volume=voice_profile["volume"]
-    )
-
-    tmp_path = cache_path + ".tmp"
-    await communicate.save(tmp_path)
+    """Ensure a segment is synthesized and cached; return cache path. NEVER returns None."""
     try:
-        os.replace(tmp_path, cache_path)
-        return cache_path
-    except Exception as e:
-        print(f"⚠️ Failed to rename temp file: {e}")
-        # Clean up any existing cache file that might be corrupted
-        if os.path.exists(cache_path):
-            try:
-                os.remove(cache_path)
-            except:
-                pass
+        ensure_cache_dir_exists()
+        cache_path = get_tts_cache_path(segment, voice_profile)
         
-        # Try rename again
+        # Validate cache_path is not None
+        if not cache_path or cache_path is None:
+            raise Exception(f"Cache path is None for segment: {segment[:30]}")
+        
+        if os.path.exists(cache_path):
+            return cache_path
+
+        communicate = edge_tts.Communicate(
+            segment,
+            voice_profile["voice"],
+            rate=voice_profile["rate"],
+            volume=voice_profile["volume"]
+        )
+
+        tmp_path = cache_path + ".tmp"
+        await communicate.save(tmp_path)
+        
+        # Validate tmp file was created
+        if not os.path.exists(tmp_path):
+            raise Exception(f"Failed to create temp file: {tmp_path}")
+        
         try:
             os.replace(tmp_path, cache_path)
-            return cache_path
-        except Exception as e2:
-            print(f"⚠️ Second rename attempt failed: {e2}")
-            # Final fallback: use tmp file directly
+            if os.path.exists(cache_path):
+                return cache_path
+            else:
+                raise Exception("File disappeared after rename")
+        except Exception as e:
+            print(f"⚠️ Failed to rename temp file: {e}")
+            # Clean up any existing cache file that might be corrupted
+            if os.path.exists(cache_path):
+                try:
+                    os.remove(cache_path)
+                except:
+                    pass
+            
+            # Try rename again
+            try:
+                os.replace(tmp_path, cache_path)
+                if os.path.exists(cache_path):
+                    return cache_path
+            except Exception as e2:
+                print(f"⚠️ Second rename attempt failed: {e2}")
+            
+            # Final fallback: use tmp file directly if it exists
             if os.path.exists(tmp_path):
+                print(f"⚠️ Using temp file as fallback: {tmp_path}")
                 return tmp_path
             else:
                 raise Exception(f"Failed to create audio file for segment: {segment[:30]}...")
-    
-    return cache_path
+        
+        # Final validation before returning
+        if os.path.exists(cache_path):
+            return cache_path
+        elif os.path.exists(tmp_path):
+            return tmp_path
+        else:
+            raise Exception(f"No valid file path found for segment: {segment[:30]}")
+            
+    except Exception as e:
+        print(f"❌ Segment caching failed: {e}")
+        # Return None will be caught by the caller
+        return None
 
 def play_audio_file(file_path: str) -> None:
     """Play an audio file synchronously via subprocess, with kill support."""
@@ -2238,16 +2266,29 @@ async def speak_text_segmented(text: str, mood: str = "soft", fast_mode: bool = 
         print(f"🎤 Processing segment {i+1}/{total}: {segment[:60]}...")
 
         # Get cache path for this segment (from task or ensure now)
-        if i == 0:
-            path = first_path
-        elif i in prefetch_tasks:
-            path = await prefetch_tasks[i]
-            del prefetch_tasks[i]
-        else:
-            path = await ensure_segment_cached(segment, dynamic_profile)
+        try:
+            if i == 0:
+                path = first_path
+            elif i in prefetch_tasks:
+                path = await prefetch_tasks[i]
+                del prefetch_tasks[i]
+            else:
+                path = await ensure_segment_cached(segment, dynamic_profile)
+            
+            # Validate path before playing
+            if not path or path is None:
+                print(f"⚠️ Segment {i+1} returned None path, skipping...")
+                continue
+            
+            # Validate file exists
+            if not os.path.exists(path):
+                print(f"⚠️ Segment {i+1} file not found: {path}, skipping...")
+                continue
 
-        # Play current segment (blocking while we prefetch further in background)
-        play_audio_file(path)
+            # Play current segment (blocking while we prefetch further in background)
+            play_audio_file(path)
+        except Exception as segment_error:
+            print(f"⚠️ Segment {i+1}/{total} playback error: {segment_error}, continuing...")
 
         # Schedule next prefetch if within window
         next_index_to_schedule = i + prefetch_window
@@ -2395,50 +2436,60 @@ def cleanup_all_voice_files():
         pass
 
 def cleanup_tts_cache():
-    """Clean up all TTS cache files after each reply"""
+    """Clean up all TTS cache files after each reply - DELAYED for safe deletion"""
     import glob
     import time
-    try:
-        # Clean up both cache directory and any leftover temp files
-        cache_files = []
+    
+    def delayed_cleanup():
+        """Cleanup files in background after safe delay"""
+        # Wait 5 seconds to ensure all audio playback is complete
+        time.sleep(5.0)
         
-        # Get files from cache directory
-        if os.path.exists(CACHE_DIR):
-            cache_files.extend(glob.glob(os.path.join(CACHE_DIR, "tts_*.mp3")))
-            cache_files.extend(glob.glob(os.path.join(CACHE_DIR, "tts_*.tmp")))
-        
-        # Also clean up any TTS files in root directory
-        cache_files.extend(glob.glob("luna_voice_*.mp3"))
-        cache_files.extend(glob.glob("tts_*.mp3"))
-        cache_files.extend(glob.glob("tts_*.tmp"))
-        
-        cleaned_count = 0
-        for file in cache_files:
-            try:
-                if os.path.exists(file):
-                    # Check if file is empty or corrupted
-                    if os.path.getsize(file) == 0:
-                        print(f"🗑️ Removing empty file: {file}")
+        try:
+            # Clean up both cache directory and any leftover temp files
+            cache_files = []
+            
+            # Get files from cache directory
+            if os.path.exists(CACHE_DIR):
+                cache_files.extend(glob.glob(os.path.join(CACHE_DIR, "tts_*.mp3")))
+                cache_files.extend(glob.glob(os.path.join(CACHE_DIR, "tts_*.tmp")))
+            
+            # Also clean up any TTS files in root directory
+            cache_files.extend(glob.glob("luna_voice_*.mp3"))
+            cache_files.extend(glob.glob("tts_*.mp3"))
+            cache_files.extend(glob.glob("tts_*.tmp"))
+            
+            cleaned_count = 0
+            for file in cache_files:
+                try:
+                    if os.path.exists(file):
+                        # Check if file is empty or corrupted
+                        if os.path.getsize(file) == 0:
+                            os.remove(file)
+                            cleaned_count += 1
+                            continue
+                        
+                        # Try to remove file (will fail if still in use)
                         os.remove(file)
                         cleaned_count += 1
-                        continue
-                    
-                    # Add a small delay to ensure file is not in use
-                    time.sleep(0.1)
-                    os.remove(file)
-                    cleaned_count += 1
-            except Exception as e:
-                # Don't print errors for files that are still in use
-                if "being used by another process" not in str(e):
-                    print(f"❌ Failed to clean up TTS cache file {file}: {e}")
+                except PermissionError:
+                    # File still in use, skip silently
+                    pass
+                except Exception as e:
+                    # Don't print errors for files that are still in use
+                    if "being used by another process" not in str(e):
+                        print(f"⚠️ Could not clean file {os.path.basename(file)}: {e}")
+            
+            if cleaned_count > 0:
+                print(f"🗑️ Cleaned up {cleaned_count} TTS cache files (delayed)")
         
-        if cleaned_count > 0:
-            print(f"🗑️ Cleaned up {cleaned_count} TTS cache files")
-        
-        return cleaned_count
-    except Exception as e:
-        print(f"❌ TTS cache cleanup error: {e}")
-        return 0
+        except Exception as e:
+            print(f"⚠️ Delayed TTS cleanup error: {e}")
+    
+    # Run cleanup in background thread with delay
+    import threading
+    threading.Thread(target=delayed_cleanup, daemon=True).start()
+    return 0  # Return immediately
 
 def cleanup_corrupted_temp_files():
     """Clean up any corrupted temporary files that might be causing issues"""
