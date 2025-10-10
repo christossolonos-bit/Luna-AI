@@ -43,9 +43,26 @@ class TTSEventManager:
         
     def add_tts_message(self, text: str, mood: str = "soft", fast_mode: bool = True, context: str = ""):
         """Add a message to the TTS queue"""
+        # === VALIDATE TEXT BEFORE ADDING ===
+        if not text or not isinstance(text, str):
+            print(f"⚠️ TTS Event: Rejected - text is None or not a string (type: {type(text)})")
+            print(f"   Context: {context}")
+            import traceback
+            traceback.print_stack(limit=5)
+            return
+        
+        text_stripped = text.strip()
+        if len(text_stripped) == 0:
+            print(f"⚠️ TTS Event: Rejected - text is empty after stripping")
+            print(f"   Original text: '{text}'")
+            print(f"   Context: {context}")
+            import traceback
+            traceback.print_stack(limit=5)
+            return
+        
         with self.queue_lock:
             message = {
-                "text": text,
+                "text": text_stripped,
                 "mood": mood,
                 "fast_mode": fast_mode,
                 "context": context,
@@ -54,6 +71,7 @@ class TTSEventManager:
             }
             self.tts_queue.append(message)
             print(f"🎯 TTS Event: Added message #{message['id']} to queue (Queue size: {len(self.tts_queue)})")
+            print(f"   Text preview: '{text_stripped[:80]}...' (length: {len(text_stripped)})")
             
             # Start worker if not running
             if not self.tts_worker_running:
@@ -71,8 +89,17 @@ class TTSEventManager:
     
     def _tts_worker_loop(self):
         """Main TTS worker loop that processes messages sequentially"""
+        last_cleanup_time = time.time()
+        
         while self.tts_worker_running:
             try:
+                # Periodic queue cleanup (every 10 seconds)
+                if time.time() - last_cleanup_time > 10:
+                    removed = self.remove_invalid_messages()
+                    if removed > 0:
+                        print(f"🧹 Periodic cleanup: Removed {removed} invalid message(s)")
+                    last_cleanup_time = time.time()
+                
                 # Get next message from queue
                 message = None
                 with self.queue_lock:
@@ -101,16 +128,34 @@ class TTSEventManager:
                     
             except Exception as e:
                 print(f"❌ TTS Event Worker Error: {e}")
+                # On error, try to recover by skipping to next message
+                self.signal_end_flag()
+                self.processing_message = False
+                self.current_tts_event = None
                 time.sleep(0.1)
     
     def _process_tts_message(self, message: dict):
         """Process a single TTS message"""
         try:
-            print(f"🎯 TTS Event: Speaking message #{message['id']}: {message['text'][:50]}...")
+            # === VALIDATE MESSAGE TEXT BEFORE PROCESSING ===
+            text = message.get('text', '')
+            if not text or not isinstance(text, str):
+                print(f"⚠️ TTS Event: Message #{message['id']} has invalid text (type: {type(text)}), deleting and skipping")
+                self.signal_end_flag()  # Skip to next message immediately
+                return
+            
+            text_stripped = text.strip()
+            if len(text_stripped) == 0:
+                print(f"⚠️ TTS Event: Message #{message['id']} is empty after stripping, deleting and skipping")
+                print(f"   Original text: '{text}'")
+                self.signal_end_flag()  # Skip to next message immediately
+                return
+            
+            print(f"🎯 TTS Event: Speaking message #{message['id']}: {text_stripped[:50]}...")
             
             # Use the direct speak function to avoid recursion
             speak_direct(
-                text=message['text'],
+                text=text_stripped,
                 mood=message['mood'],
                 fast_mode=message['fast_mode'],
                 context=message['context']
@@ -120,6 +165,8 @@ class TTSEventManager:
             
         except Exception as e:
             print(f"❌ TTS Event: Error processing message #{message['id']}: {e}")
+            print(f"   Deleting failed message and continuing to next")
+            self.signal_end_flag()  # Skip to next message on error
     
     def signal_end_flag(self):
         """Signal that current TTS has ended (End flag received)"""
@@ -142,6 +189,29 @@ class TTSEventManager:
             cleared_count = len(self.tts_queue)
             self.tts_queue.clear()
             print(f"🎯 TTS Event: Cleared {cleared_count} pending messages")
+    
+    def remove_invalid_messages(self):
+        """Remove any invalid/empty messages from the queue"""
+        with self.queue_lock:
+            original_count = len(self.tts_queue)
+            
+            # Filter out invalid messages
+            valid_messages = []
+            for msg in self.tts_queue:
+                text = msg.get('text', '')
+                if text and isinstance(text, str) and len(text.strip()) > 0:
+                    valid_messages.append(msg)
+                else:
+                    print(f"⚠️ Removing invalid message #{msg.get('id', '?')} from queue")
+                    print(f"   Text: '{text}' (type: {type(text)})")
+            
+            self.tts_queue = valid_messages
+            removed_count = original_count - len(valid_messages)
+            
+            if removed_count > 0:
+                print(f"🧹 Cleaned queue: Removed {removed_count} invalid message(s), {len(valid_messages)} valid messages remaining")
+            
+            return removed_count
     
     def stop_worker(self):
         """Stop the TTS worker thread"""
