@@ -101,21 +101,9 @@ except Exception as e:
     SELF_HEALING_AVAILABLE = False
     print(f"⚠️ Self-Healing System initialization failed: {e}")
 
-# 🧠 Luna Hierarchical Memory System - layered memory retrieval with importance ranking
-try:
-    from luna_hierarchical_memory import (
-        initialize_hierarchical_memory, get_hierarchical_memory,
-        get_intelligent_memory_context, get_memory_stats
-    )
-    hierarchical_memory_system = initialize_hierarchical_memory()
-    HIERARCHICAL_MEMORY_AVAILABLE = True
-    print("🧠 Hierarchical Memory System loaded - Luna has full context awareness with importance layers!")
-except ImportError as e:
-    HIERARCHICAL_MEMORY_AVAILABLE = False
-    print(f"⚠️ Hierarchical Memory System not available: {e}")
-except Exception as e:
-    HIERARCHICAL_MEMORY_AVAILABLE = False
-    print(f"⚠️ Hierarchical Memory System initialization failed: {e}")
+# 🧠 Hierarchical Memory - REPLACED by Lambda Architecture (speed + batch layers)
+HIERARCHICAL_MEMORY_AVAILABLE = False
+print("ℹ️ Hierarchical Memory replaced by Lambda Architecture (faster and more efficient)")
 
 # 💕 Luna Relationship System - tracks evolving relationships with users
 try:
@@ -3555,20 +3543,8 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
         except Exception as e:
             print(f"⚠️ Relationship context error: {e}")
     
-    # Get hierarchical memory context (FULL CONTEXT AWARENESS)
-    hierarchical_context = ""
-    if HIERARCHICAL_MEMORY_AVAILABLE:
-        try:
-            hierarchical_context = get_intelligent_memory_context(
-                user_input=user_input,
-                username=username,
-                platform=source,
-                source=source
-            )
-            if hierarchical_context:
-                print(f"🧠 Using hierarchical memory context for {username}")
-        except Exception as e:
-            print(f"⚠️ Hierarchical memory error: {e}")
+    # Hierarchical memory replaced by Lambda Architecture
+    # Lambda provides both speed (fast path) and batch (deep path) context
     
     # === LAMBDA ARCHITECTURE: Get fast or deep context based on query ===
     lambda_context = ""
@@ -3682,15 +3658,10 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             enhanced_input = f"💕 RELATIONSHIP: {relationship_context}\n\n{enhanced_input}"
             print(f"💕 Added relationship context to prompt")
         
-        # Add lambda context (FAST PATH - priority for real-time platforms)
+        # Add lambda context (combines speed + batch layers intelligently)
         if lambda_context:
             enhanced_input = f"{lambda_context}{enhanced_input}"
             print(f"🏗️ Added lambda architecture context to prompt")
-        
-        # Add hierarchical memory context (HIGHEST PRIORITY for deep analysis)
-        if hierarchical_context:
-            enhanced_input = f"{hierarchical_context}\n\n{enhanced_input}"
-            print(f"🧠 Added hierarchical memory layers to prompt")
         
         # Add vector memory context to the enhanced input
         if vector_context:
@@ -4904,26 +4875,18 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
                 # Twitch response will be sent automatically by the Twitch API callback system
                 print(f"✅ Twitch response generated: {response[:50]}...")
                 
-                # Only speak if message is visible in GUI (Luna sees it)
-                gui_is_active = False
+                # Twitch: ALWAYS use TTS (streaming platform, voice is important)
                 try:
-                    gui_is_active = 'chat_box' in globals() and chat_box and chat_box.winfo_exists()
-                except:
-                    gui_is_active = False
-                
-                if gui_is_active:
-                    # Speak the response using TTS (only when GUI is visible)
-                    try:
-                        # Double-check response is valid before TTS
-                        if response and isinstance(response, str) and len(response.strip()) > 0:
-                            speak_response(response, "Twitch", message_text)
-                            print(f"🎤 Luna speaks Twitch response (visible in GUI)")
-                        else:
-                            print(f"⚠️ Skipping Twitch TTS - invalid response: type={type(response)}, len={len(response) if response else 0}")
-                    except Exception as tts_error:
-                        print(f"⚠️ Twitch TTS error (non-critical): {tts_error}")
-                else:
-                    print(f"🔇 Twitch TTS skipped - message not visible in GUI (Luna doesn't see it)")
+                    # Double-check response is valid before TTS
+                    if response and isinstance(response, str) and len(response.strip()) > 0:
+                        speak_response(response, "Twitch", message_text)
+                        print(f"🎤 Luna speaks Twitch response (TTS enabled for streaming)")
+                    else:
+                        print(f"⚠️ Skipping Twitch TTS - invalid response: type={type(response)}, len={len(response) if response else 0}")
+                except Exception as tts_error:
+                    print(f"⚠️ Twitch TTS error (non-critical): {tts_error}")
+                    # On TTS error, still return the text response
+                    print(f"📝 Twitch text response sent despite TTS error")
                 
                 # Track user interaction in Twitch tracker
                 if TWITCH_TRACKER_AVAILABLE:
@@ -5060,11 +5023,8 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                 # Discord response will be sent by the Discord bot directly
                 print(f"✅ Discord response generated: {response[:50]}...")
                 
-                # Speak the response using TTS (with error protection)
-                try:
-                    speak_response(response, "Discord", message_text)
-                except Exception as tts_error:
-                    print(f"⚠️ Discord TTS error (non-critical): {tts_error}")
+                # Discord: TEXT ONLY (no TTS) - Discord users read text
+                print(f"💬 Discord response sent as text only (no TTS for Discord)")
                 
                 # Track user interaction in Discord tracker
                 if DISCORD_TRACKER_AVAILABLE:
@@ -5434,8 +5394,10 @@ def create_gui():
         safe_chat_insert("🌟 Emergent Thoughts: Luna's thoughts arise from her memory patterns!\n", "system")
         if SELF_HEALING_AVAILABLE:
             safe_chat_insert("🔧 Self-Healing: Auto-fixes errors without restart! (/health status)\n", "system")
-        if HIERARCHICAL_MEMORY_AVAILABLE:
-            safe_chat_insert("🧠 Hierarchical Memory: Full context awareness with importance layers! (/layers stats)\n", "system")
+        if LAMBDA_ARCHITECTURE_AVAILABLE:
+            safe_chat_insert("🏗️ Lambda Architecture: Speed + Batch layers for optimal performance!\n", "system")
+        if EMERGENCE_FRAMEWORK_AVAILABLE:
+            safe_chat_insert("🌌 Complete Emergence: Neural + Agent + Quantum + Imagination!\n", "system")
         if RELATIONSHIP_SYSTEM_AVAILABLE:
             safe_chat_insert("💕 Relationships: Luna forms real bonds with users! (/relationships stats)\n", "system")
         if EMOTIONAL_SYSTEM_AVAILABLE:
@@ -6009,63 +5971,31 @@ def create_gui():
             safe_chat_insert( f"❌ Error: {e}\n", "system")
     
     def handle_layers_command(command: str):
-        """Handle Hierarchical Memory Layer commands"""
-        if not HIERARCHICAL_MEMORY_AVAILABLE:
-            safe_chat_insert( "❌ Hierarchical Memory System not available\n", "system")
+        """Handle Lambda Architecture Layer commands (replaced hierarchical memory)"""
+        if not LAMBDA_ARCHITECTURE_AVAILABLE:
+            safe_chat_insert( "❌ Lambda Architecture not available\n", "system")
+            safe_chat_insert( "ℹ️ Lambda Architecture replaced the old Hierarchical Memory system\n", "system")
             return
         
         parts = command.lower().split()
         if len(parts) < 2:
-            safe_chat_insert( "🧠 Memory Layers commands:\n", "system")
-            safe_chat_insert( "  /layers stats - Show memory statistics\n", "system")
-            safe_chat_insert( "  /layers test <query> - Test memory retrieval for a query\n", "system")
-            safe_chat_insert( "  /layers Chris - Show all memory layers for user 'Chris'\n", "system")
+            safe_chat_insert( "🏗️ Lambda Architecture commands:\n", "system")
+            safe_chat_insert( "  /layers stats - Show architecture statistics\n", "system")
             return
         
         try:
-            from luna_hierarchical_memory import get_hierarchical_memory, get_memory_stats
-            system = get_hierarchical_memory()
-            if not system:
-                safe_chat_insert( "❌ Hierarchical Memory System not initialized\n", "system")
-                return
-            
             if parts[1] == "stats":
-                stats = get_memory_stats()
-                safe_chat_insert( "🧠 Memory Statistics:\n", "system")
-                safe_chat_insert( f"• Total memories: {stats.get('total_memories', 0)}\n", "system")
-                safe_chat_insert( f"• Total conversations: {stats.get('total_conversations', 0)}\n", "system")
-                safe_chat_insert( f"• Recent (24h): {stats.get('recent_conversations_24h', 0)} conversations\n", "system")
-                safe_chat_insert( f"• Critical memories: {stats.get('critical_memories', 0)}\n", "system")
-                if stats.get('importance_distribution'):
-                    safe_chat_insert( f"• Importance distribution: {stats['importance_distribution']}\n", "system")
-            
-            elif parts[1] == "test" and len(parts) > 2:
-                query = " ".join(parts[2:])
-                safe_chat_insert( f"🧠 Testing memory retrieval for: '{query}'\n", "system")
-                
-                layers = system.get_layered_context(query, "Chris", "gui", max_memories_per_layer=2)
-                
-                for layer_name, memories in layers.items():
-                    if memories:
-                        safe_chat_insert( f"\n{layer_name.upper()}: {len(memories)} memories\n", "system")
-                        for mem in memories[:2]:
-                            safe_chat_insert( f"  - {mem['content'][:80]}...\n", "system")
-            
+                stats = lambda_architecture.get_stats()
+                safe_chat_insert( "🏗️ Lambda Architecture Statistics:\n", "system")
+                safe_chat_insert( f"\n⚡ SPEED LAYER (Hot Data):\n", "system")
+                safe_chat_insert( f"• Recent conversations: {stats['speed_layer']['recent_conversations']}\n", "system")
+                safe_chat_insert( f"• Tracked users: {stats['speed_layer']['tracked_users']}\n", "system")
+                safe_chat_insert( f"• Cache size: {stats['speed_layer']['cache_size']}\n", "system")
+                safe_chat_insert( f"\n🗄️ BATCH LAYER (Deep Data):\n", "system")
+                safe_chat_insert( f"• Interval: {stats['batch_layer']['interval']}s\n", "system")
+                safe_chat_insert( f"\n🎯 Architecture: {stats['architecture']}\n", "system")
             else:
-                # Assume it's a username
-                target_user = " ".join(parts[1:])
-                safe_chat_insert( f"🧠 Memory layers for '{target_user}':\n", "system")
-                
-                layers = system.get_layered_context("", target_user, "gui", max_memories_per_layer=3)
-                
-                total_found = sum(len(v) for v in layers.values())
-                safe_chat_insert( f"Found {total_found} memories across all layers\n\n", "system")
-                
-                for layer_name, memories in layers.items():
-                    if memories:
-                        safe_chat_insert( f"{layer_name.upper()}: {len(memories)}\n", "system")
-                        for mem in memories[:2]:
-                            safe_chat_insert( f"  - {mem['content'][:100]}...\n", "system")
+                safe_chat_insert( "ℹ️ Use '/layers stats' to see architecture statistics\n", "system")
                 
         except Exception as e:
             safe_chat_insert( f"❌ Error: {e}\n", "system")

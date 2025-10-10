@@ -73,44 +73,52 @@ class HierarchicalMemorySystem:
                 
                 # Layer 2: Recent conversations (last 24 hours)
                 yesterday = (datetime.now() - timedelta(hours=24)).isoformat()
-                cursor.execute('''
-                    SELECT user_message, luna_response, mood, timestamp
-                    FROM conversations
-                    WHERE timestamp > ?
-                    ORDER BY timestamp DESC
-                    LIMIT ?
-                ''', (yesterday, max_memories_per_layer))
-                
-                for row in cursor.fetchall():
-                    all_layers['recent'].append({
-                        'content': f"User: {row[0]} | Luna: {row[1]}",
-                        'mood': row[2],
-                        'importance': 3,  # Recent = important
-                        'timestamp': row[3],
-                        'type': 'conversation',
-                        'layer': 2,
-                        'layer_name': 'recent'
-                    })
+                try:
+                    cursor.execute('''
+                        SELECT user_message, luna_response, mood, timestamp
+                        FROM conversations
+                        WHERE timestamp > ?
+                        ORDER BY timestamp DESC
+                        LIMIT ?
+                    ''', (yesterday, max_memories_per_layer))
+                    
+                    for row in cursor.fetchall():
+                        all_layers['recent'].append({
+                            'content': f"User: {row[0]} | Luna: {row[1]}",
+                            'mood': row[2],
+                            'importance': 3,  # Recent = important
+                            'timestamp': row[3],
+                            'type': 'conversation',
+                            'layer': 2,
+                            'layer_name': 'recent'
+                        })
+                except sqlite3.OperationalError as db_error:
+                    # Table might not exist yet or schema mismatch
+                    print(f"⚠️ Hierarchical Memory: Conversations table not ready - {db_error}")
+                    pass
                 
                 # Layer 3: User-specific history
-                cursor.execute('''
-                    SELECT user_message, luna_response, mood, timestamp
-                    FROM conversations
-                    WHERE user_message LIKE ? OR luna_response LIKE ?
-                    ORDER BY timestamp DESC
-                    LIMIT ?
-                ''', (f'%{username}%', f'%{username}%', max_memories_per_layer))
-                
-                for row in cursor.fetchall():
-                    all_layers['user_history'].append({
-                        'content': f"Conversation with {username}: {row[0]} | Luna: {row[1]}",
-                        'mood': row[2],
-                        'importance': 3,
-                        'timestamp': row[3],
-                        'type': 'user_conversation',
-                        'layer': 3,
-                        'layer_name': 'user_history'
-                    })
+                try:
+                    cursor.execute('''
+                        SELECT user_message, luna_response, mood, timestamp
+                        FROM conversations
+                        WHERE user_message LIKE ? OR luna_response LIKE ?
+                        ORDER BY timestamp DESC
+                        LIMIT ?
+                    ''', (f'%{username}%', f'%{username}%', max_memories_per_layer))
+                    
+                    for row in cursor.fetchall():
+                        all_layers['user_history'].append({
+                            'content': f"Conversation with {username}: {row[0]} | Luna: {row[1]}",
+                            'mood': row[2],
+                            'importance': 3,
+                            'timestamp': row[3],
+                            'type': 'user_conversation',
+                            'layer': 3,
+                            'layer_name': 'user_history'
+                        })
+                except sqlite3.OperationalError as db_error:
+                    print(f"⚠️ Hierarchical Memory: User history query failed - {db_error}")
                 
                 # Layer 4: Topic-relevant memories (semantic search)
                 keywords = self._extract_keywords(user_input)
@@ -145,24 +153,27 @@ class HierarchicalMemorySystem:
                         })
                     
                     # Also search conversations
-                    cursor.execute(f'''
-                        SELECT user_message, luna_response, mood, timestamp
-                        FROM conversations
-                        WHERE {search_query}
-                        ORDER BY timestamp DESC
-                        LIMIT ?
-                    ''', search_params + [max_memories_per_layer])
-                    
-                    for row in cursor.fetchall():
-                        all_layers['topic_relevant'].append({
-                            'content': f"Related: {row[0]} | Luna: {row[1]}",
-                            'mood': row[2],
-                            'importance': 2,
-                            'timestamp': row[3],
-                            'type': 'topic_conversation',
-                            'layer': 4,
-                            'layer_name': 'topic_relevant'
-                        })
+                    try:
+                        cursor.execute(f'''
+                            SELECT user_message, luna_response, mood, timestamp
+                            FROM conversations
+                            WHERE {search_query}
+                            ORDER BY timestamp DESC
+                            LIMIT ?
+                        ''', search_params + [max_memories_per_layer])
+                        
+                        for row in cursor.fetchall():
+                            all_layers['topic_relevant'].append({
+                                'content': f"Related: {row[0]} | Luna: {row[1]}",
+                                'mood': row[2],
+                                'importance': 2,
+                                'timestamp': row[3],
+                                'type': 'topic_conversation',
+                                'layer': 4,
+                                'layer_name': 'topic_relevant'
+                            })
+                    except sqlite3.OperationalError as conv_error:
+                        print(f"⚠️ Hierarchical Memory: Topic conversations query failed - {conv_error}")
                 
                 # Layer 5: General context (recent general memories)
                 cursor.execute('''
