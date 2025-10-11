@@ -4101,7 +4101,7 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
                     if TRANSFORMER_CONFIG.get("supervised_learning", False):
                         try:
                             # Generate Ollama response for comparison
-                            ollama_reply, ollama_success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context)
+                            ollama_reply, ollama_success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context, creative_thinking_context)
                             if ollama_success:
                                 ollama_quality = calculate_response_quality(ollama_reply, enhanced_input)
                                 
@@ -4130,20 +4130,20 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
                     # Fallback to Ollama
                     print(f"🧠 ❌ CUSTOM TRANSFORMER FAILED - Falling back to Ollama")
                     print(f"🧠 ======================================")
-                    reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context)
+                    reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context, creative_thinking_context)
                     transformer_failure_count += 1
                     
             except Exception as transformer_error:
                 print(f"❌ Custom transformer error: {transformer_error}")
                 # Fallback to Ollama
-                reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context)
+                reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context, creative_thinking_context)
                 transformer_failure_count += 1
                 
         else:
             # Default to Ollama (Hermes)
             print(f"🦙 Using Ollama (Hermes)")
             hermes_response_count += 1
-            reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context)
+            reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context, creative_thinking_context)
             
         
         # Detect mood for voice and memory (use original input, not enhanced)
@@ -4534,7 +4534,7 @@ Answer {username}'s question directly and concisely: {user_input}"""
                     # For Discord, use a more lenient retry
                     if source == "discord":
                         print("🎮 Using Discord-specific retry with higher token limits...")
-                    retry_reply, retry_success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context)
+                    retry_reply, retry_success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context, creative_thinking_context)
                     if retry_reply and len(retry_reply.strip()) > 0:
                         reply = retry_reply
                         success = retry_success
@@ -4570,9 +4570,9 @@ Answer {username}'s question directly and concisely: {user_input}"""
 def _generate_huggingface_reply(user_input: str, username: str = "Chris", source: str = "gui", memory_context: str = ""):
     """Generate reply using Hugging Face model (offline method) - removed due to import error"""
     print("🤖 Hugging Face model not available, falling back to Ollama")
-    return _generate_ollama_reply(user_input, username, source, memory_context)
+    return _generate_ollama_reply(user_input, username, source, memory_context, "", "")
 
-def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str = "gui", memory_context: str = "", quantum_reasoning_context: str = ""):
+def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str = "gui", memory_context: str = "", quantum_reasoning_context: str = "", creative_thinking_context: str = ""):
     """Generate reply using Ollama with Hermes model"""
     print(f"🤖 Calling Ollama with optimized settings")
     
@@ -4591,7 +4591,7 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
         prompt += memory_context
     
     # Add creative thinking context if available
-    if 'creative_thinking_context' in locals() and creative_thinking_context:
+    if creative_thinking_context:
         prompt += creative_thinking_context
     
     # Add quantum reasoning context if available
