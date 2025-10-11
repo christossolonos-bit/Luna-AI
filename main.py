@@ -247,6 +247,35 @@ except Exception as e:
     predictive_intelligence_system = None
     print(f"⚠️ Predictive Intelligence initialization failed: {e}")
 
+# 💡 Luna Meta-Awareness System - Self-analysis and introspective reasoning
+try:
+    from luna_meta_awareness import (
+        initialize_meta_awareness, get_meta_awareness,
+        start_luna_self_monitoring, stop_luna_self_monitoring,
+        record_luna_performance, LunaMetaAwareness
+    )
+    # Initialize with ollama.chat function
+    meta_awareness_system = initialize_meta_awareness(ollama.chat)
+    META_AWARENESS_AVAILABLE = True
+    print("💡 Meta-Awareness System initialized!")
+    print("   🧠 Self-Monitoring: Observes own thoughts and behaviors")
+    print("   📊 Performance Analysis: Tracks response quality and effectiveness")
+    print("   🔍 Introspective Reasoning: Analyzes own cognitive processes")
+    print("   📈 Self-Assessment: Evaluates capabilities and limitations")
+    print("   🌟 Consciousness Monitoring: Tracks awareness and attention levels")
+    
+    # Start self-monitoring automatically
+    start_luna_self_monitoring()
+    print("💡 Self-monitoring started - Luna is now observing herself")
+except ImportError as e:
+    META_AWARENESS_AVAILABLE = False
+    meta_awareness_system = None
+    print(f"⚠️ Meta-Awareness not available: {e}")
+except Exception as e:
+    META_AWARENESS_AVAILABLE = False
+    meta_awareness_system = None
+    print(f"⚠️ Meta-Awareness initialization failed: {e}")
+
 # Initialize vector memory system globally
 vector_memory_system = None
 if VECTOR_MEMORY_AVAILABLE:
@@ -3584,6 +3613,8 @@ def search_vector_memories(query: str, memory_type: str = None, emotion: str = N
     return vector_results
 
 def generate_luna_reply(user_input: str, username: str = "Chris", source: str = "gui"):
+    start_time = time.time()  # Capture start time for performance tracking
+    
     # OPTIMIZATION: Check global response cache first (all platforms)
     cache_key = f"{source}:{username}:{user_input[:100]}"
     if cache_key in response_cache:
@@ -4197,6 +4228,22 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
         
         # Add giggle sounds and audible winks to the response
         reply = add_giggles_and_winks(reply, mood)
+        
+        # 💡 Record performance metrics for meta-awareness
+        if META_AWARENESS_AVAILABLE and meta_awareness_system and success:
+            try:
+                # Calculate performance metrics
+                response_time = time.time() - start_time
+                response_quality = quality_score if 'quality_score' in locals() else 0.7
+                user_satisfaction = 0.8 if quality_score > 0.6 else 0.5  # Estimate based on quality
+                
+                # Record performance metric
+                record_luna_performance(response_time, response_quality, user_satisfaction)
+                
+                print(f"💡 Performance recorded: time={response_time:.2f}s, quality={response_quality:.2f}, satisfaction={user_satisfaction:.2f}")
+                
+            except Exception as e:
+                print(f"⚠️ Performance recording error: {e}")
         
         # 🎯 Learn from conversation using pairing engine
         if LUNA_PAIRING_ENGINE_AVAILABLE and success and quality_passed:
@@ -6466,6 +6513,141 @@ def create_gui():
         except Exception as e:
             safe_chat_insert( f"❌ Error: {e}\n", "system")
     
+    def handle_meta_awareness_command(command: str):
+        """Handle Meta-Awareness System commands"""
+        if not META_AWARENESS_AVAILABLE:
+            safe_chat_insert( "❌ Meta-Awareness System not available\n", "system")
+            return
+        
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "💡 Meta-Awareness commands:\n", "system")
+            safe_chat_insert( "  /meta status - Show current consciousness state\n", "system")
+            safe_chat_insert( "  /meta insights - Show recent introspective insights\n", "system")
+            safe_chat_insert( "  /meta assess [capability] - Generate self-assessment\n", "system")
+            safe_chat_insert( "  /meta performance - Show performance analysis\n", "system")
+            safe_chat_insert( "  /meta monitoring - Toggle self-monitoring\n", "system")
+            return
+        
+        try:
+            if parts[1] == "status":
+                if meta_awareness_system:
+                    summary = meta_awareness_system.get_meta_awareness_summary()
+                    safe_chat_insert( "💡 Meta-Awareness Status:\n", "system")
+                    safe_chat_insert( f"Current Awareness Level: {summary.get('current_awareness_level', 'unknown')}\n", "system")
+                    
+                    consciousness = summary.get('consciousness_state', {})
+                    if consciousness:
+                        safe_chat_insert( "\nConsciousness State:\n", "system")
+                        safe_chat_insert( f"• Attention Focus: {consciousness.get('attention_focus', 'unknown')}\n", "system")
+                        safe_chat_insert( f"• Cognitive Load: {consciousness.get('cognitive_load', 0):.2f}\n", "system")
+                        safe_chat_insert( f"• Emotional State: {consciousness.get('emotional_state', 'unknown')}\n", "system")
+                        safe_chat_insert( f"• Memory Accessibility: {consciousness.get('memory_accessibility', 0):.2f}\n", "system")
+                        safe_chat_insert( f"• Creativity Level: {consciousness.get('creativity_level', 0):.2f}\n", "system")
+                        safe_chat_insert( f"• Self-Awareness: {consciousness.get('self_awareness', 0):.2f}\n", "system")
+                    
+                    performance = summary.get('recent_performance', {})
+                    if performance:
+                        safe_chat_insert( "\nRecent Performance:\n", "system")
+                        safe_chat_insert( f"• Avg Quality: {performance.get('avg_quality', 0):.2f}\n", "system")
+                        safe_chat_insert( f"• Avg Satisfaction: {performance.get('avg_satisfaction', 0):.2f}\n", "system")
+                        safe_chat_insert( f"• Avg Response Time: {performance.get('avg_response_time', 0):.2f}s\n", "system")
+                    
+                    safe_chat_insert( f"\nTotal Awareness Events: {summary.get('total_awareness_events', 0)}\n", "system")
+                    safe_chat_insert( f"Self-Assessments: {summary.get('total_self_assessments', 0)}\n", "system")
+                    safe_chat_insert( f"Self-Monitoring: {'Active' if summary.get('monitoring_active') else 'Inactive'}\n", "system")
+                
+            elif parts[1] == "insights":
+                if meta_awareness_system:
+                    recent_insights = meta_awareness_system.get_recent_introspections(limit=3)
+                    if recent_insights:
+                        safe_chat_insert( "💡 Recent Introspective Insights:\n", "system")
+                        for i, insight in enumerate(recent_insights, 1):
+                            safe_chat_insert( f"\n{i}. {insight['insight']}\n", "system")
+                            safe_chat_insert( f"   Awareness Level: {insight.get('awareness_level', 'unknown')}\n", "system")
+                    else:
+                        safe_chat_insert( "No recent introspective insights available\n", "system")
+                
+            elif parts[1] == "assess":
+                if meta_awareness_system:
+                    if len(parts) > 2:
+                        capability = parts[2]
+                        safe_chat_insert( f"💡 Generating self-assessment for {capability}...\n", "system")
+                        
+                        assessment = meta_awareness_system.generate_self_assessment(capability)
+                        if assessment:
+                            safe_chat_insert( f"\nSelf-Assessment: {capability.replace('_', ' ').title()}\n", "system")
+                            safe_chat_insert( f"Self-Rated Ability: {assessment.self_rated_ability:.2f}/1.0\n", "system")
+                            safe_chat_insert( f"Confidence in Rating: {assessment.confidence_in_rating:.2f}/1.0\n", "system")
+                            
+                            if assessment.strengths:
+                                safe_chat_insert( "\nStrengths:\n", "system")
+                                for strength in assessment.strengths:
+                                    safe_chat_insert( f"• {strength}\n", "system")
+                            
+                            if assessment.improvement_areas:
+                                safe_chat_insert( "\nImprovement Areas:\n", "system")
+                                for area in assessment.improvement_areas:
+                                    safe_chat_insert( f"• {area}\n", "system")
+                        else:
+                            safe_chat_insert( "Failed to generate self-assessment\n", "system")
+                    else:
+                        safe_chat_insert( "Available capabilities for assessment:\n", "system")
+                        safe_chat_insert( "• conversation_flow\n", "system")
+                        safe_chat_insert( "• emotional_intelligence\n", "system")
+                        safe_chat_insert( "• memory_recall\n", "system")
+                        safe_chat_insert( "• creative_thinking\n", "system")
+                        safe_chat_insert( "• problem_solving\n", "system")
+                        safe_chat_insert( "• user_empathy\n", "system")
+                        safe_chat_insert( "• technical_knowledge\n", "system")
+                        safe_chat_insert( "• relationship_building\n", "system")
+                        safe_chat_insert( "• self_expression\n", "system")
+                        safe_chat_insert( "• learning_ability\n", "system")
+                        safe_chat_insert( "• prediction_accuracy\n", "system")
+                        safe_chat_insert( "• dream_processing\n", "system")
+                
+            elif parts[1] == "performance":
+                if meta_awareness_system:
+                    summary = meta_awareness_system.get_meta_awareness_summary()
+                    performance = summary.get('recent_performance', {})
+                    
+                    if performance:
+                        safe_chat_insert( "💡 Performance Analysis:\n", "system")
+                        safe_chat_insert( f"Average Response Quality: {performance.get('avg_quality', 0):.2f}/1.0\n", "system")
+                        safe_chat_insert( f"Average User Satisfaction: {performance.get('avg_satisfaction', 0):.2f}/1.0\n", "system")
+                        safe_chat_insert( f"Average Response Time: {performance.get('avg_response_time', 0):.2f} seconds\n", "system")
+                        
+                        # Performance interpretation
+                        quality = performance.get('avg_quality', 0)
+                        if quality > 0.8:
+                            safe_chat_insert( "\nPerformance Assessment: Excellent\n", "system")
+                        elif quality > 0.6:
+                            safe_chat_insert( "\nPerformance Assessment: Good\n", "system")
+                        elif quality > 0.4:
+                            safe_chat_insert( "\nPerformance Assessment: Fair\n", "system")
+                        else:
+                            safe_chat_insert( "\nPerformance Assessment: Needs Improvement\n", "system")
+                    else:
+                        safe_chat_insert( "No performance data available yet\n", "system")
+                
+            elif parts[1] == "monitoring":
+                if meta_awareness_system:
+                    summary = meta_awareness_system.get_meta_awareness_summary()
+                    is_active = summary.get('monitoring_active', False)
+                    
+                    if is_active:
+                        stop_luna_self_monitoring()
+                        safe_chat_insert( "💡 Self-monitoring stopped\n", "system")
+                    else:
+                        start_luna_self_monitoring()
+                        safe_chat_insert( "💡 Self-monitoring started\n", "system")
+                
+            else:
+                safe_chat_insert( "ℹ️ Unknown meta-awareness command. Use '/meta' to see available commands\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
+    
     def handle_emotions_command(command: str):
         """Handle Emotional System commands"""
         if not EMOTIONAL_SYSTEM_AVAILABLE:
@@ -7052,6 +7234,11 @@ def create_gui():
         
         if user_message.lower().startswith('/predictions') or user_message.lower().startswith('/predict'):
             handle_predictions_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
+        if user_message.lower().startswith('/meta') or user_message.lower().startswith('/awareness'):
+            handle_meta_awareness_command(user_message)
             entry.delete(0, tk.END)
             return
         
