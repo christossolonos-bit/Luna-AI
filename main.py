@@ -2096,18 +2096,27 @@ def fine_tune_custom_model():
                 # Combined loss
                 total_loss = supervised_loss + 0.1 * policy_loss
                 
-                # Backward pass
+                # Backward pass with gradient safety
                 optimizer.zero_grad()
-                total_loss.backward()
-                torch.nn.utils.clip_grad_norm_(custom_transformer.parameters(), 1.0)
-                optimizer.step()
                 
-                total_supervised_loss += supervised_loss.item()
-                total_policy_loss += policy_loss.item()
+                # Check if loss requires gradients
+                if total_loss.requires_grad:
+                    total_loss.backward()
+                    torch.nn.utils.clip_grad_norm_(custom_transformer.parameters(), 1.0)
+                    optimizer.step()
+                else:
+                    print("⚠️ Loss tensor doesn't require gradients, skipping backward pass")
+                
+                total_supervised_loss += supervised_loss.detach().item()
+                total_policy_loss += policy_loss.detach().item()
                 num_batches += 1
                 
             except Exception as batch_error:
                 print(f"⚠️ Batch training error: {batch_error}")
+                # Enable anomaly detection for debugging if not already enabled
+                if not torch.autograd.is_anomaly_enabled():
+                    torch.autograd.set_detect_anomaly(True)
+                    print("🔍 PyTorch anomaly detection enabled for debugging")
                 continue
         
         # Print training statistics
@@ -2115,6 +2124,11 @@ def fine_tune_custom_model():
             avg_supervised_loss = total_supervised_loss / num_batches
             avg_policy_loss = total_policy_loss / num_batches
             print(f"📊 Training Stats: Supervised Loss={avg_supervised_loss:.4f}, Policy Loss={avg_policy_loss:.4f}")
+        
+        # Disable anomaly detection after training to improve performance
+        if torch.autograd.is_anomaly_enabled():
+            torch.autograd.set_detect_anomaly(False)
+            print("🔍 PyTorch anomaly detection disabled for performance")
         
         # Save improved model
         torch.save(custom_transformer, "luna_model.pt")
@@ -5254,7 +5268,7 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
         
         # Wait for response from Twitch Luna instance (with timeout)
         try:
-            response_data = luna_instances['twitch']['response_queue'].get(timeout=10.0)
+            response_data = luna_instances['twitch']['response_queue'].get(timeout=30.0)
             response_username, response, response_channel = response_data
             
             if response and len(response.strip()) > 0:
@@ -5285,7 +5299,7 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
         
         # Wait for response from Discord Luna instance (with timeout)
         try:
-            response_data = luna_instances['discord']['response_queue'].get(timeout=10.0)
+            response_data = luna_instances['discord']['response_queue'].get(timeout=30.0)
             response_username, response, response_channel = response_data
             
             if response and len(response.strip()) > 0:
@@ -5316,7 +5330,7 @@ def process_gui_message_from_user(user_message: str, username: str = "Chris"):
         
         # Wait for response from GUI Luna instance (with timeout)
         try:
-            response_data = luna_instances['gui']['response_queue'].get(timeout=10.0)
+            response_data = luna_instances['gui']['response_queue'].get(timeout=30.0)
             response_username, response, response_channel = response_data
             
             if response and len(response.strip()) > 0:
@@ -5720,7 +5734,7 @@ def luna_instance_processing_thread(instance_name: str):
             platform_memory_context = ""
             if VECTOR_MEMORY_AVAILABLE:
                 try:
-                    platform_memories = vector_memory_system.recall_memories(
+                    platform_memories = vector_memory_system.search_memories_hybrid(
                         query=message_text,
                         user_id=username,
                         platform=instance_name,
@@ -5958,7 +5972,7 @@ def twitch_processing_thread():
                 if VECTOR_MEMORY_AVAILABLE:
                     try:
                         # Get Twitch-specific memories
-                        twitch_memories = vector_memory_system.recall_memories(
+                        twitch_memories = vector_memory_system.search_memories_hybrid(
                             query=message_text,
                             user_id=username,
                             platform="twitch",
@@ -7962,17 +7976,26 @@ def create_gui():
                                     
                                     # Backward pass
                                     optimizer.zero_grad()
-                                    loss.backward()
-                                    torch.nn.utils.clip_grad_norm_(custom_transformer.parameters(), 1.0)
-                                    optimizer.step()
                                     
-                                    epoch_loss += loss.item()
+                                    # Check if loss requires gradients
+                                    if loss.requires_grad:
+                                        loss.backward()
+                                        torch.nn.utils.clip_grad_norm_(custom_transformer.parameters(), 1.0)
+                                        optimizer.step()
+                                    else:
+                                        print("⚠️ Loss tensor doesn't require gradients, skipping backward pass")
+                                    
+                                    epoch_loss += loss.detach().item()
                                     epoch_batches += 1
-                                    total_loss += loss.item()
+                                    total_loss += loss.detach().item()
                                     num_batches += 1
                                     
                                 except Exception as batch_error:
                                     print(f"⚠️ Batch training error: {batch_error}")
+                                    # Enable anomaly detection for debugging if not already enabled
+                                    if not torch.autograd.is_anomaly_enabled():
+                                        torch.autograd.set_detect_anomaly(True)
+                                        print("🔍 PyTorch anomaly detection enabled for debugging")
                                     continue
                             
                             # Update progress
