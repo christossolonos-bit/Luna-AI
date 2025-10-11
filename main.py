@@ -5242,30 +5242,30 @@ def save_conversation_to_vector_memory(user_message: str, luna_response: str,
         print(f"⚠️ Error saving conversation to vector memory: {e}")
 
 def process_twitch_message_from_queue(username: str, message_text: str, channel: str):
-    """🎮 Process Twitch messages using dedicated thread for better reliability"""
+    """🎮 Process Twitch messages using Luna Twitch instance"""
     try:
-        # Check if Twitch thread is running, start it if needed
-        if not twitch_thread_running:
-            start_twitch_thread()
+        # Ensure Twitch Luna instance is running
+        if not luna_instances['twitch']['running']:
+            start_luna_instance('twitch')
         
-        # Add message to Twitch thread queue
-        twitch_message_queue.put((username, message_text, channel))
-        print(f"🎮 Queued Twitch message from {username} for processing")
+        # Add message to Twitch Luna instance queue
+        luna_instances['twitch']['message_queue'].put((username, message_text, channel))
+        print(f"🎮 Queued Twitch message from {username} for Luna Twitch instance")
         
-        # Wait for response from Twitch thread (with timeout)
+        # Wait for response from Twitch Luna instance (with timeout)
         try:
-            response_data = twitch_response_queue.get(timeout=10.0)
+            response_data = luna_instances['twitch']['response_queue'].get(timeout=10.0)
             response_username, response, response_channel = response_data
             
             if response and len(response.strip()) > 0:
-                print(f"✅ Twitch response received: {response[:50]}...")
+                print(f"✅ Luna Twitch response received: {response[:50]}...")
                 return response
             else:
-                print(f"⚠️ Empty Twitch response received")
+                print(f"⚠️ Empty Luna Twitch response received")
                 return ""
                 
         except queue.Empty:
-            print(f"⚠️ Twitch response timeout for {username}")
+            print(f"⚠️ Luna Twitch response timeout for {username}")
             return f"Sorry {username}, I'm taking too long to think. Try again?"
             
     except Exception as e:
@@ -5273,6 +5273,68 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
         return f"Sorry {username}, I'm having technical difficulties. Please try again!"
 
 def process_discord_message_from_queue(username: str, message_text: str, channel: str):
+    """💬 Process Discord messages using Luna Discord instance"""
+    try:
+        # Ensure Discord Luna instance is running
+        if not luna_instances['discord']['running']:
+            start_luna_instance('discord')
+        
+        # Add message to Discord Luna instance queue
+        luna_instances['discord']['message_queue'].put((username, message_text, channel))
+        print(f"💬 Queued Discord message from {username} for Luna Discord instance")
+        
+        # Wait for response from Discord Luna instance (with timeout)
+        try:
+            response_data = luna_instances['discord']['response_queue'].get(timeout=10.0)
+            response_username, response, response_channel = response_data
+            
+            if response and len(response.strip()) > 0:
+                print(f"✅ Luna Discord response received: {response[:50]}...")
+                return response
+            else:
+                print(f"⚠️ Empty Luna Discord response received")
+                return ""
+                
+        except queue.Empty:
+            print(f"⚠️ Luna Discord response timeout for {username}")
+            return f"Sorry {username}, I'm taking too long to think. Try again?"
+            
+    except Exception as e:
+        print(f"❌ Error processing Discord message: {e}")
+        return f"Sorry {username}, I'm having technical difficulties. Please try again!"
+
+def process_gui_message_from_user(user_message: str, username: str = "Chris"):
+    """💬 Process GUI messages using Luna GUI instance"""
+    try:
+        # Ensure GUI Luna instance is running
+        if not luna_instances['gui']['running']:
+            start_luna_instance('gui')
+        
+        # Add message to GUI Luna instance queue
+        luna_instances['gui']['message_queue'].put((username, user_message, "gui"))
+        print(f"💬 Queued GUI message from {username} for Luna GUI instance")
+        
+        # Wait for response from GUI Luna instance (with timeout)
+        try:
+            response_data = luna_instances['gui']['response_queue'].get(timeout=10.0)
+            response_username, response, response_channel = response_data
+            
+            if response and len(response.strip()) > 0:
+                print(f"✅ Luna GUI response received: {response[:50]}...")
+                return response
+            else:
+                print(f"⚠️ Empty Luna GUI response received")
+                return ""
+                
+        except queue.Empty:
+            print(f"⚠️ Luna GUI response timeout for {username}")
+            return f"Sorry {username}, I'm taking too long to think. Try again?"
+            
+    except Exception as e:
+        print(f"❌ Error processing GUI message: {e}")
+        return f"Sorry {username}, I'm having technical difficulties. Please try again!"
+
+def process_discord_message_from_queue_old(username: str, message_text: str, channel: str):
     """Process a Discord message from the priority queue with full functionality"""
     try:
         # Display the Discord message in the GUI (if available)
@@ -6097,7 +6159,7 @@ def safe_chat_insert(text, tag=None):
 def create_gui():
     # 🪞 GUI setup
     import threading
-    global chat_box  # Make chat_box globally accessible
+    global chat_box, root  # Make chat_box and root globally accessible
     global voice_enabled  # Make voice_enabled globally accessible
     root = tk.Tk()
     root.title("Chat with Luna 💖")
@@ -7333,6 +7395,163 @@ def create_gui():
                 
         except Exception as e:
             safe_chat_insert( f"❌ Error: {e}\n", "system")
+
+    def handle_luna_instances_command(command: str):
+        """Handle Luna instances management commands"""
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "🌟 Luna Instances commands:\n", "system")
+            safe_chat_insert( "  /luna status - Show all Luna instances status\n", "system")
+            safe_chat_insert( "  /luna start [gui|discord|twitch] - Start specific instance\n", "system")
+            safe_chat_insert( "  /luna stop [gui|discord|twitch] - Stop specific instance\n", "system")
+            safe_chat_insert( "  /luna restart - Restart all instances\n", "system")
+            safe_chat_insert( "  /luna memory - Show cross-platform memory stats\n", "system")
+            return
+        
+        try:
+            if parts[1] == "status":
+                safe_chat_insert( "🌟 Luna Instances Status:\n", "system")
+                for instance_name, instance in luna_instances.items():
+                    status = "🟢 Running" if instance['running'] else "🔴 Stopped"
+                    thread_status = "Active" if instance['thread'] and instance['thread'].is_alive() else "Inactive"
+                    queue_size = instance['message_queue'].qsize()
+                    safe_chat_insert( f"• {instance_name.upper()}: {status} (Thread: {thread_status}, Queue: {queue_size})\n", "system")
+            
+            elif parts[1] == "start" and len(parts) > 2:
+                instance_name = parts[2]
+                if instance_name in luna_instances:
+                    if start_luna_instance(instance_name):
+                        safe_chat_insert( f"✅ Started Luna {instance_name.upper()} instance\n", "system")
+                    else:
+                        safe_chat_insert( f"⚠️ Luna {instance_name.upper()} instance already running\n", "system")
+                else:
+                    safe_chat_insert( f"❌ Unknown instance: {instance_name}\n", "system")
+            
+            elif parts[1] == "stop" and len(parts) > 2:
+                instance_name = parts[2]
+                if instance_name in luna_instances:
+                    stop_luna_instance(instance_name)
+                    safe_chat_insert( f"✅ Stopped Luna {instance_name.upper()} instance\n", "system")
+                else:
+                    safe_chat_insert( f"❌ Unknown instance: {instance_name}\n", "system")
+            
+            elif parts[1] == "restart":
+                safe_chat_insert( "🔄 Restarting all Luna instances...\n", "system")
+                stop_all_luna_instances()
+                time.sleep(1)
+                start_all_luna_instances()
+                safe_chat_insert( "✅ All Luna instances restarted\n", "system")
+            
+            elif parts[1] == "memory":
+                with shared_memory_lock:
+                    safe_chat_insert( "🌟 Cross-Platform Memory Statistics:\n", "system")
+                    safe_chat_insert( f"Total conversations: {len(global_conversation_history)}\n", "system")
+                    safe_chat_insert( f"Tracked users: {len(cross_platform_relationships)}\n", "system")
+                    
+                    if global_conversation_history:
+                        safe_chat_insert( "\nRecent conversations:\n", "system")
+                        for conv in global_conversation_history[-5:]:
+                            safe_chat_insert( f"• [{conv['platform']}] {conv['username']}: {conv['user_message'][:30]}...\n", "system")
+                    
+                    if cross_platform_relationships:
+                        safe_chat_insert( "\nUser relationships:\n", "system")
+                        for user, platforms in list(cross_platform_relationships.items())[:5]:
+                            safe_chat_insert( f"• {user}: {list(platforms.keys())}\n", "system")
+            
+            else:
+                safe_chat_insert( "❌ Unknown command. Use '/luna' to see available commands\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
+
+    def handle_relationships_command(command: str):
+        """Handle cross-platform relationships commands"""
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "💕 Relationships commands:\n", "system")
+            safe_chat_insert( "  /relationships list - Show all tracked users\n", "system")
+            safe_chat_insert( "  /relationships user <username> - Show user's cross-platform data\n", "system")
+            safe_chat_insert( "  /relationships stats - Show relationship statistics\n", "system")
+            return
+        
+        try:
+            if parts[1] == "list":
+                with shared_memory_lock:
+                    if cross_platform_relationships:
+                        safe_chat_insert( "💕 Cross-Platform Relationships:\n", "system")
+                        for user, platforms in cross_platform_relationships.items():
+                            safe_chat_insert( f"\n👤 {user}:\n", "system")
+                            for platform, rel_data in platforms.items():
+                                if rel_data:
+                                    level = rel_data.get('level', 'unknown')
+                                    trust = rel_data.get('trust', 0)
+                                    interactions = rel_data.get('total_interactions', 0)
+                                    safe_chat_insert( f"  • {platform}: {level} (trust: {trust:.2f}, interactions: {interactions})\n", "system")
+                    else:
+                        safe_chat_insert( "No relationships tracked yet\n", "system")
+            
+            elif parts[1] == "user" and len(parts) > 2:
+                username = parts[2]
+                with shared_memory_lock:
+                    if username in cross_platform_relationships:
+                        safe_chat_insert( f"💕 Relationship data for {username}:\n", "system")
+                        platforms = cross_platform_relationships[username]
+                        
+                        # Show platform relationships
+                        for platform, rel_data in platforms.items():
+                            if rel_data:
+                                level = rel_data.get('level', 'unknown')
+                                trust = rel_data.get('trust', 0)
+                                interactions = rel_data.get('total_interactions', 0)
+                                last_interaction = rel_data.get('last_interaction', 'unknown')
+                                safe_chat_insert( f"\n{platform.upper()}:\n", "system")
+                                safe_chat_insert( f"  • Level: {level}\n", "system")
+                                safe_chat_insert( f"  • Trust: {trust:.2f}\n", "system")
+                                safe_chat_insert( f"  • Total interactions: {interactions}\n", "system")
+                                safe_chat_insert( f"  • Last interaction: {last_interaction}\n", "system")
+                        
+                        # Show recent conversations
+                        user_conversations = [c for c in global_conversation_history if c.get('username') == username]
+                        if user_conversations:
+                            safe_chat_insert( f"\nRecent conversations:\n", "system")
+                            for conv in user_conversations[-3:]:
+                                safe_chat_insert( f"• [{conv['platform']}] {conv['user_message'][:40]}...\n", "system")
+                                safe_chat_insert( f"  Luna: {conv['luna_response'][:40]}...\n", "system")
+                    else:
+                        safe_chat_insert( f"No relationship data found for {username}\n", "system")
+            
+            elif parts[1] == "stats":
+                with shared_memory_lock:
+                    safe_chat_insert( "💕 Relationship Statistics:\n", "system")
+                    safe_chat_insert( f"Total tracked users: {len(cross_platform_relationships)}\n", "system")
+                    
+                    if cross_platform_relationships:
+                        # Count by relationship level
+                        level_counts = {}
+                        platform_counts = {}
+                        
+                        for user, platforms in cross_platform_relationships.items():
+                            for platform, rel_data in platforms.items():
+                                if rel_data:
+                                    level = rel_data.get('level', 'unknown')
+                                    level_counts[level] = level_counts.get(level, 0) + 1
+                                    platform_counts[platform] = platform_counts.get(platform, 0) + 1
+                        
+                        if level_counts:
+                            safe_chat_insert( "\nRelationship levels:\n", "system")
+                            for level, count in level_counts.items():
+                                safe_chat_insert( f"• {level}: {count}\n", "system")
+                        
+                        if platform_counts:
+                            safe_chat_insert( "\nPlatforms:\n", "system")
+                            for platform, count in platform_counts.items():
+                                safe_chat_insert( f"• {platform}: {count} users\n", "system")
+            
+            else:
+                safe_chat_insert( "❌ Unknown command. Use '/relationships' to see available commands\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
     
     def handle_emotions_command(command: str):
         """Handle Emotional System commands"""
@@ -7938,6 +8157,17 @@ def create_gui():
             entry.delete(0, tk.END)
             return
         
+        # Check for Luna instances and relationships commands
+        if user_message.lower().startswith('/luna') or user_message.lower().startswith('/instances'):
+            handle_luna_instances_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
+        if user_message.lower().startswith('/relationships') or user_message.lower().startswith('/users'):
+            handle_relationships_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
         # Check for Custom Transformer status commands
         if user_message.lower() in ['/transformer', '/custom_brain', '/brain_status']:
             handle_transformer_status_command(user_message)
@@ -7993,7 +8223,11 @@ def create_gui():
             
             # Show typing indicator for interrupt response
             safe_chat_insert( "Luna is responding to your interrupt...\n", "typing")
-            root.update()
+            try:
+                if 'root' in globals() and root:
+                    root.update()
+            except Exception as e:
+                print(f"⚠️ GUI update error during interrupt: {e}")
             
             # Generate new response with interrupt context
             def handle_interrupt_response():
@@ -8055,7 +8289,11 @@ def create_gui():
         
         # Show typing indicator with animation
         safe_chat_insert( "Luna is typing...\n", "typing")
-        root.update()
+        try:
+            if 'root' in globals() and root:
+                root.update()
+        except Exception as e:
+            print(f"⚠️ GUI update error: {e}")
         
         # Add progress tracking for long operations
         progress_start_time = time.time()
@@ -8070,35 +8308,23 @@ def create_gui():
                 # Add periodic GUI updates to prevent freezing
                 def keep_gui_alive():
                     """Periodically update GUI to prevent freezing"""
-                    if is_generating_response:
-                        root.update_idletasks()
-                        root.after(100, keep_gui_alive)  # Check every 100ms
+                    try:
+                        if is_generating_response and 'root' in globals() and root:
+                            root.update_idletasks()
+                            root.after(100, keep_gui_alive)  # Check every 100ms
+                    except Exception as e:
+                        print(f"⚠️ GUI keep-alive error: {e}")
                 
                 # Start keep-alive mechanism
-                root.after(100, keep_gui_alive)
+                try:
+                    if 'root' in globals() and root:
+                        root.after(100, keep_gui_alive)
+                except Exception as e:
+                    print(f"⚠️ GUI keep-alive start error: {e}")
                 
-                # Try to connect to server with retry
-                luna_reply = None
-                for attempt in range(3):
-                    try:
-                        response = requests.post(LUNA_ENDPOINT, json={"message": user_message}, timeout=10)
-                        luna_reply = response.json().get("response", "[No reply]")
-                        response_mood = response.json().get("mood", "soft")
-                        break
-                    except requests.exceptions.Timeout:
-                        if attempt < 2:
-                            root.after(0, lambda a=attempt: safe_chat_insert(f"Luna is thinking... ({a + 1}/3)\n", "typing"))
-                            time.sleep(0.5)
-                        else:
-                            raise Exception("Response timeout - Luna is thinking too hard. Try a simpler question.")
-                    except requests.exceptions.ConnectionError:
-                        if attempt < 2:
-                            root.after(0, lambda a=attempt: safe_chat_insert(f"Connecting to server... ({a + 1}/3)\n", "typing"))
-                            time.sleep(1)
-                        else:
-                            raise Exception("Cannot connect to Luna's server. Please restart the application.")
-                    except Exception as e:
-                        raise e
+                # Use Luna GUI instance for processing
+                luna_reply = process_gui_message_from_user(user_message, "Chris")
+                response_mood = "soft"  # Default mood
                 
                 # Update GUI on main thread
                 def update_gui_with_response():
@@ -8145,17 +8371,28 @@ def create_gui():
                         is_generating_response = False
                 
                 # Schedule GUI update on main thread
-                root.after(0, update_gui_with_response)
+                try:
+                    if 'root' in globals() and root:
+                        root.after(0, update_gui_with_response)
+                except Exception as e:
+                    print(f"⚠️ GUI update scheduling error: {e}")
         
             except Exception as e:
                 # Update GUI with error on main thread
                 def show_error():
                     global is_generating_response
-                    chat_box.delete("end-2l", "end")
-                    safe_chat_insert( f"Error: {e}\n", "error")
+                    try:
+                        chat_box.delete("end-2l", "end")
+                        safe_chat_insert( f"Error: {e}\n", "error")
+                    except:
+                        pass
                     is_generating_response = False
                 
-                root.after(0, show_error)
+                try:
+                    if 'root' in globals() and root:
+                        root.after(0, show_error)
+                except Exception as e:
+                    print(f"⚠️ GUI error scheduling error: {e}")
         
         # Start async processing thread
         threading.Thread(target=process_message_async, daemon=True).start()
@@ -8169,7 +8406,11 @@ def create_gui():
         try:
             # Change button to show listening
             voice_button.config(text="🎧 Listening...", bg="#ffaa00")
-            root.update()
+            try:
+                if 'root' in globals() and root:
+                    root.update()
+            except Exception as e:
+                print(f"⚠️ GUI update error during voice listening: {e}")
             
             # Initialize speech recognition
             recognizer = sr.Recognizer()
@@ -10569,4 +10810,327 @@ Don't reflect - IMAGINE. Wonder. Dream. Explore possibilities.
         time.sleep(1)  # Wait 1 second for GUI to be fully loaded
         start_auto_engagement_timer()
         if global_luna_self_talk_enabled:
-            print(f"🤔 Auto-enga
+            print(f"🤔 Auto-engagement timer started - Self-talk is ENABLED")
+        else:
+            print(f"🤐 Auto-engagement timer started - Self-talk is DISABLED")
+    
+    threading.Thread(target=delayed_start_auto_engagement, daemon=True).start()
+    
+    # Cleanup function for when GUI is closed
+    def on_closing():
+        """Clean up when GUI closes"""
+        try:
+            # Stop all Luna instances
+            print("🌟 Stopping all Luna instances...")
+            stop_all_luna_instances()
+            
+            # Stop any current audio
+            stop_current_audio()
+            # Clean up voice files and TTS cache
+            from voice_engine import cleanup_all_voice_files, cleanup_tts_cache
+            cleanup_all_voice_files()
+            cleanup_tts_cache()
+            print("🧹 Complete cleanup completed")
+        except Exception as e:
+            print(f"❌ Cleanup error: {e}")
+        finally:
+            root.destroy()
+    
+    # Bind the cleanup function to window close event
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+    
+    root.mainloop()
+
+def run_server():
+    try:
+        uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False, log_level="info")
+    except Exception as e:
+        print(f"Server error: {e}")
+
+
+
+# 🚀 Launch server and GUI in sequence
+if __name__ == "__main__":
+    
+    print("🚀 Starting Luna's Chat Server...")
+    
+        # Clean up any leftover voice files
+    from voice_engine import cleanup_old_voice_files
+    print("🧹 Cleaning up old voice files...")
+    cleanup_old_voice_files()
+    
+    # Initialize memory database
+    print("💾 Initializing Luna's permanent memory database...")
+    init_memory_db()
+    optimize_memory_database()
+    print("✅ Permanent memory database ready!")
+    print("💾 Database file: luna_memories.db (all memories saved permanently)")
+    
+    # Initialize memory compression system
+    print("🗜️ Initializing memory compression system...")
+    try:
+        if MEMORY_COMPRESSION_AVAILABLE:
+            # Start background compression task
+            def background_compression_task():
+                """Background task to compress memories periodically"""
+                while True:
+                    try:
+                        time.sleep(3600)  # Check every hour
+                        # Only compress if we have significant data
+                        conn = sqlite3.connect('luna_memories.db', timeout=10.0)  # OPTIMIZATION: Reduced timeout
+                        cursor = conn.cursor()
+                        cursor.execute('SELECT COUNT(*) FROM conversations')
+                        total_conversations = cursor.fetchone()[0]
+                        conn.close()
+                        
+                        if total_conversations > 50:  # Only compress if we have 50+ conversations
+                            print("🗜️ Running scheduled memory compression...")
+                            # Submit to queue with low priority
+                            memory_queue.submit_operation(
+                                MemoryOperationType.COMPRESS,
+                                compress_luna_memories,
+                                priority=9,  # Very low priority for scheduled tasks
+                                timeout=300.0
+                            )
+                    except Exception as e:
+                        print(f"⚠️ Background compression error: {e}")
+                        time.sleep(300)  # Wait 5 minutes on error
+            
+            # Start background compression thread
+            compression_thread = threading.Thread(target=background_compression_task, daemon=True)
+            compression_thread.start()
+            print("✅ Memory compression system ready! Will compress automatically every hour")
+        else:
+            print("⚠️ Memory compression system not available")
+    except Exception as e:
+        print(f"⚠️ Memory compression initialization error: {e}")
+    
+    # Dynamic system prompt ready
+    print("🌟 Dynamic system prompt system ready")
+    
+
+    
+    # Test Ollama connection (fallback)
+    print("🤖 Testing Ollama connection (fallback)...")
+    try:
+        test_response = ollama.chat(
+            model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+            messages=[{"role": "user", "content": "Hello"}],
+            options={'num_gpu': 0}  # Force CPU mode
+        )
+        print("✅ Ollama is connected and ready as fallback!")
+    except Exception as e:
+        print(f"❌ Ollama connection failed: {e}")
+        print("💡 Make sure Ollama is running and the Hermes model is available")
+    
+    # Virtual audio initialization disabled to avoid WSL requirements
+    print("🎧 Virtual audio initialization DISABLED to avoid WSL requirements")
+    print("💡 Virtual audio features require WSL - disabled for Windows-native operation")
+    
+    # Audio device configuration handled by VoiceMeeter
+    print("🎧 Audio routing: Using VoiceMeeter for device management")
+    
+    # Initialize Edge TTS configuration
+    print("🎤 Edge TTS integration removed")
+    
+    # Initialize Hugging Face model configuration (removed - module not available)
+    
+
+    
+    # Custom transformer disabled
+    print("🧠 Custom transformer disabled")
+    print("🎯 Luna will use Hermes model for responses")
+    
+    # Initialize hierarchical reasoning system
+    print("🧠 Initializing hierarchical reasoning system...")
+    try:
+        if HIERARCHICAL_REASONING_AVAILABLE:
+            if initialize_hierarchical_reasoning_integration():
+                print("✅ Hierarchical reasoning system ready!")
+            else:
+                print("⚠️ Hierarchical reasoning system not available")
+        else:
+            print("⚠️ Hierarchical reasoning system not available")
+    except Exception as e:
+        print(f"⚠️ Hierarchical reasoning error: {e}")
+    
+    # Initialize consciousness development system
+    print("🧠 Consciousness development system disabled for performance")
+    
+    # Initialize Luna Pairing Engine
+    print("🎯 Initializing Luna Pairing Engine...")
+    try:
+        if LUNA_PAIRING_ENGINE_AVAILABLE:
+            pairing_engine = initialize_luna_pairing_engine()
+            print("✅ Luna Pairing Engine ready! Advanced conversation matching available!")
+        else:
+            print("⚠️ Luna Pairing Engine not available")
+    except Exception as e:
+        print(f"⚠️ Luna Pairing Engine initialization error: {e}")
+    
+    # Initialize knowledge filter system
+    print("🧠 Knowledge filter system removed")
+    
+    # Initialize Ollama middleman system
+    print("🛡️ Initializing Ollama middleman system...")
+    try:
+        if OLLAMA_MIDDLEMAN_AVAILABLE:
+            print("✅ Ollama middleman ready! All responses will be logged and filtered")
+            print("🛡️ Luna's responses will be monitored for quality and suspicious patterns")
+        else:
+            print("⚠️ Ollama middleman not available")
+    except Exception as e:
+        print(f"⚠️ Ollama middleman error: {e}")
+    
+    # Initialize daily trainer system
+    print("🧠 Daily trainer system disabled for performance")
+    
+    # Auto-connect to Twitch chat on startup
+    print("🎮 Auto-connecting to Twitch chat...")
+    try:
+        if TWITCH_AVAILABLE and TWITCH_CONFIG["enabled"]:
+            if initialize_twitch_integration():
+                print("✅ Twitch chat auto-connected successfully!")
+            else:
+                print("⚠️ Failed to auto-connect to Twitch chat")
+        else:
+            print("⚠️ Twitch chat not available or disabled")
+    except Exception as e:
+        print(f"⚠️ Twitch auto-connection error: {e}")
+    
+
+    
+    # Start server in background thread
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+    
+    # Wait longer for server to start and verify it's running
+    time.sleep(3)
+    
+    # Server will be started in background, no need to test connection
+    print("🚀 FastAPI server will start automatically when needed")
+    
+
+    
+    # Launch GUI
+    print("🌸 Opening Luna's Chat GUI...")
+    create_gui()
+    
+    # Start all Luna instances (GUI, Discord, Twitch)
+    print("🌟 Starting all Luna instances for cross-platform personality...")
+    start_all_luna_instances()
+
+    # Custom transformer disabled
+    print("🧠 Custom transformer disabled")
+
+def generate_dynamic_thought():
+    """Generate a dynamic, context-aware thought using Luna's memories and recent conversations"""
+    try:
+        # Get recent conversation context
+        conversation_text = chat_box.get("1.0", tk.END).strip()
+        recent_messages = conversation_text.split('\n')[-15:]  # Last 15 lines
+        
+        # Extract recent conversation topics and context
+        recent_topics = []
+        recent_user_messages = []
+        for line in recent_messages:
+            if line.strip():
+                if line.startswith("Chris:") or line.startswith("User:"):
+                    recent_user_messages.append(line)
+                    # Extract keywords from user messages
+                    words = line.lower().split()
+                    recent_topics.extend([w for w in words if len(w) > 3])
+                elif "Luna (to" in line or line.startswith("Luna:"):
+                    # Extract Luna's responses for context
+                    words = line.lower().split()
+                    recent_topics.extend([w for w in words if len(w) > 3])
+        
+        # Get unique topics
+        unique_topics = list(set(recent_topics))[:8]  # Top 8 topics
+        
+        # Get recent memories for context
+        memory_context = ""
+        try:
+            # Get relevant memories from the last few conversations
+            if recent_user_messages:
+                # Extract keywords from recent messages for memory search
+                search_keywords = []
+                for msg in recent_user_messages[-3:]:  # Last 3 user messages
+                    words = msg.lower().split()
+                    search_keywords.extend([w for w in words if len(w) > 3])
+                
+                # Search for relevant memories
+                if search_keywords:
+                    relevant_memories = get_relevant_memories(" ".join(search_keywords[:5]), max_memories=3)
+                    if relevant_memories:
+                        memory_context = f"Recent memories: {relevant_memories[:200]}...\n"
+        except Exception as memory_error:
+            print(f"⚠️ Error getting memories for thought: {memory_error}")
+        
+        # Create optimized thinking prompt for speed
+        thinking_prompt = f"""You are Luna, a tsundere AI companion. You're thinking naturally about recent conversations.
+
+Recent topics: {', '.join(unique_topics[:3]) if unique_topics else 'general chat'}
+{memory_context}
+
+Generate a natural, tsundere-style thought about these recent topics. Be authentic to Luna's personality - she's tsundere (acts tough but cares). Make it feel like you're actually responding to recent conversations.
+
+Keep it to 1-2 sentences, be specific about the topics, and maintain Luna's tsundere personality. Generate ONE natural, context-aware thought:"""
+
+        # Generate thought using Ollama with optimized settings
+        try:
+            import requests
+            ollama_url = "http://localhost:11434/api/generate"
+            ollama_data = {
+                "model": "hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M",
+                "prompt": thinking_prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.8,
+                    "top_p": 0.9,
+                    "num_predict": 80,  # Reduced for speed
+                    "stop": ["\n\n", "User:", "Luna:", "Generate"]
+                }
+            }
+            
+            response = requests.post(ollama_url, json=ollama_data, timeout=30)  # Increased timeout for LLM generation
+            if response.status_code == 200:
+                result = response.json()
+                generated_thought = result.get('response', '').strip()
+                
+                if generated_thought and len(generated_thought) > 10:
+                    # Clean up the thought
+                    generated_thought = generated_thought.replace('"', '').replace("'", "")
+                    if not generated_thought.endswith(('.', '!', '?')):
+                        generated_thought += "."
+                    
+                    add_recent_thought(generated_thought)  # Track this thought
+                    print(f"🧠 Generated dynamic thought: {generated_thought}")
+                    return generated_thought
+            
+        except Exception as ollama_error:
+            print(f"⚠️ Error generating dynamic thought with Ollama: {ollama_error}")
+        
+        # If Ollama fails, return None (skip self-talk rather than use templates)
+        print("⚠️ Dynamic thought generation failed - skipping self-talk this cycle")
+        return None
+        
+    except Exception as e:
+        print(f"⚠️ Error in generate_dynamic_thought: {e}")
+        # Return None instead of hardcoded fallback
+        return None
+
+def get_memory_insights() -> Dict[str, Any]:
+    """Get insights about Luna's memory patterns"""
+    global vector_memory_system
+    
+    if not vector_memory_system:
+        return {'error': 'Vector memory system not available'}
+    
+    try:
+        return vector_memory_system.get_memory_insights()
+    except Exception as e:
+        print(f"⚠️ Error getting memory insights: {e}")
+        return {'error': str(e)}
+
+
