@@ -405,8 +405,7 @@ except ImportError:
     WHISPER_AVAILABLE = False
     print("⚠️ Whisper not available, using Google Speech Recognition")
 
-# 🎭 Expression system integration (removed - not using VSeeFace)
-EXPRESSION_SYSTEM_AVAILABLE = False
+# Expression system removed
 def check_triggers(text, mood):
     return False
 
@@ -448,20 +447,7 @@ except ImportError as e:
     DISCORD_TRACKER_AVAILABLE = False
     print(f"⚠️ Discord user tracker not available: {e}")
 
-# 📰 News scraper integration (removed)
-NEWS_SYSTEM_AVAILABLE = False
-
-# 🧠 Neural Network system integration (disabled for performance)
-NEURAL_NETWORK_AVAILABLE = False
-print("🧠 Neural Network system disabled for faster responses")
-
-# 🧠 Daily Trainer integration (disabled for performance)
-DAILY_TRAINER_AVAILABLE = False
-print("🧠 Daily trainer system disabled for faster responses")
-
-# 🔍 Enhanced Web Search integration (removed)
-ENHANCED_WEB_SEARCH_AVAILABLE = False
-print("🔍 Enhanced web search system removed")
+# Removed systems: News, Neural Network, Daily Trainer, Enhanced Web Search
 
 
 # 🗜️ Memory Compression System integration
@@ -615,17 +601,8 @@ KNOWLEDGE_FILTER_AVAILABLE = False
 print("🧠 Knowledge filter removed")
 
 
-# 🛡️ Ollama Middleman integration (disabled for performance)
-OLLAMA_MIDDLEMAN_AVAILABLE = False
-print("🛡️ Ollama middleman disabled for faster responses")
-
-
-# 🧠 Custom Transformer Model integration (disabled)
+# Custom Transformer available (using Hermes model primarily)
 CUSTOM_TRANSFORMER_AVAILABLE = True
-print("🧠 Custom transformer disabled - using Hermes model")
-
-# Remove LunaAI import since custom transformer is disabled
-# from luna_transformer_integration import LunaAI
 
 # 🧠 Hybrid System Tracking
 transformer_response_count = 0
@@ -11318,16 +11295,7 @@ if __name__ == "__main__":
     # Initialize knowledge filter system
     print("🧠 Knowledge filter system removed")
     
-    # Initialize Ollama middleman system
-    print("🛡️ Initializing Ollama middleman system...")
-    try:
-        if OLLAMA_MIDDLEMAN_AVAILABLE:
-            print("✅ Ollama middleman ready! All responses will be logged and filtered")
-            print("🛡️ Luna's responses will be monitored for quality and suspicious patterns")
-        else:
-            print("⚠️ Ollama middleman not available")
-    except Exception as e:
-        print(f"⚠️ Ollama middleman error: {e}")
+    # Ollama middleman removed for performance
     
     # Initialize daily trainer system
     print("🧠 Daily trainer system disabled for performance")
