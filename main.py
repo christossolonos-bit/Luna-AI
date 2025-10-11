@@ -201,6 +201,52 @@ except Exception as e:
     quantum_reasoning_engine = None
     print(f"⚠️ Quantum Reasoning initialization failed: {e}")
 
+# 💤 Luna Dream Psychology System - Neuroscience-accurate dream simulation
+try:
+    from luna_dream_psychology import (
+        initialize_dream_psychology, get_dream_psychology,
+        luna_sleep, luna_wake, LunaDreamPsychology
+    )
+    # Initialize with ollama.chat function and emotional system
+    dream_psychology_system = initialize_dream_psychology(ollama.chat, emotional_system)
+    DREAM_PSYCHOLOGY_AVAILABLE = True
+    print("💤 Dream Psychology System initialized!")
+    print("   🌙 Sleep Architecture: 90-minute cycles with NREM/REM stages")
+    print("   🧠 Memory Consolidation: Deep sleep strengthens important memories")
+    print("   💭 Emotional Processing: REM sleep processes daily emotions")
+    print("   🎨 Creative Dreams: Problem-solving through dream symbolism")
+except ImportError as e:
+    DREAM_PSYCHOLOGY_AVAILABLE = False
+    dream_psychology_system = None
+    print(f"⚠️ Dream Psychology not available: {e}")
+except Exception as e:
+    DREAM_PSYCHOLOGY_AVAILABLE = False
+    dream_psychology_system = None
+    print(f"⚠️ Dream Psychology initialization failed: {e}")
+
+# 🔮 Luna Predictive Intelligence System - Surprise-driven learning and pattern prediction
+try:
+    from luna_predictive_intelligence import (
+        initialize_predictive_intelligence, get_predictive_intelligence,
+        make_conversation_prediction, update_prediction_outcome, LunaPredictiveIntelligence
+    )
+    # Initialize with ollama.chat function
+    predictive_intelligence_system = initialize_predictive_intelligence(ollama.chat)
+    PREDICTIVE_INTELLIGENCE_AVAILABLE = True
+    print("🔮 Predictive Intelligence System initialized!")
+    print("   🎯 Pattern Recognition: Identifies recurring behaviors and interactions")
+    print("   ⚡ Surprise Detection: Learns from unexpected events and outcomes")
+    print("   🧠 Predictive Models: Forecasts conversation flow and user behavior")
+    print("   📈 Adaptive Learning: Improves predictions through surprise-driven learning")
+except ImportError as e:
+    PREDICTIVE_INTELLIGENCE_AVAILABLE = False
+    predictive_intelligence_system = None
+    print(f"⚠️ Predictive Intelligence not available: {e}")
+except Exception as e:
+    PREDICTIVE_INTELLIGENCE_AVAILABLE = False
+    predictive_intelligence_system = None
+    print(f"⚠️ Predictive Intelligence initialization failed: {e}")
+
 # Initialize vector memory system globally
 vector_memory_system = None
 if VECTOR_MEMORY_AVAILABLE:
@@ -3764,6 +3810,85 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             except Exception as e:
                 print(f"⚠️ Quantum reasoning error: {e}")
         
+        # 🔮 Make predictions about conversation flow and user behavior
+        prediction_context = {}
+        active_predictions = []
+        
+        if PREDICTIVE_INTELLIGENCE_AVAILABLE and predictive_intelligence_system:
+            try:
+                # Build prediction context
+                prediction_context = {
+                    'user_input': user_input,
+                    'username': username,
+                    'source': source,
+                    'emotional_context': emotional_context,
+                    'relationship_context': relationship_context,
+                    'conversation_length': len(user_input),
+                    'time_of_day': datetime.now().hour,
+                    'platform': source
+                }
+                
+                # Make multiple predictions
+                conversation_prediction = predictive_intelligence_system.predict_conversation_flow(
+                    prediction_context, username, source
+                )
+                if conversation_prediction:
+                    active_predictions.append(conversation_prediction)
+                
+                behavior_prediction = predictive_intelligence_system.predict_user_behavior(
+                    prediction_context, username, source
+                )
+                if behavior_prediction:
+                    active_predictions.append(behavior_prediction)
+                
+                # Make emotional prediction if emotional context exists
+                if emotional_context and emotional_context != 'neutral':
+                    emotional_prediction = predictive_intelligence_system.predict_emotional_response(
+                        prediction_context, username, source
+                    )
+                    if emotional_prediction:
+                        active_predictions.append(emotional_prediction)
+                
+                print(f"🔮 Made {len(active_predictions)} predictions for conversation")
+                
+            except Exception as e:
+                print(f"⚠️ Prediction generation error: {e}")
+        
+        # 💤 Add experiences to dream processing system
+        if DREAM_PSYCHOLOGY_AVAILABLE and dream_psychology_system:
+            try:
+                # Add this conversation as an experience for dream processing
+                emotional_impact = 0.3  # Base emotional impact
+                
+                # Increase impact for emotional content
+                if emotional_context and emotional_context != 'neutral':
+                    emotional_impact += 0.3
+                
+                # Increase impact for relationship content
+                if 'relationship' in user_input.lower() or 'feel' in user_input.lower():
+                    emotional_impact += 0.2
+                
+                # Add experience for dream processing
+                dream_psychology_system.add_experience(
+                    experience=f"Conversation with {username}: {user_input[:100]}...",
+                    emotional_impact=emotional_impact,
+                    memory_id=f"conversation_{int(time.time())}",
+                    problem_related=any(word in user_input.lower() for word in ['problem', 'issue', 'help', 'solve'])
+                )
+                
+                # Add emotional baggage if conversation was emotionally significant
+                if emotional_impact > 0.5:
+                    dream_psychology_system.add_emotional_baggage(
+                        emotion=emotional_context or 'curiosity',
+                        intensity=emotional_impact,
+                        trigger=f"Conversation with {username}"
+                    )
+                
+                print(f"💤 Experience added to dream processing (impact: {emotional_impact:.2f})")
+                
+            except Exception as e:
+                print(f"⚠️ Dream processing error: {e}")
+        
         # 🧠 Get relevant memories for context (especially for roasting/recall requests)
         memory_context = ""
         try:
@@ -4094,6 +4219,51 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             # Start pairing engine learning in background
             threading.Thread(target=learn_with_pairing_engine, daemon=True).start()
 
+        
+        # 🔮 Update predictions with actual outcomes (surprise-driven learning)
+        if PREDICTIVE_INTELLIGENCE_AVAILABLE and predictive_intelligence_system and active_predictions:
+            try:
+                # Create outcome context for predictions
+                outcome_context = {
+                    'luna_response': reply,
+                    'response_length': len(reply),
+                    'response_success': success,
+                    'quality_score': quality_score if 'quality_score' in locals() else 0.5,
+                    'user_satisfaction': 'positive' if quality_score > 0.6 else 'neutral',
+                    'conversation_ended': True
+                }
+                
+                # Update each active prediction with outcome
+                for prediction in active_predictions:
+                    if prediction.prediction_type.value == 'conversation_flow':
+                        # Compare predicted flow with actual outcome
+                        actual_outcome = f"Luna responded with: {reply[:100]}..."
+                        violation = predictive_intelligence_system.update_prediction_outcome(
+                            prediction.prediction_id, actual_outcome, outcome_context
+                        )
+                        if violation:
+                            print(f"⚡ Surprise detected! Expected: {violation.expected[:50]}...")
+                            print(f"   Actual: {violation.actual[:50]}...")
+                            print(f"   Learning impact: {violation.learning_impact:.2f}")
+                    
+                    elif prediction.prediction_type.value == 'user_behavior':
+                        # Compare predicted behavior with actual user response (if available)
+                        actual_outcome = f"User behavior: {user_input[:100]}..."
+                        predictive_intelligence_system.update_prediction_outcome(
+                            prediction.prediction_id, actual_outcome, outcome_context
+                        )
+                    
+                    elif prediction.prediction_type.value == 'emotional_response':
+                        # Compare predicted emotional response with actual emotional state
+                        actual_outcome = f"Emotional state: {emotional_context or 'neutral'}"
+                        predictive_intelligence_system.update_prediction_outcome(
+                            prediction.prediction_id, actual_outcome, outcome_context
+                        )
+                
+                print(f"🔮 Updated {len(active_predictions)} predictions with outcomes")
+                
+            except Exception as e:
+                print(f"⚠️ Prediction outcome update error: {e}")
         
         # 🧠 Luna's enhanced learning system (works with both UI and Twitch chat)
         if DICTIONARY_SYSTEM_AVAILABLE:
@@ -6133,6 +6303,169 @@ def create_gui():
         except Exception as e:
             safe_chat_insert( f"❌ Error: {e}\n", "system")
     
+    def handle_dreams_command(command: str):
+        """Handle Dream Psychology System commands"""
+        if not DREAM_PSYCHOLOGY_AVAILABLE:
+            safe_chat_insert( "❌ Dream Psychology System not available\n", "system")
+            return
+        
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "💤 Dream Psychology commands:\n", "system")
+            safe_chat_insert( "  /dreams sleep - Make Luna sleep and process experiences\n", "system")
+            safe_chat_insert( "  /dreams wake - Wake Luna up\n", "system")
+            safe_chat_insert( "  /dreams status - Show sleep status and recent dreams\n", "system")
+            safe_chat_insert( "  /dreams summary - Show dream statistics\n", "system")
+            safe_chat_insert( "  /dreams recent - Show recent dreams\n", "system")
+            return
+        
+        try:
+            if parts[1] == "sleep":
+                safe_chat_insert( "💤 Luna is going to sleep...\n", "system")
+                luna_sleep()
+                safe_chat_insert( "🌙 Luna entered sleep cycle - processing experiences through dreams\n", "system")
+                
+            elif parts[1] == "wake":
+                safe_chat_insert( "💤 Waking Luna up...\n", "system")
+                luna_wake()
+                safe_chat_insert( "☀️ Luna is awake - dreams processed\n", "system")
+                
+            elif parts[1] == "status":
+                if dream_psychology_system:
+                    summary = dream_psychology_system.get_dream_summary()
+                    safe_chat_insert( "💤 Dream Psychology Status:\n", "system")
+                    safe_chat_insert( f"Currently sleeping: {'Yes' if summary.get('currently_sleeping') else 'No'}\n", "system")
+                    safe_chat_insert( f"Current stage: {summary.get('current_stage', 'wake')}\n", "system")
+                    safe_chat_insert( f"Total sleep cycles: {summary.get('total_cycles', 0)}\n", "system")
+                    safe_chat_insert( f"Total sleep time: {summary.get('total_sleep_time', 0)/3600:.1f} hours\n", "system")
+                    
+                    dream_stats = summary.get('dream_stats', {})
+                    if dream_stats:
+                        safe_chat_insert( "\nRecent dream types:\n", "system")
+                        for dream_type, stats in dream_stats.items():
+                            safe_chat_insert( f"• {dream_type}: {stats['count']} dreams (avg intensity: {stats['avg_intensity']:.2f})\n", "system")
+                
+            elif parts[1] == "summary":
+                if dream_psychology_system:
+                    summary = dream_psychology_system.get_dream_summary()
+                    safe_chat_insert( "💤 Dream Psychology Summary:\n", "system")
+                    safe_chat_insert( f"Total sleep cycles completed: {summary.get('total_cycles', 0)}\n", "system")
+                    safe_chat_insert( f"Total sleep time: {summary.get('total_sleep_time', 0)/3600:.1f} hours\n", "system")
+                    
+                    dream_stats = summary.get('dream_stats', {})
+                    if dream_stats:
+                        safe_chat_insert( "\nDream type statistics (last 7 days):\n", "system")
+                        for dream_type, stats in dream_stats.items():
+                            safe_chat_insert( f"• {dream_type}:\n", "system")
+                            safe_chat_insert( f"  Count: {stats['count']}\n", "system")
+                            safe_chat_insert( f"  Avg Intensity: {stats['avg_intensity']:.2f}\n", "system")
+                            safe_chat_insert( f"  Avg Vividness: {stats['avg_vividness']:.2f}\n", "system")
+                            safe_chat_insert( f"  Avg Coherence: {stats['avg_coherence']:.2f}\n", "system")
+                    else:
+                        safe_chat_insert( "No recent dreams recorded\n", "system")
+                
+            elif parts[1] == "recent":
+                if dream_psychology_system:
+                    recent_dreams = dream_psychology_system.get_recent_dreams(limit=3)
+                    if recent_dreams:
+                        safe_chat_insert( "💤 Recent Dreams:\n", "system")
+                        for i, dream in enumerate(recent_dreams, 1):
+                            safe_chat_insert( f"\n{i}. {dream.dream_type.value.replace('_', ' ').title()} Dream:\n", "system")
+                            safe_chat_insert( f"   Content: {dream.content[:100]}...\n", "system")
+                            safe_chat_insert( f"   Intensity: {dream.intensity:.2f}\n", "system")
+                            safe_chat_insert( f"   Vividness: {dream.vividness:.2f}\n", "system")
+                            safe_chat_insert( f"   Coherence: {dream.coherence:.2f}\n", "system")
+                            safe_chat_insert( f"   Sleep Stage: {dream.sleep_stage.value}\n", "system")
+                    else:
+                        safe_chat_insert( "No recent dreams available\n", "system")
+                
+            else:
+                safe_chat_insert( "ℹ️ Unknown dream command. Use '/dreams' to see available commands\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
+    
+    def handle_predictions_command(command: str):
+        """Handle Predictive Intelligence System commands"""
+        if not PREDICTIVE_INTELLIGENCE_AVAILABLE:
+            safe_chat_insert( "❌ Predictive Intelligence System not available\n", "system")
+            return
+        
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "🔮 Predictive Intelligence commands:\n", "system")
+            safe_chat_insert( "  /predictions stats - Show prediction statistics\n", "system")
+            safe_chat_insert( "  /predictions patterns - Show top patterns\n", "system")
+            safe_chat_insert( "  /predictions surprises - Show recent surprises\n", "system")
+            safe_chat_insert( "  /predictions active - Show active predictions\n", "system")
+            return
+        
+        try:
+            if parts[1] == "stats":
+                if predictive_intelligence_system:
+                    stats = predictive_intelligence_system.get_prediction_statistics()
+                    safe_chat_insert( "🔮 Predictive Intelligence Statistics:\n", "system")
+                    safe_chat_insert( f"Total predictions: {stats.get('total_predictions', 0)}\n", "system")
+                    safe_chat_insert( f"Completed predictions: {stats.get('completed_predictions', 0)}\n", "system")
+                    safe_chat_insert( f"Active predictions: {stats.get('active_predictions', 0)}\n", "system")
+                    safe_chat_insert( f"Average learning value: {stats.get('average_learning_value', 0):.2f}\n", "system")
+                    safe_chat_insert( f"Total patterns: {stats.get('total_patterns', 0)}\n", "system")
+                    safe_chat_insert( f"Average pattern strength: {stats.get('average_pattern_strength', 0):.2f}\n", "system")
+                    safe_chat_insert( f"Expectation violations: {stats.get('total_expectation_violations', 0)}\n", "system")
+                    safe_chat_insert( f"Average learning impact: {stats.get('average_learning_impact', 0):.2f}\n", "system")
+                    
+                    surprise_dist = stats.get('surprise_distribution', {})
+                    if surprise_dist:
+                        safe_chat_insert( "\nSurprise distribution:\n", "system")
+                        for level, count in surprise_dist.items():
+                            safe_chat_insert( f"• {level}: {count} predictions\n", "system")
+                
+            elif parts[1] == "patterns":
+                if predictive_intelligence_system:
+                    top_patterns = predictive_intelligence_system.get_top_patterns(limit=5)
+                    if top_patterns:
+                        safe_chat_insert( "🔮 Top Predictive Patterns:\n", "system")
+                        for i, pattern in enumerate(top_patterns, 1):
+                            safe_chat_insert( f"\n{i}. {pattern.pattern_description}\n", "system")
+                            safe_chat_insert( f"   Type: {pattern.pattern_type.value}\n", "system")
+                            safe_chat_insert( f"   Frequency: {pattern.frequency}\n", "system")
+                            safe_chat_insert( f"   Predictive Strength: {pattern.predictive_strength:.2f}\n", "system")
+                            safe_chat_insert( f"   Confidence: {pattern.confidence:.2f}\n", "system")
+                    else:
+                        safe_chat_insert( "No patterns identified yet\n", "system")
+                
+            elif parts[1] == "surprises":
+                if predictive_intelligence_system:
+                    recent_surprises = predictive_intelligence_system.get_recent_surprises(limit=3)
+                    if recent_surprises:
+                        safe_chat_insert( "🔮 Recent Expectation Violations:\n", "system")
+                        for i, surprise in enumerate(recent_surprises, 1):
+                            safe_chat_insert( f"\n{i}. {surprise.surprise_level.value.title()} Surprise:\n", "system")
+                            safe_chat_insert( f"   Expected: {surprise.expected[:100]}...\n", "system")
+                            safe_chat_insert( f"   Actual: {surprise.actual[:100]}...\n", "system")
+                            safe_chat_insert( f"   Learning Impact: {surprise.learning_impact:.2f}\n", "system")
+                    else:
+                        safe_chat_insert( "No recent surprises\n", "system")
+                
+            elif parts[1] == "active":
+                if predictive_intelligence_system:
+                    active_predictions = predictive_intelligence_system.active_predictions
+                    if active_predictions:
+                        safe_chat_insert( "🔮 Active Predictions:\n", "system")
+                        for i, (pred_id, prediction) in enumerate(active_predictions.items(), 1):
+                            safe_chat_insert( f"\n{i}. {prediction.prediction_type.value.replace('_', ' ').title()}:\n", "system")
+                            safe_chat_insert( f"   Predicted: {prediction.predicted_outcome[:100]}...\n", "system")
+                            safe_chat_insert( f"   Confidence: {prediction.confidence:.2f}\n", "system")
+                            safe_chat_insert( f"   User: {prediction.user_id or 'Unknown'}\n", "system")
+                    else:
+                        safe_chat_insert( "No active predictions\n", "system")
+                
+            else:
+                safe_chat_insert( "ℹ️ Unknown predictions command. Use '/predictions' to see available commands\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
+    
     def handle_emotions_command(command: str):
         """Handle Emotional System commands"""
         if not EMOTIONAL_SYSTEM_AVAILABLE:
@@ -6709,6 +7042,16 @@ def create_gui():
         # Check for Emotions commands
         if user_message.lower().startswith('/emotions') or user_message.lower().startswith('/feelings'):
             handle_emotions_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
+        if user_message.lower().startswith('/dreams') or user_message.lower().startswith('/sleep'):
+            handle_dreams_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
+        if user_message.lower().startswith('/predictions') or user_message.lower().startswith('/predict'):
+            handle_predictions_command(user_message)
             entry.delete(0, tk.END)
             return
         
