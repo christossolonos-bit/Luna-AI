@@ -54,21 +54,7 @@ except Exception as e:
     GLOBAL_AWARENESS_AVAILABLE = False
     print(f"⚠️ Global Awareness System initialization failed: {e}")
 
-# 🌐 Luna Web Crawler - for analyzing websites
-try:
-    from luna_web_crawler import (
-        initialize_luna_web_crawler, get_luna_web_crawler, crawl_and_analyze
-    )
-    luna_web_crawler = initialize_luna_web_crawler()
-    WEB_CRAWLER_AVAILABLE = True
-    print("🌐 Luna Web Crawler loaded - Luna can browse and analyze websites!")
-except ImportError as e:
-    WEB_CRAWLER_AVAILABLE = False
-    print(f"⚠️ Luna Web Crawler not available: {e}")
-    print("Install required packages: pip install beautifulsoup4")
-except Exception as e:
-    WEB_CRAWLER_AVAILABLE = False
-    print(f"⚠️ Luna Web Crawler initialization failed: {e}")
+# Web Crawler removed for performance
 
 # 🌟 Luna Emergent Thought System - thoughts emerge from memory patterns
 try:
@@ -86,21 +72,7 @@ except Exception as e:
     EMERGENT_THOUGHTS_AVAILABLE = False
     print(f"⚠️ Emergent Thought System initialization failed: {e}")
 
-# 🔧 Luna Self-Healing System - auto-fixes errors at runtime
-try:
-    from luna_self_healing import (
-        initialize_self_healing, get_self_healing_system,
-        log_error_to_healing_system, get_health_report
-    )
-    self_healing_system = initialize_self_healing()
-    SELF_HEALING_AVAILABLE = True
-    print("🔧 Self-Healing System loaded - Luna can fix herself at runtime!")
-except ImportError as e:
-    SELF_HEALING_AVAILABLE = False
-    print(f"⚠️ Self-Healing System not available: {e}")
-except Exception as e:
-    SELF_HEALING_AVAILABLE = False
-    print(f"⚠️ Self-Healing System initialization failed: {e}")
+# Self-Healing System removed for stability
 
 # 🧠 Hierarchical Memory - REPLACED by Lambda Architecture (speed + batch layers)
 HIERARCHICAL_MEMORY_AVAILABLE = False
@@ -396,21 +368,26 @@ from typing import List, Dict
 import numpy as np
 
 
-# Whisper for faster transcription
+# Whisper for faster transcription (Triton disabled for compatibility)
 try:
+    import os
+    # Disable Triton to prevent blocking and CUDA warnings
+    os.environ["WHISPER_NO_TRITON"] = "1"
+    os.environ["TRITON_PTXAS_PATH"] = ""
+    
+    import warnings
+    # Suppress Triton kernel warnings
+    warnings.filterwarnings("ignore", message=".*Triton kernels.*")
+    warnings.filterwarnings("ignore", message=".*CUDA toolkit.*")
+    
     import whisper
     WHISPER_AVAILABLE = True
-    print("✅ Whisper available for fast transcription")
+    print("✅ Whisper available for fast transcription (CPU mode - Triton disabled)")
 except ImportError:
     WHISPER_AVAILABLE = False
     print("⚠️ Whisper not available, using Google Speech Recognition")
 
 # Expression system removed
-def check_triggers(text, mood):
-    return False
-
-def set_twitch_chat_mode(enabled):
-    pass
 
 # 📖 Dictionary system integration (for Luna's learning)
 try:
@@ -471,67 +448,17 @@ except ImportError as e:
     LUNA_PAIRING_ENGINE_AVAILABLE = False
     print(f"⚠️ Luna Pairing Engine not available: {e}")
 
-# 🧠 BM25 Memory System
-BM25_SYSTEM_AVAILABLE = False
-try:
-    from bm25_memory_system import initialize_bm25_system, get_bm25_system
-    bm25_system = initialize_bm25_system()
-    BM25_SYSTEM_AVAILABLE = True
-    print("🧠 BM25 memory system loaded - Luna's memory retrieval is now supercharged!")
-except ImportError as e:
-    BM25_SYSTEM_AVAILABLE = False
-    print(f"⚠️ BM25 memory system not available: {e}")
-except Exception as e:
-    BM25_SYSTEM_AVAILABLE = False
-    print(f"⚠️ BM25 memory system error: {e}")
+# BM25 system removed for performance
 
-# 🧠 Mind-Map System for Long-Term Memory Organization
-MINDMAP_SYSTEM_AVAILABLE = False
-try:
-    from luna_mindmap_system import initialize_mindmap_system, get_mindmap_system, add_user_memory, search_user_profile, get_user_profile_summary
-    mindmap_system = initialize_mindmap_system()
-    MINDMAP_SYSTEM_AVAILABLE = True
-    print("🧠 Mind-map system loaded - Luna's long-term memory is now organized!")
-except ImportError as e:
-    MINDMAP_SYSTEM_AVAILABLE = False
-    print(f"⚠️ Mind-map system not available: {e}")
-except Exception as e:
-    MINDMAP_SYSTEM_AVAILABLE = False
-    print(f"⚠️ Mind-map system error: {e}")
+# Mind-map system removed for performance
 
-# 🧠 Hybrid Retrieval System for Enhanced Memory Search
-HYBRID_RETRIEVAL_AVAILABLE = False
-try:
-    from hybrid_retrieval_system import initialize_hybrid_retrieval_system, get_hybrid_retrieval_system, hybrid_search_memories, enhance_bm25_with_hybrid_retrieval
-    hybrid_retrieval_system = initialize_hybrid_retrieval_system(alpha=0.7, time_decay_factor=0.1)
-    HYBRID_RETRIEVAL_AVAILABLE = True
-    print("🧠 Hybrid retrieval system loaded - Luna's memory search is now supercharged!")
-except ImportError as e:
-    HYBRID_RETRIEVAL_AVAILABLE = False
-    print(f"⚠️ Hybrid retrieval system not available: {e}")
-except Exception as e:
-    HYBRID_RETRIEVAL_AVAILABLE = False
-    print(f"⚠️ Hybrid retrieval system error: {e}")
+# Hybrid retrieval system removed for performance
 
-# 🎓 Layla AI Importer System (Credits: 𝜟𝒎𝜼𝜺𝒔𝒊𝜶𝝇)
-LAYLA_IMPORTER_AVAILABLE = False
-print("🧠 Layla AI Importer removed")
+# Layla AI Importer removed
 
 # Teacher credits system removed to avoid file creation errors
 
-# 🧠 Chain of Thought System (Credits: Teto & 𝜟𝒎𝜼𝜺𝒔𝒊𝜶𝝇)
-CHAIN_OF_THOUGHT_AVAILABLE = False
-try:
-    from chain_of_thought_system import initialize_chain_of_thought_system, get_chain_of_thought_system, enhance_response_with_chain_of_thought
-    chain_of_thought_system = initialize_chain_of_thought_system()
-    CHAIN_OF_THOUGHT_AVAILABLE = True
-    print("🧠 Chain of Thought System loaded - Credits to Teto & 𝜟𝒎𝜼𝜺𝒔𝒊𝜶𝝇 for reasoning enhancement!")
-except ImportError as e:
-    CHAIN_OF_THOUGHT_AVAILABLE = False
-    print(f"⚠️ Chain of Thought System not available: {e}")
-except Exception as e:
-    CHAIN_OF_THOUGHT_AVAILABLE = False
-    print(f"⚠️ Chain of Thought System error: {e}")
+# Chain of Thought system removed for performance
 
 # Teacher system completely removed to avoid database errors
 
@@ -552,10 +479,7 @@ except ImportError as e:
     print(f"⚠️ Twitch API chat integration not available: {e}")
     print("Install required packages: pip install requests websocket-client")
 
-# 🎥 YouTube Live Chat integration
-YOUTUBE_AVAILABLE = False  # Default to False
-# YouTube integration removed - module deleted
-YOUTUBE_AVAILABLE = False
+# YouTube integration removed
 
 # 📊 Twitch User Tracker integration (SQL-based)
 try:
@@ -579,26 +503,9 @@ except ImportError as e:
     TWITCH_TRACKER_AVAILABLE = False
     print(f"⚠️ Twitch user tracker not available: {e}")
 
-# 📱 Twitter/X integration (removed)
-TWITTER_AVAILABLE = False
+# Twitter/X, News Scraper, and Luna Browser integrations removed
 
-# 📰 News Scraper integration (removed)
-NEWS_SCRAPER_AVAILABLE = False
-
-# 🌐 Luna Browser integration (removed)
-LUNA_BROWSER_AVAILABLE = False
-
-# 🧠 Hierarchical Reasoning integration (disabled for performance)
-HIERARCHICAL_REASONING_AVAILABLE = False
-print("🧠 Hierarchical reasoning system disabled for faster responses")
-
-# Import consciousness development system (disabled for performance)
-CONSCIOUSNESS_SYSTEM_AVAILABLE = False
-print("🧠 Consciousness development system disabled for faster responses")
-
-# 🧠 Knowledge Filter integration (removed)
-KNOWLEDGE_FILTER_AVAILABLE = False
-print("🧠 Knowledge filter removed")
+# Hierarchical Reasoning, Consciousness Development, and Knowledge Filter systems removed for performance
 
 
 # Custom Transformer available (using Hermes model primarily)
@@ -622,9 +529,7 @@ TWITCH_CONFIG = {
 }
 
 # 🎥 YouTube Live Chat Configuration - REMOVED
-YOUTUBE_CONFIG = {
-    "enabled": False  # YouTube integration removed
-}
+# YouTube configuration removed
 
 def twitch_chat_callback(username: str, message, channel: str) -> str:
     """
@@ -641,7 +546,7 @@ def twitch_chat_callback(username: str, message, channel: str) -> str:
             print(f"🎮 Twitch message string received: {username}: {message_text}")
         
         # 🎭 Enable Twitch chat mode to prevent hotkey conflicts with browser
-        set_twitch_chat_mode(True)
+        # Twitch chat mode enabled
         
         # Process Twitch message instantly
         print(f"🎮 Processing Twitch message instantly: {username}: {message_text[:50]}...")
@@ -653,7 +558,7 @@ def twitch_chat_callback(username: str, message, channel: str) -> str:
     except Exception as e:
         print(f"❌ Twitch chat callback error: {e}")
         # 🎭 Disable Twitch chat mode even on error
-        set_twitch_chat_mode(False)
+        # Twitch chat mode disabled
         
         # Return a friendly error message without technical details
         error_responses = [
@@ -1588,7 +1493,7 @@ TRANSFORMER_CONFIG = {
 
 # 🚀 Performance-optimized Ollama configuration
 OLLAMA_CONFIG = {
-    "model": "hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M",
+    "model": "mistral:7b",
     "temperature": 0.8,  # Balanced temperature for good responses
     "top_p": 0.9,  # Better generation quality
     "top_k": 80,  # More variety in responses
@@ -1601,7 +1506,7 @@ OLLAMA_CONFIG = {
 
 # 🎮 Discord-specific Ollama configuration (OPTIMIZED FOR SPEED)
 DISCORD_OLLAMA_CONFIG = {
-    "model": "hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M",
+    "model": "mistral:7b",
     "temperature": 0.5,  # Lower for faster generation
     "top_p": 0.6,  # Reduced for speed
     "top_k": 10,  # Much lower for faster generation
@@ -1614,7 +1519,7 @@ DISCORD_OLLAMA_CONFIG = {
 
 # 🎮 Twitch-specific Ollama configuration (ULTRA-OPTIMIZED FOR SPEED)
 TWITCH_OLLAMA_CONFIG = {
-    "model": "hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M",
+    "model": "mistral:7b",
     "temperature": 0.4,  # Very low for fastest generation
     "top_p": 0.5,  # Very low for speed
     "top_k": 5,  # Extremely low for fastest generation
@@ -2728,35 +2633,12 @@ def research_memory_database(user_input: str, limit: int = 10, context_type: str
     start_operation("memory_research")
     try:
         # Try to use hybrid retrieval system if available for enhanced ranking
-        if HYBRID_RETRIEVAL_AVAILABLE and BM25_SYSTEM_AVAILABLE:
-            try:
-                from bm25_memory_system import get_bm25_system
-                from hybrid_retrieval_system import hybrid_search_memories
-                
-                bm25_system = get_bm25_system()
-                if bm25_system:
-                    # Use hybrid retrieval for enhanced results
-                    hybrid_results = hybrid_search_memories(user_input, bm25_system, limit)
-                    if hybrid_results:
-                        print(f"🧠 Hybrid retrieval found {len(hybrid_results)} relevant memories for: {user_input[:50]}...")
-                        
-                        # Format results with hybrid scores
-                        formatted_results = []
-                        for i, result in enumerate(hybrid_results, 1):
-                            score_info = f"Final: {result['final_score']:.3f} (BM25: {result['bm25_score']:.3f}, RAG: {result['rag_score']:.3f}, Time: {result['time_importance']:.3f})"
-                            content = result['content']
-                            if len(content) > 200:
-                                content = content[:200] + "..."
-                            formatted_results.append(f"{i}. [{score_info}] {content}")
-                        
-                        return f"📚 RELEVANT CONTEXT (Hybrid Retrieval):\n" + "\n".join(formatted_results)
-            except Exception as e:
+        # BM25 and Hybrid systems removed
                 print(f"⚠️ Hybrid retrieval error: {e}, falling back to BM25")
         
         # Fallback to BM25 system if available
         try:
-            from bm25_memory_system import bm25_research_memory_database
-            bm25_result = bm25_research_memory_database(user_input, limit)
+                        bm25_result = bm25_research_memory_database(user_input, limit)
             if bm25_result and bm25_result != "No relevant memories found for this query.":
                 print(f"🧠 BM25 research found relevant context for: {user_input[:50]}...")
                 return f"📚 RELEVANT CONTEXT (BM25 ranked):\n{bm25_result}"
@@ -2902,8 +2784,7 @@ def get_relevant_memories(user_input: str, limit: int = 5):
         
         # OPTIMIZATION: Use direct BM25 call with timeout protection
         try:
-            from bm25_memory_system import bm25_search_memories
-            
+                        
             # Use timeout wrapper to prevent hanging
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -2999,41 +2880,7 @@ def save_memory_with_rag(memory_type: str, content: str, mood: str = "soft", imp
             conn.close()
             
             # Add to mind-map system if available
-            if MINDMAP_SYSTEM_AVAILABLE:
-                try:
-                    # Determine mind-map node type based on memory type
-                    mindmap_type = {
-                        'emotional': 'memory',
-                        'conversation': 'event',
-                        'preference': 'preference',
-                        'skill': 'skill',
-                        'interest': 'interest',
-                        'relationship': 'relationship',
-                        'user_profile': 'user_profile'
-                    }.get(memory_type, 'memory')
-                    
-                    # Extract tags from content
-                    tags = []
-                    if 'gaming' in content.lower():
-                        tags.append('gaming')
-                    if 'work' in content.lower() or 'job' in content.lower():
-                        tags.append('work')
-                    if 'family' in content.lower():
-                        tags.append('family')
-                    if 'friend' in content.lower():
-                        tags.append('friends')
-                    if 'hobby' in content.lower():
-                        tags.append('hobby')
-                    
-                    # Add to mind-map
-                    add_user_memory(content, mindmap_type, {
-                        'mood': mood,
-                        'importance': importance,
-                        'context': context,
-                        'timestamp': datetime.now().isoformat()
-                    }, tags)
-                    
-                except Exception as mindmap_error:
+            # Mind-map system removed
                     print(f"⚠️ Error adding to mind-map: {mindmap_error}")
             
     except Exception as e:
@@ -3347,15 +3194,7 @@ def research_memories_manual(query: str, context_type: str = "all"):
     print(f"🔍 Researching memories for: '{query}'")
     try:
         # Try mind-map search first for user profile queries
-        if MINDMAP_SYSTEM_AVAILABLE:
-            try:
-                mindmap_results = search_user_profile(query, limit=5)
-                if mindmap_results:
-                    print("🧠 Mind-map search results:")
-                    for result in mindmap_results:
-                        print(f"  - {result['type']}: {result['content']} (score: {result['score']:.2f})")
-                    print()
-            except Exception as e:
+        # Mind-map system removed
                 print(f"⚠️ Mind-map search error: {e}")
         
         # Fallback to regular research
@@ -3372,13 +3211,13 @@ def research_memories_manual(query: str, context_type: str = "all"):
 
 def get_user_profile_info(query: str = "") -> str:
     """Get comprehensive user profile information from mind-map"""
-    if not MINDMAP_SYSTEM_AVAILABLE:
+    if not False:
         return "Mind-map system not available"
     
     try:
         if query:
             # Search for specific information
-            results = search_user_profile(query, limit=10)
+            results = # # search_user_profile(query, limit=10)
             if results:
                 profile_info = f"User Profile Information for '{query}':\n"
                 for result in results:
@@ -3388,7 +3227,7 @@ def get_user_profile_info(query: str = "") -> str:
                 return f"No information found about '{query}' in user profile"
         else:
             # Get complete profile summary
-            summary = get_user_profile_summary()
+            summary = # # get_user_profile_summary()
             profile_info = "Complete User Profile Summary:\n\n"
             
             for category, items in summary.items():
@@ -4240,7 +4079,7 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
                 clear_thought_state()
         
         # Get selected model from GUI
-        selected_model = model_var.get() if 'model_var' in globals() else "Ollama (Hermes)"
+        selected_model = model_var.get() if 'model_var' in globals() else "Ollama (Mistral)"
         
         # Initialize reply and success variables
         reply = ""
@@ -4662,7 +4501,7 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
         # 🎭 Trigger VSeeFace expressions based on Luna's response content and mood
         # (Safety: Twitch chat mode is already enabled/disabled in twitch_chat_callback)
         try:
-            expression_triggered = check_triggers(reply, mood)
+            expression_triggered = # # check_triggers(reply, mood)
             if expression_triggered:
                 print(f"🎭 Expression triggered for Luna's response (mood: {mood})")
         except Exception as e:
@@ -4867,8 +4706,8 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
         ollama_thread = threading.Thread(target=make_ollama_call, daemon=True)
         ollama_thread.start()
         
-        # Wait for response with platform-specific timeout (Twitch=instant, Discord=few seconds, GUI=unlimited)
-        timeout_seconds = 3.0 if source == 'twitch' else 10.0 if source == 'discord' else 60.0
+        # Wait for response with platform-specific timeout (increased for Hermes performance)
+        timeout_seconds = 5.0 if source == 'twitch' else 20.0 if source == 'discord' else 90.0
         try:
             result_type, result_data = response_queue.get(timeout=timeout_seconds)
             if result_type == 'success':
@@ -4924,7 +4763,7 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
                 retry_thread.start()
                 
                 try:
-                    retry_timeout = 2.0 if source == 'twitch' else 8.0 if source == 'discord' else 30.0
+                    retry_timeout = 4.0 if source == 'twitch' else 15.0 if source == 'discord' else 45.0
                     retry_result_type, retry_result_data = retry_queue.get(timeout=retry_timeout)
                     if retry_result_type == 'success':
                         retry_response = retry_result_data
@@ -5715,22 +5554,7 @@ def process_discord_message_from_queue_old(username: str, message_text: str, cha
             print(f"❌ Discord response generation error: {e}")
             
             # Log to self-healing system
-            if SELF_HEALING_AVAILABLE:
-                log_error_to_healing_system(e, "discord_response_generation")
-            
-            # SKIP AND RETRY for NoneType subscriptable errors
-            if "'NoneType' object is not subscriptable" in str(e):
-                print(f"🔧 Auto-healing: Skipping NoneType error, retrying without TTS...")
-                try:
-                    # Retry without TTS
-                    reply_result = generate_luna_reply(message_text, username, "discord")
-                    response, success = intelligent_tuple_unpack(reply_result, "Discord-Retry")
-                    
-                    if response and success:
-                        print(f"✅ Retry successful (no TTS): {response[:50]}...")
-                        # Don't call speak_response this time
-                        return response
-                except Exception as retry_error:
+            # Self-healing system removed
                     print(f"⚠️ Retry also failed: {retry_error}")
             
             # Return friendly error without technical details
@@ -5856,7 +5680,7 @@ Continue my thought naturally, like a real person would.
         # Use Ollama directly to generate continuation
         try:
             response = ollama.chat(
-                model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                model='mistral:7b',
                 messages=[
                     {
                         'role': 'system',
@@ -6055,7 +5879,7 @@ def luna_instance_processing_thread(instance_name: str):
                     generation_thread.start()
                     
                     # Wait for completion with platform-specific timeout (Twitch=instant, Discord=few seconds, GUI=unlimited)
-                    timeout_seconds = 5.0 if instance_name == 'twitch' else 15.0 if instance_name == 'discord' else 120.0
+                    timeout_seconds = 10.0 if instance_name == 'twitch' else 25.0 if instance_name == 'discord' else 120.0
                     generation_thread.join(timeout=timeout_seconds)
                     
                     if generation_thread.is_alive():
@@ -6527,78 +6351,7 @@ def create_gui():
         safe_chat_insert("🎮 Twitch: Auto-connects to chat on startup!\n", "system")
         safe_chat_insert("🌍 Global Awareness: Tracks conversations across all platforms!\n", "system")
         safe_chat_insert("🌟 Emergent Thoughts: Luna's thoughts arise from her memory patterns!\n", "system")
-        if SELF_HEALING_AVAILABLE:
-            safe_chat_insert("🔧 Self-Healing: Auto-fixes errors without restart! (/health status)\n", "system")
-        if LAMBDA_ARCHITECTURE_AVAILABLE:
-            safe_chat_insert("🏗️ Lambda Architecture: Speed + Batch layers for optimal performance!\n", "system")
-        if EMERGENCE_FRAMEWORK_AVAILABLE:
-            safe_chat_insert("🌌 Complete Emergence: Neural + Agent + Quantum + Imagination!\n", "system")
-        if RELATIONSHIP_SYSTEM_AVAILABLE:
-            safe_chat_insert("💕 Relationships: Luna forms real bonds with users! (/relationships stats)\n", "system")
-        if EMOTIONAL_SYSTEM_AVAILABLE:
-            safe_chat_insert("💗 Emotions: Full human emotional range with hormonal cycles! (/emotions status)\n", "system")
-        if META_AWARENESS_AVAILABLE:
-            safe_chat_insert("💡 Meta-Awareness: Luna monitors herself and reflects on her own thoughts! (/meta status)\n", "system")
-        if MEMORY_CONSOLIDATION_AVAILABLE:
-            safe_chat_insert("💎 Memory Consolidation: Neuroscience-accurate forgetting curves! (/consolidate stats)\n", "system")
-        if CREATIVE_ASSOCIATIONS_AVAILABLE:
-            safe_chat_insert("⚙️ Creative Thinking: Lateral thinking and novel idea generation! (/creative stats)\n", "system")
-        # YouTube integration removed
-        safe_chat_insert("📊 Perf: Click to see performance metrics\n\n", "system")
-        safe_chat_insert("🎤 Voice system: ENABLED and ready!\n", "system")
-        chat_box.tag_config("system", foreground="#888888")
-    
-    # Memory command handler
-    def handle_memory_command(command: str, username: str = "Chris"):
-        """Handle memory commands - allow Luna to save important memories when requested"""
-        parts = command.split(' ', 1)
-        
-        if len(parts) < 2:
-            safe_chat_insert("🧠 Memory commands:\n", "system")
-            safe_chat_insert("  /remember <content> - Save something important to Luna's memory\n", "system")
-            safe_chat_insert("  /remember emotional <content> - Save emotional memory (high priority)\n", "system")
-            safe_chat_insert("  /remember conversation <content> - Save conversation memory\n", "system")
-            safe_chat_insert("  /remember preference <content> - Save user preference\n", "system")
-            return
-        
-        memory_content = parts[1].strip()
-        
-        # Determine memory type and importance
-        memory_type = "conversation"
-        importance = 2
-        mood = "neutral"
-        
-        # Check for specific memory types
-        if memory_content.lower().startswith("emotional "):
-            memory_type = "emotional"
-            importance = 4  # High importance for emotional memories
-            mood = "emotional"
-            memory_content = memory_content[9:]  # Remove "emotional " prefix
-        elif memory_content.lower().startswith("preference "):
-            memory_type = "preference"
-            importance = 3  # High importance for preferences
-            memory_content = memory_content[11:]  # Remove "preference " prefix
-        elif memory_content.lower().startswith("conversation "):
-            memory_type = "conversation"
-            importance = 2
-            memory_content = memory_content[12:]  # Remove "conversation " prefix
-        
-        # Add context about who requested this memory
-        context = f"Manually requested by {username} to remember"
-        
-        try:
-            # Save to Luna's memory database
-            save_memory_with_rag(memory_type, memory_content, mood, importance, context)
-            
-            # Show confirmation
-            safe_chat_insert(f"🧠 Luna: I've saved that to my memory, {username}!\n", "luna")
-            safe_chat_insert(f"   Type: {memory_type.title()}\n", "system")
-            safe_chat_insert(f"   Content: {memory_content[:100]}{'...' if len(memory_content) > 100 else ''}\n", "system")
-            safe_chat_insert(f"   Importance: {importance}/5\n", "system")
-            
-            print(f"🧠 Manual memory saved by {username}: {memory_type} - {memory_content[:50]}...")
-            
-        except Exception as e:
+        # Self-healing system removed
             safe_chat_insert(f"❌ Error saving memory: {e}\n", "system")
             print(f"❌ Error saving manual memory: {e}")
 
@@ -6750,7 +6503,7 @@ def create_gui():
     
     def handle_mindmap_command(command: str):
         """Handle mind-map related commands"""
-        if not MINDMAP_SYSTEM_AVAILABLE:
+        if not False:
             safe_chat_insert("❌ Mind-map system not available\n", "system")
             return
         
@@ -6766,7 +6519,7 @@ def create_gui():
             query = " ".join(parts[2:])
             safe_chat_insert( f"🔍 Searching mind-map for: '{query}'\n", "system")
             try:
-                results = search_user_profile(query, limit=5)
+                results = # # search_user_profile(query, limit=5)
                 if results:
                     for result in results:
                         safe_chat_insert( f"• {result['type']}: {result['content']} (score: {result['score']:.2f})\n", "system")
@@ -6786,7 +6539,7 @@ def create_gui():
         elif parts[1] == "stats":
             safe_chat_insert( "📊 Mind-map statistics:\n", "system")
             try:
-                mindmap = get_mindmap_system()
+                mindmap = # # get_mindmap_system()
                 if mindmap:
                     stats = mindmap.get_mindmap_stats()
                     safe_chat_insert( f"• Total nodes: {stats['total_nodes']}\n", "system")
@@ -6804,7 +6557,7 @@ def create_gui():
     
     def handle_hybrid_command(command: str):
         """Handle hybrid retrieval related commands"""
-        if not HYBRID_RETRIEVAL_AVAILABLE:
+        if not False:
             safe_chat_insert( "❌ Hybrid retrieval system not available\n", "system")
             return
         
@@ -6820,9 +6573,7 @@ def create_gui():
             query = " ".join(parts[2:])
             safe_chat_insert( f"🔍 Hybrid search for: '{query}'\n", "system")
             try:
-                from hybrid_retrieval_system import get_hybrid_retrieval_system
-                from bm25_memory_system import get_bm25_system
-                
+                                                
                 hybrid_system = get_hybrid_retrieval_system()
                 bm25_system = get_bm25_system()
                 
@@ -6843,8 +6594,7 @@ def create_gui():
         elif parts[1] == "stats":
             safe_chat_insert( "📊 Hybrid retrieval statistics:\n", "system")
             try:
-                from hybrid_retrieval_system import get_hybrid_retrieval_system
-                hybrid_system = get_hybrid_retrieval_system()
+                                hybrid_system = get_hybrid_retrieval_system()
                 if hybrid_system:
                     stats = hybrid_system.get_retrieval_stats()
                     safe_chat_insert( f"• Alpha (BM25 weight): {stats['alpha']:.2f}\n", "system")
@@ -6884,7 +6634,7 @@ def create_gui():
     
     def handle_cot_command(command: str):
         """Handle Chain of Thought related commands"""
-        if not CHAIN_OF_THOUGHT_AVAILABLE:
+        if not False:
             safe_chat_insert( "❌ Chain of Thought System not available\n", "system")
             return
         
@@ -6901,8 +6651,7 @@ def create_gui():
         if parts[1] == "status":
             safe_chat_insert( "🧠 Chain of Thought System Status:\n", "system")
             try:
-                from chain_of_thought_system import get_chain_of_thought_system
-                cot_system = get_chain_of_thought_system()
+                                cot_system = get_chain_of_thought_system()
                 if cot_system:
                     stats = cot_system.get_cot_stats()
                     safe_chat_insert( f"• System: {stats['system_name']}\n", "system")
@@ -6917,8 +6666,7 @@ def create_gui():
         
         elif parts[1] == "toggle":
             try:
-                from chain_of_thought_system import get_chain_of_thought_system
-                cot_system = get_chain_of_thought_system()
+                                cot_system = get_chain_of_thought_system()
                 if cot_system:
                     cot_system.cot_enabled = not cot_system.cot_enabled
                     status = "enabled" if cot_system.cot_enabled else "disabled"
@@ -6930,8 +6678,7 @@ def create_gui():
         
         elif parts[1] == "debug":
             try:
-                from chain_of_thought_system import get_chain_of_thought_system
-                cot_system = get_chain_of_thought_system()
+                                cot_system = get_chain_of_thought_system()
                 if cot_system:
                     cot_system.cot_debug = not cot_system.cot_debug
                     status = "enabled" if cot_system.cot_debug else "disabled"
@@ -6945,8 +6692,7 @@ def create_gui():
             test_question = " ".join(parts[2:])
             safe_chat_insert( f"🧠 Testing CoT with: '{test_question}'\n", "system")
             try:
-                from chain_of_thought_system import get_chain_of_thought_system
-                cot_system = get_chain_of_thought_system()
+                                cot_system = get_chain_of_thought_system()
                 if cot_system:
                     question_type = cot_system.detect_question_type(test_question)
                     cot_process = cot_system.generate_chain_of_thought(test_question, question_type)
@@ -7940,7 +7686,7 @@ def create_gui():
     
     def handle_health_command(command: str):
         """Handle Self-Healing System commands"""
-        if not SELF_HEALING_AVAILABLE:
+        if not False:
             safe_chat_insert( "❌ Self-Healing System not available\n", "system")
             return
         
@@ -7953,8 +7699,7 @@ def create_gui():
             return
         
         try:
-            from luna_self_healing import get_self_healing_system
-            healing = get_self_healing_system()
+                        healing = get_self_healing_system()
             if not healing:
                 safe_chat_insert( "❌ Self-Healing System not initialized\n", "system")
                 return
@@ -9200,7 +8945,7 @@ Your natural thought:"""
             # Use Ollama to generate organic thinking
             try:
                 response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    model='mistral:7b',
                     messages=[
                         {
                             'role': 'system',
@@ -9319,7 +9064,7 @@ Your natural thought:"""
             # Use Ollama to generate organic thinking
             try:
                 response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    model='mistral:7b',
                     messages=[
                         {
                             'role': 'system',
@@ -9402,7 +9147,7 @@ Your natural thought:"""
             # Use Ollama to generate organic thinking
             try:
                 response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    model='mistral:7b',
                     messages=[
                         {
                             'role': 'system',
@@ -9574,7 +9319,7 @@ Keep it to 1-2 sentences, be specific about what they said, and maintain Luna's 
                 import requests
                 ollama_url = "http://localhost:11434/api/generate"
                 ollama_data = {
-                    "model": "hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M",
+                    "model": "mistral:7b",
                     "prompt": thinking_prompt,
                     "stream": False,
                     "options": {
@@ -9622,7 +9367,7 @@ Generate a natural, tsundere-style thought (1-2 sentences) reflecting on {topic}
 
             try:
                 response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    model='mistral:7b',
                     messages=[{'role': 'user', 'content': prompt}],
                     options={'temperature': 0.85, 'num_predict': 100, 'stop': ['\n\n']}
                 )
@@ -9654,7 +9399,7 @@ Generate a natural, philosophical self-reflection (1-2 sentences). Be authentic.
 
             try:
                 response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    model='mistral:7b',
                     messages=[{'role': 'user', 'content': prompt}],
                     options={'temperature': 0.9, 'num_predict': 120, 'stop': ['\n\n']}
                 )
@@ -9756,7 +9501,7 @@ Recent example: {recent_exp_text}
 Generate a natural, tsundere-style reflection (1-4 sentences) about these actual experiences. Be genuine."""
 
                         response = ollama.chat(
-                            model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                            model='mistral:7b',
                             messages=[{'role': 'user', 'content': reflection_prompt}],
                             options={'temperature': 0.85, 'num_predict': 100, 'stop': ['\n\n']}
                         )
@@ -9788,7 +9533,7 @@ Generate a natural, tsundere-style reflection (1-4 sentences) about these actual
 Generate a natural, tsundere-style thought (1-4 sentences). Be authentic."""
 
                 response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    model='mistral:7b',
                     messages=[{'role': 'user', 'content': simple_prompt}],
                     options={'temperature': 0.85, 'num_predict': 80, 'stop': ['\n\n']}
                 )
@@ -9901,7 +9646,7 @@ Don't reflect - IMAGINE. Wonder. Dream. Explore possibilities.
 3-5 sentences. Let your thoughts flow expansively. Be curious, be wondering, be Luna imagining."""
 
                 response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    model='mistral:7b',
                     messages=[{'role': 'user', 'content': imagine_prompt}],
                     options={'temperature': 0.95, 'num_predict': 300, 'stop': ['\n\n']}
                 )
@@ -10473,7 +10218,7 @@ Don't reflect - IMAGINE. Wonder. Dream. Explore possibilities.
             try:
                 context_summary = "\n".join(recent_messages[:5]) if recent_messages else "recent chat"
                 response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    model='mistral:7b',
                     messages=[{'role': 'user', 'content': f'You are Luna. Generate ONE brief tsundere thought about recent activity:\n{context_summary}\n\n1-2 sentences, be natural.'}],
                     options={'temperature': 0.85, 'num_predict': 80, 'stop': ['\n\n']}
                 )
@@ -10488,7 +10233,7 @@ Don't reflect - IMAGINE. Wonder. Dream. Explore possibilities.
             # Generate via Ollama for quiet moments (NO TEMPLATES)
             try:
                 response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    model='mistral:7b',
                     messages=[{'role': 'user', 'content': 'You are Luna, a tsundere AI. Generate ONE brief thought (1-2 sentences). Be natural.'}],
                     options={'temperature': 0.85, 'num_predict': 80, 'stop': ['\n\n']}
                 )
@@ -10539,7 +10284,7 @@ Don't reflect - IMAGINE. Wonder. Dream. Explore possibilities.
     
     # AI Model selection (make it global so generate_luna_reply can access it)
     global model_var
-    model_var = tk.StringVar(value="Ollama (Hermes)")
+    model_var = tk.StringVar(value="Ollama (Mistral)")
     model_frame = tk.Frame(controls_frame)
     model_frame.pack(side=tk.TOP, pady=(0, 5))
     tk.Label(model_frame, text="AI Model:", bg="#2d2d30", fg="#ffffff", font=("Segoe UI", 9)).pack(side=tk.LEFT)
@@ -10893,7 +10638,7 @@ Don't reflect - IMAGINE. Wonder. Dream. Explore possibilities.
             try:
                 context_summary = "\n".join(recent_messages[:5]) if recent_messages else "recent chat"
                 response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    model='mistral:7b',
                     messages=[{'role': 'user', 'content': f'You are Luna. Generate ONE brief tsundere thought about recent activity:\n{context_summary}\n\n1-2 sentences, be natural.'}],
                     options={'temperature': 0.85, 'num_predict': 80, 'stop': ['\n\n']}
                 )
@@ -10908,7 +10653,7 @@ Don't reflect - IMAGINE. Wonder. Dream. Explore possibilities.
             # Generate via Ollama for quiet moments (NO TEMPLATES)
             try:
                 response = ollama.chat(
-                    model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+                    model='mistral:7b',
                     messages=[{'role': 'user', 'content': 'You are Luna, a tsundere AI. Generate ONE brief thought (1-2 sentences). Be natural.'}],
                     options={'temperature': 0.85, 'num_predict': 80, 'stop': ['\n\n']}
                 )
@@ -11238,7 +10983,7 @@ if __name__ == "__main__":
     print("🤖 Testing Ollama connection (fallback)...")
     try:
         test_response = ollama.chat(
-            model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
+            model='mistral:7b',
             messages=[{"role": "user", "content": "Hello"}],
             options={'num_gpu': 0}  # Force CPU mode
         )
@@ -11268,7 +11013,7 @@ if __name__ == "__main__":
     # Initialize hierarchical reasoning system
     print("🧠 Initializing hierarchical reasoning system...")
     try:
-        if HIERARCHICAL_REASONING_AVAILABLE:
+        if False:
             if initialize_hierarchical_reasoning_integration():
                 print("✅ Hierarchical reasoning system ready!")
             else:
@@ -11409,7 +11154,7 @@ Keep it to 1-2 sentences, be specific about the topics, and maintain Luna's tsun
             import requests
             ollama_url = "http://localhost:11434/api/generate"
             ollama_data = {
-                "model": "hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M",
+                "model": "mistral:7b",
                 "prompt": thinking_prompt,
                 "stream": False,
                 "options": {
