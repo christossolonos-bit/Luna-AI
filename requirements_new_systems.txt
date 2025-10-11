@@ -1,0 +1,44 @@
+# Requirements for New Luna Systems (October 2025)
+# Install with: pip install -r requirements_new_systems.txt
+
+# ================================
+# Knowledge Graph System
+# ================================
+networkx>=3.1
+# For graph operations, relationship mapping, and knowledge traversal
+
+# ================================
+# Advanced NLP Processing
+# ================================
+spacy>=3.6.0
+# For Named Entity Recognition (NER) and dependency parsing
+# After installing, run: python -m spacy download en_core_web_sm
+
+nltk>=3.8.1
+# For tokenization, POS tagging, and text processing
+
+transformers>=4.30.0
+# For advanced NLP models and sentiment analysis
+
+# ================================
+# Optional but Recommended
+# ================================
+# torch>=2.0.0  # Already required for custom transformer
+# numpy>=1.24.0  # Already included in most ML libraries
+# sqlite3  # Built-in with Python
+
+# ================================
+# Installation Instructions
+# ================================
+# 1. Install packages:
+#    pip install -r requirements_new_systems.txt
+#
+# 2. Download spaCy model:
+#    python -m spacy download en_core_web_sm
+#
+# 3. NLTK will auto-download required data on first run
+#    (punkt, stopwords, averaged_perceptron_tagger, wordnet)
+#
+# 4. Test installation:
+#    python -c "import networkx; import spacy; import nltk; print('✅ All systems ready!')"
+

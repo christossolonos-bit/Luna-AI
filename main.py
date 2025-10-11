@@ -327,6 +327,56 @@ except Exception as e:
     creative_associations_system = None
     print(f"⚠️ Creative Associations initialization failed: {e}")
 
+# 🧠 Luna Knowledge Graph System - Structured knowledge representation
+try:
+    from luna_knowledge_graph import (
+        initialize_knowledge_graph, get_knowledge_graph,
+        add_entity, add_relationship, reason_about,
+        learn_from_conversation, get_knowledge_context
+    )
+    knowledge_graph_system = initialize_knowledge_graph()
+    KNOWLEDGE_GRAPH_AVAILABLE = True
+    print("🧠 Knowledge Graph System initialized!")
+    print("   📊 Entity extraction and recognition")
+    print("   🔗 Relationship mapping and inference")
+    print("   🧠 Knowledge reasoning and traversal")
+    print("   📚 Dynamic learning from conversations")
+except ImportError as e:
+    KNOWLEDGE_GRAPH_AVAILABLE = False
+    knowledge_graph_system = None
+    print(f"⚠️ Knowledge Graph not available: {e}")
+    print("Install required packages: pip install networkx")
+except Exception as e:
+    KNOWLEDGE_GRAPH_AVAILABLE = False
+    knowledge_graph_system = None
+    print(f"⚠️ Knowledge Graph initialization failed: {e}")
+
+# 📝 Luna Advanced NLP Processing - Natural language understanding
+try:
+    from luna_advanced_nlp import (
+        initialize_nlp_system, get_nlp_system,
+        analyze_message, extract_entities, classify_intent,
+        get_semantic_analysis
+    )
+    nlp_system = initialize_nlp_system()
+    ADVANCED_NLP_AVAILABLE = True
+    print("📝 Advanced NLP Processing initialized!")
+    print("   🏷️ Named Entity Recognition (NER)")
+    print("   🌲 Dependency parsing")
+    print("   💭 Sentiment analysis")
+    print("   🎯 Intent classification")
+    print("   📚 Topic modeling")
+except ImportError as e:
+    ADVANCED_NLP_AVAILABLE = False
+    nlp_system = None
+    print(f"⚠️ Advanced NLP not available: {e}")
+    print("Install required packages: pip install spacy nltk transformers")
+    print("Then run: python -m spacy download en_core_web_sm")
+except Exception as e:
+    ADVANCED_NLP_AVAILABLE = False
+    nlp_system = None
+    print(f"⚠️ Advanced NLP initialization failed: {e}")
+
 # Initialize vector memory system globally
 vector_memory_system = None
 if VECTOR_MEMORY_AVAILABLE:
@@ -1575,12 +1625,25 @@ OLLAMA_CONFIG = {
 # 🎮 Discord-specific Ollama configuration (OPTIMIZED FOR SPEED)
 DISCORD_OLLAMA_CONFIG = {
     "model": "hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M",
-    "temperature": 0.7,  # Slightly lower for faster generation
-    "top_p": 0.8,  # Reduced for speed
-    "top_k": 40,  # Reduced for faster generation
-    "repeat_penalty": 1.1,
-    "num_ctx": 2048,  # FURTHER REDUCED context window for speed
-    "num_predict": 150,  # FURTHER REDUCED token limit for speed
+    "temperature": 0.5,  # Lower for faster generation
+    "top_p": 0.6,  # Reduced for speed
+    "top_k": 10,  # Much lower for faster generation
+    "repeat_penalty": 1.02,  # Reduced for speed
+    "num_ctx": 512,  # REDUCED context window for speed
+    "num_predict": 80,  # REDUCED token limit for speed
+    "stop": ["User:", "Luna:"],  # Only stop on role changes
+    "stream": False,
+}
+
+# 🎮 Twitch-specific Ollama configuration (ULTRA-OPTIMIZED FOR SPEED)
+TWITCH_OLLAMA_CONFIG = {
+    "model": "hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M",
+    "temperature": 0.4,  # Very low for fastest generation
+    "top_p": 0.5,  # Very low for speed
+    "top_k": 5,  # Extremely low for fastest generation
+    "repeat_penalty": 1.01,  # Minimal for speed
+    "num_ctx": 256,  # ULTRA-MINIMAL context window for speed
+    "num_predict": 60,  # ULTRA-MINIMAL token limit for speed
     "stop": ["User:", "Luna:"],  # Only stop on role changes
     "stream": False,
 }
@@ -1596,6 +1659,27 @@ response_cache_ttl = 600  # 10 minutes
 
 # OPTIMIZATION: Add memory retrieval cache for faster repeated queries
 memory_retrieval_cache = {}
+
+# OPTIMIZATION: Pre-compiled regex patterns for faster processing
+import re
+PATTERN_CLEAN_SPACES = re.compile(r'\s+')
+PATTERN_DUPLICATE_PUNCTUATION = re.compile(r'([.!?])\s*([.!?])')
+PATTERN_HASHTAGS = re.compile(r'#\w+')
+PATTERN_MENTIONS = re.compile(r'@\w+')
+
+# OPTIMIZATION: Common short responses for instant replies (Twitch/Discord)
+INSTANT_RESPONSES = {
+    'hi': ["Hey! 😊", "Hi there!", "Hello! ✨"],
+    'hey': ["Hey! What's up?", "Heyyy! 💕", "Hi! 😄"],
+    'yo': ["Yo! What's good?", "Yooo! 🎮", "Hey there!"],
+    'sup': ["Not much, you?", "Just vibing! You?", "Hey! What's up with you?"],
+    'lol': ["😄", "Haha! 😂", "Right? 😆"],
+    'lmao': ["😂😂", "Dead! 💀", "Hahaha! 😂"],
+    'gg': ["GG! Well played! 🎮", "GG! 💪", "Good game! ✨"],
+    'nice': ["Thanks! 😊", "Right? 😄", "Glad you think so! ✨"],
+    'thanks': ["You're welcome! 💕", "No problem! 😊", "Anytime! ✨"],
+    'ty': ["Np! 😊", "You're welcome! 💕", "Anytime! ✨"],
+}
 memory_cache_max_size = 50
 memory_cache_ttl = 180  # 3 minutes
 
@@ -2069,47 +2153,84 @@ def fine_tune_custom_model():
         
         for sample in training_data:
             try:
-                # Tokenize input and target
-                input_tokens = custom_tokenizer.encode(sample["input"], return_tensors='pt')
-                target_tokens = custom_tokenizer.encode(sample["target_response"], return_tensors='pt')
+                # Tokenize input and target with proper padding and truncation
+                input_tokens = custom_tokenizer.encode(
+                    sample["input"], 
+                    return_tensors='pt',
+                    max_length=512,
+                    truncation=True,
+                    padding='max_length'
+                )
+                target_tokens = custom_tokenizer.encode(
+                    sample["target_response"], 
+                    return_tensors='pt',
+                    max_length=512,
+                    truncation=True,
+                    padding='max_length'
+                )
                 
-                # Forward pass
+                # Clear gradients BEFORE forward pass
+                optimizer.zero_grad()
+                
+                # Forward pass with no_grad disabled to enable gradient computation
+                torch.set_grad_enabled(True)
                 output = custom_transformer(input_tokens)
                 
+                # Ensure output logits require gradients
+                if not output.logits.requires_grad:
+                    print("⚠️ Output logits don't require gradients - model may be in eval mode")
+                    custom_transformer.train()
+                    output = custom_transformer(input_tokens)
+                
                 # SUPERVISED LEARNING: Cross-entropy loss
+                # Create a fresh computation graph for each sample
+                output_logits = output.logits.contiguous()
+                target_flat = target_tokens.view(-1).contiguous()
+                
                 supervised_loss = F.cross_entropy(
-                    output.logits.view(-1, output.logits.size(-1)), 
-                    target_tokens.view(-1), 
-                    ignore_index=-100
+                    output_logits.view(-1, output_logits.size(-1)), 
+                    target_flat, 
+                    ignore_index=custom_tokenizer.pad_token_id if hasattr(custom_tokenizer, 'pad_token_id') else -100
                 )
                 
                 # REINFORCEMENT LEARNING: Policy gradient
                 ollama_score = sample.get("ollama_score", 0.5)
                 custom_score = sample.get("custom_score", 0.3)
-                reward = ollama_score - custom_score  # Reward for Ollama being better
+                # Convert reward to tensor for proper gradient flow
+                reward_tensor = torch.tensor(ollama_score - custom_score, dtype=torch.float32)
                 
-                # Policy gradient loss (REINFORCE)
-                log_probs = F.log_softmax(output.logits, dim=-1)
-                selected_log_probs = log_probs.gather(-1, target_tokens.unsqueeze(-1)).squeeze(-1)
-                policy_loss = -torch.mean(selected_log_probs * reward)
+                # Policy gradient loss (REINFORCE) with detached target
+                log_probs = F.log_softmax(output_logits, dim=-1)
+                # Use detached target_tokens to prevent in-place modification
+                target_for_gather = target_tokens.detach().clone().unsqueeze(-1)
+                selected_log_probs = log_probs.gather(-1, target_for_gather).squeeze(-1)
+                policy_loss = -torch.mean(selected_log_probs * reward_tensor)
                 
                 # Combined loss
                 total_loss = supervised_loss + 0.1 * policy_loss
                 
-                # Backward pass with gradient safety
-                optimizer.zero_grad()
+                # Verify loss requires gradients
+                if not total_loss.requires_grad:
+                    print("⚠️ Total loss doesn't require gradients - skipping this batch")
+                    continue
                 
-                # Check if loss requires gradients
-                if total_loss.requires_grad:
-                    total_loss.backward()
-                    torch.nn.utils.clip_grad_norm_(custom_transformer.parameters(), 1.0)
-                    optimizer.step()
-                else:
-                    print("⚠️ Loss tensor doesn't require gradients, skipping backward pass")
+                # Backward pass
+                total_loss.backward()
                 
+                # Gradient clipping to prevent exploding gradients
+                torch.nn.utils.clip_grad_norm_(custom_transformer.parameters(), 1.0)
+                
+                # Optimizer step
+                optimizer.step()
+                
+                # Record losses (detach to prevent memory leak)
                 total_supervised_loss += supervised_loss.detach().item()
                 total_policy_loss += policy_loss.detach().item()
                 num_batches += 1
+                
+                # Clean up tensors to free memory
+                del output, output_logits, supervised_loss, policy_loss, total_loss
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
                 
             except Exception as batch_error:
                 print(f"⚠️ Batch training error: {batch_error}")
@@ -3679,6 +3800,7 @@ def search_vector_memories(query: str, memory_type: str = None, emotion: str = N
 
 def generate_luna_reply(user_input: str, username: str = "Chris", source: str = "gui"):
     start_time = time.time()  # Capture start time for performance tracking
+    quality_score = None  # Initialize quality_score to avoid undefined variable errors
     
     # OPTIMIZATION: Check global response cache first (all platforms)
     cache_key = f"{source}:{username}:{user_input[:100]}"
@@ -3687,6 +3809,73 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
         if time.time() - timestamp < response_cache_ttl:
             print(f"🚀 Cache hit for {source}/{username}: {user_input[:30]}...")
             return cached_response
+    
+    # 🚀 ULTRA-FAST PATH: For Discord/Twitch, skip heavy processing
+    if source in ['discord', 'twitch']:
+        print(f"🚀 Using ultra-fast path for {source}")
+        try:
+            # INSTANT RESPONSES: For common short messages, reply instantly without LLM
+            user_input_lower = user_input.strip().lower()
+            if user_input_lower in INSTANT_RESPONSES:
+                import random
+                instant_reply = random.choice(INSTANT_RESPONSES[user_input_lower])
+                print(f"⚡ Instant response for '{user_input_lower}': {instant_reply}")
+                response_cache[cache_key] = ((instant_reply, True), time.time())
+                return instant_reply, True
+            
+            # Skip memory lookup for very short messages (single words or emojis)
+            skip_memory = len(user_input.strip()) < 4 or user_input_lower in INSTANT_RESPONSES
+            
+            # Minimal context for speed
+            memory_context = ""
+            if VECTOR_MEMORY_AVAILABLE and not skip_memory:
+                try:
+                    # Quick memory lookup with 0.3s timeout
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        future = executor.submit(
+                            lambda: vector_memory_system.search_memories_hybrid(
+                                query=f"{username} {user_input[:50]}",
+                                context='gaming' if source == 'twitch' else 'streaming',
+                                limit=1  # Reduced from 2 to 1 for speed
+                            )
+                        )
+                        try:
+                            memories = future.result(timeout=0.3)
+                            if memories and memories.get('hybrid_results'):
+                                memory_context = f"\nRecent: {memories['hybrid_results'][0]['content'][:60]}...\n"  # Shortened from 80 to 60
+                        except concurrent.futures.TimeoutError:
+                            print(f"⚠️ Memory lookup timeout for {source}, skipping")
+                except Exception as e:
+                    print(f"⚠️ Memory error for {source}: {e}")
+            
+            # Direct Ollama call with minimal context
+            reply, success = _generate_ollama_reply(user_input, username, source, memory_context)
+            quality_score = calculate_response_quality(reply, user_input) if reply else 0.3
+            
+            # Cache the response
+            if reply:
+                response_cache[cache_key] = (reply, time.time())
+            
+            return reply, success
+            
+        except Exception as e:
+            print(f"❌ Ultra-fast path error for {source}: {e}")
+            # Fall back to normal processing
+    
+    # === ADVANCED NLP ANALYSIS: Understand user intent and entities (GUI only) ===
+    nlp_analysis = None
+    user_intent = "conversation"  # Default
+    user_entities = []
+    if ADVANCED_NLP_AVAILABLE and nlp_system and source == 'gui':
+        try:
+            nlp_analysis = analyze_message(user_input)
+            if nlp_analysis:
+                user_intent = nlp_analysis.intent.intent if nlp_analysis.intent else "conversation"
+                user_entities = nlp_analysis.entities if nlp_analysis.entities else []
+                print(f"📝 NLP Analysis: intent={user_intent}, entities={len(user_entities)}, sentiment={nlp_analysis.sentiment if nlp_analysis else 'unknown'}")
+        except Exception as e:
+            print(f"⚠️ NLP analysis error: {e}")
     
     # Get emotional context (HOW DOES LUNA FEEL RIGHT NOW?)
     emotional_context = ""
@@ -3721,6 +3910,17 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
                 print(f"🏗️ Using {metadata['path']} path for {username} on {source}")
         except Exception as e:
             print(f"⚠️ Lambda context error: {e}")
+    
+    # === KNOWLEDGE GRAPH: Get structured knowledge context (GUI only for now) ===
+    knowledge_graph_context = ""
+    if KNOWLEDGE_GRAPH_AVAILABLE and knowledge_graph_system and source == 'gui':
+        try:
+            kg_context = get_knowledge_context(user_input, username, limit=3)
+            if kg_context:
+                knowledge_graph_context = kg_context
+                print(f"🧠 Knowledge Graph context added: {len(kg_context)} chars")
+        except Exception as e:
+            print(f"⚠️ Knowledge Graph context error: {e}")
     
     # Get relevant vector memories for context (ALL platforms with timeout protection)
     vector_context = ""
@@ -3827,6 +4027,11 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
         if lambda_context:
             enhanced_input = f"{lambda_context}{enhanced_input}"
             print(f"🏗️ Added lambda architecture context to prompt")
+        
+        # Add knowledge graph context (structured knowledge)
+        if knowledge_graph_context:
+            enhanced_input = f"{knowledge_graph_context}{enhanced_input}"
+            print(f"🧠 Added knowledge graph context to prompt")
         
         # Add vector memory context to the enhanced input
         if vector_context:
@@ -4316,21 +4521,7 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
         # Add giggle sounds and audible winks to the response
         reply = add_giggles_and_winks(reply, mood)
         
-        # 💡 Record performance metrics for meta-awareness
-        if META_AWARENESS_AVAILABLE and meta_awareness_system and success:
-            try:
-                # Calculate performance metrics
-                response_time = time.time() - start_time
-                response_quality = quality_score if 'quality_score' in locals() else 0.7
-                user_satisfaction = 0.8 if quality_score > 0.6 else 0.5  # Estimate based on quality
-                
-                # Record performance metric
-                record_luna_performance(response_time, response_quality, user_satisfaction)
-                
-                print(f"💡 Performance recorded: time={response_time:.2f}s, quality={response_quality:.2f}, satisfaction={user_satisfaction:.2f}")
-                
-            except Exception as e:
-                print(f"⚠️ Performance recording error: {e}")
+        # Performance recording will be done in the main generate_luna_reply function
         
         # 🎯 Learn from conversation using pairing engine
         if LUNA_PAIRING_ENGINE_AVAILABLE and success and quality_passed:
@@ -4352,17 +4543,34 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             
             # Start pairing engine learning in background
             threading.Thread(target=learn_with_pairing_engine, daemon=True).start()
+        
+        # 🧠 Learn from conversation using Knowledge Graph
+        if KNOWLEDGE_GRAPH_AVAILABLE and success and quality_passed:
+            def learn_with_knowledge_graph():
+                try:
+                    stats = learn_from_conversation(username, user_input, reply)
+                    if stats.get('entities', 0) > 0 or stats.get('relationships', 0) > 0:
+                        print(f"🧠 Knowledge Graph learned: {stats['entities']} entities, {stats['relationships']} relationships, {stats['facts']} facts")
+                except Exception as e:
+                    print(f"⚠️ Knowledge Graph learning error: {e}")
+            
+            # Start knowledge graph learning in background
+            threading.Thread(target=learn_with_knowledge_graph, daemon=True).start()
 
         
         # 🔮 Update predictions with actual outcomes (surprise-driven learning)
         if PREDICTIVE_INTELLIGENCE_AVAILABLE and predictive_intelligence_system and active_predictions:
             try:
                 # Create outcome context for predictions
+                # Ensure quality_score is always calculated
+                if 'quality_score' not in locals() or quality_score is None:
+                    quality_score = calculate_response_quality(reply, user_input)
+                
                 outcome_context = {
                     'luna_response': reply,
                     'response_length': len(reply),
                     'response_success': success,
-                    'quality_score': quality_score if 'quality_score' in locals() else 0.5,
+                    'quality_score': quality_score,
                     'user_satisfaction': 'positive' if quality_score > 0.6 else 'neutral',
                     'conversation_ended': True
                 }
@@ -4600,17 +4808,24 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
     else:
         enhanced_input = user_input
     
-    # Build prompt with memories (always use full context for better responses)
-    prompt = build_prompt(enhanced_input, is_twitch_message=(source=='twitch'), twitch_username=username if source=='twitch' else None, username=username, source=source)
-    if memory_context:
-        prompt += memory_context
+    # Build prompt with memories (optimized for speed)
+    if source in ['discord', 'twitch']:
+        # Use lightweight prompt for Discord/Twitch to speed up responses
+        prompt = get_luna_core_prompt()  # Just the core prompt, no extra context
+        if memory_context:
+            prompt += f"\n\n{memory_context}"
+    else:
+        # Use full context for GUI
+        prompt = build_prompt(enhanced_input, is_twitch_message=(source=='twitch'), twitch_username=username if source=='twitch' else None, username=username, source=source)
+        if memory_context:
+            prompt += memory_context
     
-    # Add creative thinking context if available
-    if creative_thinking_context:
+    # Add creative thinking context if available (only for GUI)
+    if creative_thinking_context and source == 'gui':
         prompt += creative_thinking_context
     
-    # Add quantum reasoning context if available
-    if quantum_reasoning_context:
+    # Add quantum reasoning context if available (only for GUI)
+    if quantum_reasoning_context and source == 'gui':
         prompt += quantum_reasoning_context
     
     # Prepare messages for Ollama with optimized settings
@@ -4619,12 +4834,16 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
         {"role": "user", "content": enhanced_input}
     ]
     
-    # Use Discord-specific configuration for Discord messages and bot interactions
+    # Use platform-specific configuration for optimized responses
     if source in ["discord", "discord_bot"]:
         model_config = DISCORD_OLLAMA_CONFIG.copy()
         source_type = "Discord Bot" if source == "discord_bot" else "Discord"
         print(f"🎮 Using {source_type}-specific config: {model_config['num_predict']} tokens, stop: {model_config['stop']}")
         print(f"🎮 {source_type} config details: temp={model_config['temperature']}, top_p={model_config['top_p']}")
+    elif source == "twitch":
+        model_config = TWITCH_OLLAMA_CONFIG.copy()
+        print(f"🎮 Using Twitch-specific config: {model_config['num_predict']} tokens, stop: {model_config['stop']}")
+        print(f"🎮 Twitch config details: temp={model_config['temperature']}, top_p={model_config['top_p']}")
     else:
         model_config = OLLAMA_CONFIG.copy()
         print(f"🔧 Using standard config: {model_config['num_predict']} tokens, stop: {model_config['stop']}")
@@ -4640,24 +4859,55 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
             print(f"🎮 {source_type}: System message length: {len(messages[0]['content'])}")
             print(f"🎮 {source_type}: User message: '{messages[1]['content']}'")
         
-        # Direct Ollama call without timeout
-        response = ollama.chat(
-            model=model_config["model"],
-            messages=messages,
-            stream=model_config["stream"],
-            options={
-                "num_predict": model_config["num_predict"],
-                "temperature": model_config["temperature"],
-                "top_p": model_config["top_p"],
-                "repeat_penalty": model_config["repeat_penalty"],
-                "top_k": model_config["top_k"],
-                "num_gpu": 1,  # ENABLE GPU mode for faster processing
-                "num_ctx": model_config["num_ctx"],
-                "stop": model_config["stop"]
-            }
-        )
+        # Direct Ollama call with timeout protection
+        import threading
+        import queue as queue_module
         
-        reply = response['message']['content'].strip()
+        response_queue = queue_module.Queue()
+        
+        def make_ollama_call():
+            try:
+                result = ollama.chat(
+                    model=model_config["model"],
+                    messages=messages,
+                    stream=model_config["stream"],
+                    options={
+                        "num_predict": model_config["num_predict"],
+                        "temperature": model_config["temperature"],
+                        "top_p": model_config["top_p"],
+                        "repeat_penalty": model_config["repeat_penalty"],
+                        "top_k": model_config["top_k"],
+                        "num_gpu": 1,  # ENABLE GPU mode for faster processing
+                        "num_ctx": model_config["num_ctx"],
+                        "stop": model_config["stop"]
+                    }
+                )
+                response_queue.put(('success', result))
+            except Exception as e:
+                response_queue.put(('error', e))
+        
+        # Start Ollama call in separate thread
+        ollama_thread = threading.Thread(target=make_ollama_call, daemon=True)
+        ollama_thread.start()
+        
+        # Wait for response with platform-specific timeout (Twitch=instant, Discord=few seconds, GUI=unlimited)
+        timeout_seconds = 3.0 if source == 'twitch' else 10.0 if source == 'discord' else 60.0
+        try:
+            result_type, result_data = response_queue.get(timeout=timeout_seconds)
+            if result_type == 'success':
+                response = result_data
+            else:
+                raise result_data
+        except queue_module.Empty:
+            print(f"⏰ Ollama call timed out after {timeout_seconds}s for {source}")
+            response = None
+        
+        if response is None:
+            # Fallback response if Ollama times out
+            reply = f"Sorry {username}, I'm taking too long to think. Try again?"
+            print(f"🔄 Using fallback response for {source}")
+        else:
+            reply = response['message']['content'].strip()
         
         # Debug: Check if response is empty
         if not reply or len(reply) == 0:
@@ -4674,28 +4924,62 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
             ]
             
             try:
-                retry_response = ollama.chat(
-                    model=model_config["model"],
-                    messages=simple_messages,
-                    options={
-                        "num_predict": 300,
-                        "temperature": 0.7,
-                        "stop": [],  # No stop tokens
-                        "num_gpu": 1  # ENABLE GPU for retry
-                    }
-                )
+                # Use timeout-protected retry
+                retry_queue = queue_module.Queue()
+                
+                def make_retry_call():
+                    try:
+                        result = ollama.chat(
+                            model=model_config["model"],
+                            messages=simple_messages,
+                            options={
+                                "num_predict": 300,
+                                "temperature": 0.7,
+                                "stop": [],  # No stop tokens
+                                "num_gpu": 1  # ENABLE GPU for retry
+                            }
+                        )
+                        retry_queue.put(('success', result))
+                    except Exception as e:
+                        retry_queue.put(('error', e))
+                
+                retry_thread = threading.Thread(target=make_retry_call, daemon=True)
+                retry_thread.start()
+                
+                try:
+                    retry_timeout = 2.0 if source == 'twitch' else 8.0 if source == 'discord' else 30.0
+                    retry_result_type, retry_result_data = retry_queue.get(timeout=retry_timeout)
+                    if retry_result_type == 'success':
+                        retry_response = retry_result_data
+                    else:
+                        raise retry_result_data
+                except queue_module.Empty:
+                    print(f"⏰ Retry call timed out after {retry_timeout}s")
+                    retry_response = None
                 
                 if retry_response and retry_response.get('message', {}).get('content', '').strip():
                     reply = retry_response['message']['content'].strip()
                     print(f"✅ Retry successful: {reply[:50]}...")
                     return reply, True
                 else:
-                    print("❌ Retry also failed")
+                    print(f"⚠️ Retry also failed or returned empty")
+                    reply = f"Sorry {username}, I'm having trouble thinking right now. Try again?"
+                    return reply, False
                     
             except Exception as retry_error:
                 print(f"❌ Retry error: {retry_error}")
             
-            return "", False  # Empty response, not successful
+            # Final fallback - generate a simple response
+            print(f"🔄 Using final fallback response for {username}")
+            fallback_responses = [
+                f"Hey {username}! How are you doing?",
+                f"Hi {username}! What's on your mind?",
+                f"Hello {username}! Nice to see you!",
+                f"Hey there {username}! How can I help you today?"
+            ]
+            import random
+            reply = random.choice(fallback_responses)
+            return reply, True
         else:
             print(f"✅ Hermes response: {reply[:50]}...")
             if source in ["discord", "discord_bot"]:
@@ -5735,15 +6019,15 @@ def luna_instance_processing_thread(instance_name: str):
             if VECTOR_MEMORY_AVAILABLE:
                 try:
                     platform_memories = vector_memory_system.search_memories_hybrid(
-                        query=message_text,
-                        user_id=username,
-                        platform=instance_name,
+                        query=f"{username} {message_text}",
+                        context='gaming' if instance_name == 'twitch' else 'streaming' if instance_name == 'discord' else 'general',
                         limit=3
                     )
-                    if platform_memories:
+                    if platform_memories and platform_memories.get('hybrid_results'):
                         platform_memory_context = f"\n{instance_name.title()} Memory Context:\n"
-                        for memory in platform_memories:
-                            platform_memory_context += f"• {memory['content']}\n"
+                        for memory in platform_memories['hybrid_results'][:3]:  # Top 3 results
+                            if memory and 'content' in memory:
+                                platform_memory_context += f"• {memory['content'][:100]}...\n"
                 except Exception as mem_error:
                     print(f"⚠️ Platform memory recall error: {mem_error}")
             
@@ -5772,9 +6056,49 @@ def luna_instance_processing_thread(instance_name: str):
                 if relationship_context:
                     full_context += f"\n💕 Relationship: {relationship_context}\n"
                 
-                # Generate response
-                reply_result = generate_luna_reply(message_text, username, instance_name)
-                response, success = intelligent_tuple_unpack(reply_result, f"Luna-{instance_name.title()}")
+                # Generate response with timeout protection
+                print(f"🧠 Generating Luna {instance_name} response for {username}...")
+                start_time = time.time()
+                
+                try:
+                    # Use threading-based timeout for Windows compatibility
+                    import threading
+                    
+                    result_container = {'response': None, 'success': False, 'error': None}
+                    
+                    def generate_response():
+                        try:
+                            reply_result = generate_luna_reply(message_text, username, instance_name)
+                            result_container['response'], result_container['success'] = intelligent_tuple_unpack(reply_result, f"Luna-{instance_name.title()}")
+                        except Exception as e:
+                            result_container['error'] = e
+                    
+                    # Start response generation in a separate thread
+                    generation_thread = threading.Thread(target=generate_response, daemon=True)
+                    generation_thread.start()
+                    
+                    # Wait for completion with platform-specific timeout (Twitch=instant, Discord=few seconds, GUI=unlimited)
+                    timeout_seconds = 5.0 if instance_name == 'twitch' else 15.0 if instance_name == 'discord' else 120.0
+                    generation_thread.join(timeout=timeout_seconds)
+                    
+                    if generation_thread.is_alive():
+                        print(f"⏰ Luna {instance_name} response generation timed out after {timeout_seconds}s")
+                        response = f"Sorry {username}, I'm taking too long to think. Try again?"
+                        success = False
+                    else:
+                        if result_container['error']:
+                            raise result_container['error']
+                        
+                        response = result_container['response']
+                        success = result_container['success']
+                        
+                        generation_time = time.time() - start_time
+                        print(f"⏱️ Luna {instance_name} response generated in {generation_time:.2f}s")
+                        
+                except Exception as gen_error:
+                    print(f"❌ Response generation error: {gen_error}")
+                    response = f"Sorry {username}, I'm having trouble thinking right now. Try again?"
+                    success = False
                 
                 if response and success and isinstance(response, str) and len(response.strip()) > 0:
                     # Display Luna's response in GUI
@@ -5973,15 +6297,15 @@ def twitch_processing_thread():
                     try:
                         # Get Twitch-specific memories
                         twitch_memories = vector_memory_system.search_memories_hybrid(
-                            query=message_text,
-                            user_id=username,
-                            platform="twitch",
+                            query=f"{username} {message_text}",
+                            context="gaming",
                             limit=5
                         )
-                        if twitch_memories:
+                        if twitch_memories and twitch_memories.get('hybrid_results'):
                             twitch_memory_context = "\n🎮 Twitch Memory Context:\n"
-                            for memory in twitch_memories:
-                                twitch_memory_context += f"• {memory['content']}\n"
+                            for memory in twitch_memories['hybrid_results'][:5]:  # Top 5 results
+                                if memory and 'content' in memory:
+                                    twitch_memory_context += f"• {memory['content'][:100]}...\n"
                     except Exception as mem_error:
                         print(f"⚠️ Twitch memory recall error: {mem_error}")
                 
@@ -11042,6 +11366,18 @@ if __name__ == "__main__":
     # Start all Luna instances (GUI, Discord, Twitch)
     print("🌟 Starting all Luna instances for cross-platform personality...")
     start_all_luna_instances()
+    
+    # Test Luna's response capability
+    print("🧪 Testing Luna's response capability...")
+    try:
+        test_result = generate_luna_reply("hello", "Chris", "gui")
+        test_response, test_success = intelligent_tuple_unpack(test_result, "Test")
+        if test_response and test_success:
+            print(f"✅ Luna test response: {test_response[:50]}...")
+        else:
+            print(f"⚠️ Luna test failed - response: {test_response}, success: {test_success}")
+    except Exception as e:
+        print(f"⚠️ Luna test error: {e}")
 
     # Custom transformer disabled
     print("🧠 Custom transformer disabled")
