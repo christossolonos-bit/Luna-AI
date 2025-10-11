@@ -276,6 +276,56 @@ except Exception as e:
     meta_awareness_system = None
     print(f"⚠️ Meta-Awareness initialization failed: {e}")
 
+# 💎 Luna Memory Consolidation System - Neuroscience-accurate memory processing
+try:
+    from luna_memory_consolidation import (
+        initialize_memory_consolidation, get_memory_consolidation,
+        add_consolidated_memory, recall_consolidated_memory,
+        trigger_sleep_consolidation, LunaMemoryConsolidation
+    )
+    memory_consolidation_system = initialize_memory_consolidation()
+    MEMORY_CONSOLIDATION_AVAILABLE = True
+    print("💎 Memory Consolidation System initialized!")
+    print("   🧠 Ebbinghaus Forgetting Curve: Memories decay exponentially")
+    print("   💤 Sleep Consolidation: Memories strengthen during sleep")
+    print("   🔄 Memory Rehearsal: Repeated access strengthens memories")
+    print("   ✂️ Synaptic Pruning: Weak memories fade during sleep")
+    print("   💗 Emotional Enhancement: Emotional memories are more durable")
+except ImportError as e:
+    MEMORY_CONSOLIDATION_AVAILABLE = False
+    memory_consolidation_system = None
+    print(f"⚠️ Memory Consolidation not available: {e}")
+except Exception as e:
+    MEMORY_CONSOLIDATION_AVAILABLE = False
+    memory_consolidation_system = None
+    print(f"⚠️ Memory Consolidation initialization failed: {e}")
+
+# ⚙️ Luna Creative Associations System - Lateral thinking and creative idea generation
+try:
+    from luna_creative_associations import (
+        initialize_creative_associations, get_creative_associations,
+        generate_creative_idea, generate_lateral_thinking_response,
+        LunaCreativeAssociations
+    )
+    # Initialize with ollama.chat function
+    creative_associations_system = initialize_creative_associations(ollama.chat)
+    CREATIVE_ASSOCIATIONS_AVAILABLE = True
+    print("⚙️ Creative Associations System initialized!")
+    print("   🎨 Divergent Thinking: Generates multiple creative solutions")
+    print("   🔀 Lateral Thinking: Connects unrelated concepts")
+    print("   ✨ Conceptual Blending: Merges ideas to create novelty")
+    print("   🌟 Remote Associations: Finds distant connections")
+    print("   ✂️ Creative Pruning: Removes obvious/boring ideas")
+    print("   🏆 Reinforcement Learning: Rewards novel creativity")
+except ImportError as e:
+    CREATIVE_ASSOCIATIONS_AVAILABLE = False
+    creative_associations_system = None
+    print(f"⚠️ Creative Associations not available: {e}")
+except Exception as e:
+    CREATIVE_ASSOCIATIONS_AVAILABLE = False
+    creative_associations_system = None
+    print(f"⚠️ Creative Associations initialization failed: {e}")
+
 # Initialize vector memory system globally
 vector_memory_system = None
 if VECTOR_MEMORY_AVAILABLE:
@@ -3806,6 +3856,28 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             except Exception as e:
                 print(f"⚠️ Pairing engine suggestion error: {e}")
         
+        # 🎨 CREATIVE THINKING: For creative/problem-solving questions, use lateral thinking
+        creative_thinking_context = ""
+        creative_keywords = ['creative', 'idea', 'solution', 'problem', 'innovate', 'design', 'imagine', 'what if', 'alternative']
+        is_creative_question = any(keyword in user_input.lower() for keyword in creative_keywords) and len(user_input) > 15
+        
+        if CREATIVE_ASSOCIATIONS_AVAILABLE and creative_associations_system and is_creative_question:
+            try:
+                print(f"🎨 Creative question detected - engaging lateral thinking...")
+                
+                # Generate creative idea
+                creative_idea = generate_creative_idea(user_input, context='conversation')
+                
+                if creative_idea:
+                    creative_thinking_context = f"\n🎨 CREATIVE THINKING (level: {creative_idea.creativity_level.value}):\n"
+                    creative_thinking_context += f"Lateral thinking idea: {creative_idea.idea_content}\n"
+                    creative_thinking_context += f"(Novelty: {creative_idea.novelty_score:.2f}, Utility: {creative_idea.utility_score:.2f}, Originality: {creative_idea.originality_score:.2f})\n"
+                    
+                    print(f"🎨 Creative idea generated: {creative_idea.idea_content[:100]}...")
+                    
+            except Exception as e:
+                print(f"⚠️ Creative thinking error: {e}")
+        
         # ⚛️ QUANTUM REASONING: For complex questions, use quantum parallel reasoning
         quantum_reasoning_context = ""
         complex_question_keywords = ['why', 'how', 'what if', 'should i', 'what do you think', 'philosophically', 'meaning']
@@ -4518,6 +4590,10 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
     if memory_context:
         prompt += memory_context
     
+    # Add creative thinking context if available
+    if 'creative_thinking_context' in locals() and creative_thinking_context:
+        prompt += creative_thinking_context
+    
     # Add quantum reasoning context if available
     if quantum_reasoning_context:
         prompt += quantum_reasoning_context
@@ -5019,8 +5095,57 @@ def intelligent_tuple_unpack(reply_result, platform_name="Unknown"):
 def save_conversation_to_vector_memory(user_message: str, luna_response: str, 
                                      emotion: str = 'neutral', context: str = 'general',
                                      platform: str = 'gui', user_id: str = None, channel: str = None, username: str = None):
-    """Save conversation to vector memory system, global awareness, and lambda architecture"""
+    """Save conversation to vector memory system, global awareness, lambda architecture, and memory consolidation"""
     global vector_memory_system
+    
+    # Add to Memory Consolidation System (Neuroscience-accurate forgetting curves)
+    if MEMORY_CONSOLIDATION_AVAILABLE and memory_consolidation_system:
+        try:
+            # Determine memory importance
+            importance = 0.5  # Base importance
+            if any(word in user_message.lower() for word in ['important', 'remember', 'never forget']):
+                importance = 0.9
+            elif any(word in user_message.lower() for word in ['love', 'hate', 'fear', 'excited']):
+                importance = 0.7
+            
+            # Determine emotional valence
+            emotional_valence = 0.0
+            if emotion in ['happy', 'excited', 'joyful']:
+                emotional_valence = 0.7
+            elif emotion in ['sad', 'angry', 'frustrated']:
+                emotional_valence = -0.7
+            elif emotion in ['love', 'affection']:
+                emotional_valence = 0.9
+            
+            # Determine memory type
+            memory_type = "episodic"  # Conversations are episodic
+            if any(word in user_message.lower() for word in ['how to', 'teach', 'learn']):
+                memory_type = "procedural"
+            elif any(word in user_message.lower() for word in ['fact', 'information', 'know']):
+                memory_type = "semantic"
+            elif any(word in user_message.lower() for word in ['feel', 'emotion', 'love', 'hate']):
+                memory_type = "emotional"
+            
+            # Create context tags
+            context_tags = [platform, emotion, context]
+            if username:
+                context_tags.append(username)
+            
+            # Add memory to consolidation system
+            memory_content = f"{username}: {user_message}\nLuna: {luna_response}"
+            memory = add_consolidated_memory(
+                content=memory_content,
+                memory_type=memory_type,
+                importance=importance,
+                emotional_valence=emotional_valence,
+                context_tags=context_tags
+            )
+            
+            if memory:
+                print(f"💎 Memory encoded for consolidation: strength={memory.strength:.2f}, type={memory_type}")
+            
+        except Exception as e:
+            print(f"⚠️ Error adding to memory consolidation: {e}")
     
     # Add to Lambda Architecture (Speed Layer for immediate access)
     if LAMBDA_ARCHITECTURE_AVAILABLE and lambda_architecture and username:
@@ -5681,6 +5806,12 @@ def create_gui():
             safe_chat_insert("💕 Relationships: Luna forms real bonds with users! (/relationships stats)\n", "system")
         if EMOTIONAL_SYSTEM_AVAILABLE:
             safe_chat_insert("💗 Emotions: Full human emotional range with hormonal cycles! (/emotions status)\n", "system")
+        if META_AWARENESS_AVAILABLE:
+            safe_chat_insert("💡 Meta-Awareness: Luna monitors herself and reflects on her own thoughts! (/meta status)\n", "system")
+        if MEMORY_CONSOLIDATION_AVAILABLE:
+            safe_chat_insert("💎 Memory Consolidation: Neuroscience-accurate forgetting curves! (/consolidate stats)\n", "system")
+        if CREATIVE_ASSOCIATIONS_AVAILABLE:
+            safe_chat_insert("⚙️ Creative Thinking: Lateral thinking and novel idea generation! (/creative stats)\n", "system")
         # YouTube integration removed
         safe_chat_insert("📊 Perf: Click to see performance metrics\n\n", "system")
         safe_chat_insert("🎤 Voice system: ENABLED and ready!\n", "system")
@@ -6372,6 +6503,19 @@ def create_gui():
                 luna_sleep()
                 safe_chat_insert( "🌙 Luna entered sleep cycle - processing experiences through dreams\n", "system")
                 
+                # Trigger memory consolidation during sleep
+                if MEMORY_CONSOLIDATION_AVAILABLE and memory_consolidation_system:
+                    try:
+                        # Assume 8-hour sleep
+                        consolidation_result = trigger_sleep_consolidation(8.0)
+                        if consolidation_result:
+                            safe_chat_insert( f"💎 Memory consolidation during sleep:\n", "system")
+                            safe_chat_insert( f"   Consolidated: {consolidation_result.get('consolidated', 0)} memories\n", "system")
+                            safe_chat_insert( f"   Pruned: {consolidation_result.get('pruned', 0)} weak memories\n", "system")
+                            safe_chat_insert( f"   Avg strength: {consolidation_result.get('avg_strength_before', 0):.2f} → {consolidation_result.get('avg_strength_after', 0):.2f}\n", "system")
+                    except Exception as e:
+                        print(f"⚠️ Sleep consolidation trigger error: {e}")
+                
             elif parts[1] == "wake":
                 safe_chat_insert( "💤 Waking Luna up...\n", "system")
                 luna_wake()
@@ -6644,6 +6788,194 @@ def create_gui():
                 
             else:
                 safe_chat_insert( "ℹ️ Unknown meta-awareness command. Use '/meta' to see available commands\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
+    
+    def handle_memory_consolidation_command(command: str):
+        """Handle Memory Consolidation System commands"""
+        if not MEMORY_CONSOLIDATION_AVAILABLE:
+            safe_chat_insert( "❌ Memory Consolidation System not available\n", "system")
+            return
+        
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "💎 Memory Consolidation commands:\n", "system")
+            safe_chat_insert( "  /consolidate stats - Show memory consolidation statistics\n", "system")
+            safe_chat_insert( "  /consolidate working - Show working memory contents\n", "system")
+            safe_chat_insert( "  /consolidate sleep - Trigger sleep consolidation\n", "system")
+            safe_chat_insert( "  /consolidate forget - Apply forgetting curve\n", "system")
+            safe_chat_insert( "  /consolidate search <query> - Search consolidated memories\n", "system")
+            return
+        
+        try:
+            if parts[1] == "stats":
+                if memory_consolidation_system:
+                    stats = memory_consolidation_system.get_memory_statistics()
+                    safe_chat_insert( "💎 Memory Consolidation Statistics:\n", "system")
+                    safe_chat_insert( f"Total memories: {stats.get('total_memories', 0)}\n", "system")
+                    safe_chat_insert( f"Working memory size: {stats.get('working_memory_size', 0)}/7\n", "system")
+                    safe_chat_insert( f"Average strength: {stats.get('avg_strength', 0):.2f}\n", "system")
+                    safe_chat_insert( f"Average rehearsals: {stats.get('avg_rehearsals', 0):.1f}\n", "system")
+                    safe_chat_insert( f"Average age: {stats.get('avg_age_hours', 0):.1f} hours\n", "system")
+                    safe_chat_insert( f"Recall success rate: {stats.get('recall_success_rate', 0):.2f}\n", "system")
+                    safe_chat_insert( f"Sleep cycles completed: {stats.get('sleep_cycles_completed', 0)}\n", "system")
+                    safe_chat_insert( f"Awake duration: {stats.get('awake_duration_hours', 0):.1f} hours\n", "system")
+                    
+                    strength_dist = stats.get('strength_distribution', {})
+                    if strength_dist:
+                        safe_chat_insert( "\nMemory strength distribution:\n", "system")
+                        safe_chat_insert( f"• Forgotten: {strength_dist.get('forgotten', 0)}\n", "system")
+                        safe_chat_insert( f"• Weak: {strength_dist.get('weak', 0)}\n", "system")
+                        safe_chat_insert( f"• Moderate: {strength_dist.get('moderate', 0)}\n", "system")
+                        safe_chat_insert( f"• Strong: {strength_dist.get('strong', 0)}\n", "system")
+                        safe_chat_insert( f"• Consolidated: {strength_dist.get('consolidated', 0)}\n", "system")
+                    
+                    type_dist = stats.get('type_distribution', {})
+                    if type_dist:
+                        safe_chat_insert( "\nMemory type distribution:\n", "system")
+                        for mem_type, count in type_dist.items():
+                            safe_chat_insert( f"• {mem_type}: {count}\n", "system")
+                
+            elif parts[1] == "working":
+                if memory_consolidation_system:
+                    working_memories = memory_consolidation_system.get_working_memory_contents()
+                    if working_memories:
+                        safe_chat_insert( "💎 Working Memory Contents (7 most recent):\n", "system")
+                        for i, memory in enumerate(working_memories, 1):
+                            current_strength = memory_consolidation_system._calculate_current_strength(memory)
+                            safe_chat_insert( f"\n{i}. {memory.content[:100]}...\n", "system")
+                            safe_chat_insert( f"   Strength: {current_strength:.2f}, Type: {memory.memory_type.value}\n", "system")
+                            safe_chat_insert( f"   Rehearsals: {memory.rehearsal_count}, Stage: {memory.consolidation_stage.value}\n", "system")
+                    else:
+                        safe_chat_insert( "Working memory is empty\n", "system")
+                
+            elif parts[1] == "sleep":
+                if memory_consolidation_system:
+                    safe_chat_insert( "💤 Triggering sleep consolidation (8 hours)...\n", "system")
+                    result = trigger_sleep_consolidation(8.0)
+                    if result:
+                        safe_chat_insert( f"💎 Sleep consolidation complete:\n", "system")
+                        safe_chat_insert( f"   Consolidated: {result.get('consolidated', 0)} memories\n", "system")
+                        safe_chat_insert( f"   Pruned: {result.get('pruned', 0)} weak memories\n", "system")
+                        safe_chat_insert( f"   Avg strength: {result.get('avg_strength_before', 0):.2f} → {result.get('avg_strength_after', 0):.2f}\n", "system")
+                    else:
+                        safe_chat_insert( "Sleep consolidation failed\n", "system")
+                
+            elif parts[1] == "forget":
+                if memory_consolidation_system:
+                    safe_chat_insert( "🌫️ Applying forgetting curve to memories...\n", "system")
+                    result = memory_consolidation_system.apply_forgetting_curve()
+                    safe_chat_insert( f"🌫️ Forgetting curve applied:\n", "system")
+                    safe_chat_insert( f"   Forgotten: {result.get('forgotten', 0)} memories\n", "system")
+                    safe_chat_insert( f"   Weakened: {result.get('weakened', 0)} memories\n", "system")
+                
+            elif parts[1] == "search" and len(parts) > 2:
+                if memory_consolidation_system:
+                    query = " ".join(parts[2:])
+                    safe_chat_insert( f"💎 Searching consolidated memories for: '{query}'\n", "system")
+                    
+                    results = memory_consolidation_system.search_memories(query, limit=5)
+                    if results:
+                        safe_chat_insert( f"Found {len(results)} memories:\n\n", "system")
+                        for i, memory in enumerate(results, 1):
+                            current_strength = memory_consolidation_system._calculate_current_strength(memory)
+                            safe_chat_insert( f"{i}. {memory.content[:100]}...\n", "system")
+                            safe_chat_insert( f"   Strength: {current_strength:.2f}, Rehearsals: {memory.rehearsal_count}\n", "system")
+                            safe_chat_insert( f"   Type: {memory.memory_type.value}, Stage: {memory.consolidation_stage.value}\n\n", "system")
+                    else:
+                        safe_chat_insert( "No memories found\n", "system")
+                
+            else:
+                safe_chat_insert( "ℹ️ Unknown consolidation command. Use '/consolidate' to see available commands\n", "system")
+                
+        except Exception as e:
+            safe_chat_insert( f"❌ Error: {e}\n", "system")
+    
+    def handle_creative_command(command: str):
+        """Handle Creative Associations System commands"""
+        if not CREATIVE_ASSOCIATIONS_AVAILABLE:
+            safe_chat_insert( "❌ Creative Associations System not available\n", "system")
+            return
+        
+        parts = command.lower().split()
+        if len(parts) < 2:
+            safe_chat_insert( "⚙️ Creative Associations commands:\n", "system")
+            safe_chat_insert( "  /creative stats - Show creativity statistics\n", "system")
+            safe_chat_insert( "  /creative idea <problem> - Generate creative idea\n", "system")
+            safe_chat_insert( "  /creative associate <concept> - Generate associations\n", "system")
+            safe_chat_insert( "  /creative recent - Show recent creative ideas\n", "system")
+            return
+        
+        try:
+            if parts[1] == "stats":
+                if creative_associations_system:
+                    stats = creative_associations_system.get_creative_statistics()
+                    safe_chat_insert( "⚙️ Creative Associations Statistics:\n", "system")
+                    safe_chat_insert( f"Total concepts: {stats.get('total_concepts', 0)}\n", "system")
+                    safe_chat_insert( f"Total associations: {stats.get('total_associations', 0)}\n", "system")
+                    safe_chat_insert( f"Total creative ideas: {stats.get('total_creative_ideas', 0)}\n", "system")
+                    safe_chat_insert( f"Associations generated: {stats.get('associations_generated', 0)}\n", "system")
+                    safe_chat_insert( f"Associations pruned: {stats.get('associations_pruned', 0)}\n", "system")
+                    safe_chat_insert( f"Pruning rate: {stats.get('pruning_rate', 0):.1%}\n", "system")
+                    safe_chat_insert( f"Average novelty: {stats.get('avg_novelty', 0):.2f}\n", "system")
+                    safe_chat_insert( f"Average utility: {stats.get('avg_utility', 0):.2f}\n", "system")
+                    safe_chat_insert( f"Average creativity: {stats.get('avg_creativity', 0):.2f}\n", "system")
+                    
+                    assoc_types = stats.get('association_types', {})
+                    if assoc_types:
+                        safe_chat_insert( "\nAssociation types:\n", "system")
+                        for atype, count in assoc_types.items():
+                            safe_chat_insert( f"• {atype}: {count}\n", "system")
+                    
+                    creativity_levels = stats.get('creativity_levels', {})
+                    if creativity_levels:
+                        safe_chat_insert( "\nCreativity levels:\n", "system")
+                        for level, count in creativity_levels.items():
+                            safe_chat_insert( f"• {level}: {count}\n", "system")
+                
+            elif parts[1] == "idea" and len(parts) > 2:
+                if creative_associations_system:
+                    problem = " ".join(parts[2:])
+                    safe_chat_insert( f"💡 Generating creative idea for: '{problem}'\n", "system")
+                    
+                    idea = generate_creative_idea(problem, context='user_request')
+                    if idea:
+                        safe_chat_insert( f"\n🎨 Creative Idea ({idea.creativity_level.value}):\n", "system")
+                        safe_chat_insert( f"{idea.idea_content}\n\n", "luna")
+                        safe_chat_insert( f"Novelty: {idea.novelty_score:.2f}, Utility: {idea.utility_score:.2f}, Originality: {idea.originality_score:.2f}\n", "system")
+                    else:
+                        safe_chat_insert( "Failed to generate creative idea\n", "system")
+                
+            elif parts[1] == "associate" and len(parts) > 2:
+                if creative_associations_system:
+                    concept = " ".join(parts[2:])
+                    safe_chat_insert( f"🔀 Generating creative associations for: '{concept}'\n", "system")
+                    
+                    associations = creative_associations_system.generate_creative_associations(concept, context='user_request', num_associations=5)
+                    if associations:
+                        safe_chat_insert( f"\nCreative Associations:\n", "system")
+                        for i, assoc in enumerate(associations, 1):
+                            safe_chat_insert( f"{i}. {assoc.concept_a} → {assoc.concept_b}\n", "system")
+                            safe_chat_insert( f"   Type: {assoc.association_type.value}\n", "system")
+                            safe_chat_insert( f"   Creativity: {assoc.creativity_score:.2f}, Novelty: {assoc.novelty:.2f}\n\n", "system")
+                    else:
+                        safe_chat_insert( "No creative associations generated\n", "system")
+                
+            elif parts[1] == "recent":
+                if creative_associations_system:
+                    recent_ideas = creative_associations_system.get_recent_creative_ideas(limit=3)
+                    if recent_ideas:
+                        safe_chat_insert( "⚙️ Recent Creative Ideas:\n", "system")
+                        for i, idea in enumerate(recent_ideas, 1):
+                            safe_chat_insert( f"\n{i}. {idea.idea_content}\n", "system")
+                            safe_chat_insert( f"   Level: {idea.creativity_level.value}\n", "system")
+                            safe_chat_insert( f"   Scores: Novelty={idea.novelty_score:.2f}, Utility={idea.utility_score:.2f}, Originality={idea.originality_score:.2f}\n", "system")
+                    else:
+                        safe_chat_insert( "No recent creative ideas\n", "system")
+                
+            else:
+                safe_chat_insert( "ℹ️ Unknown creative command. Use '/creative' to see available commands\n", "system")
                 
         except Exception as e:
             safe_chat_insert( f"❌ Error: {e}\n", "system")
@@ -7239,6 +7571,16 @@ def create_gui():
         
         if user_message.lower().startswith('/meta') or user_message.lower().startswith('/awareness'):
             handle_meta_awareness_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
+        if user_message.lower().startswith('/consolidate') or user_message.lower().startswith('/memory_consolidation'):
+            handle_memory_consolidation_command(user_message)
+            entry.delete(0, tk.END)
+            return
+        
+        if user_message.lower().startswith('/creative') or user_message.lower().startswith('/lateral'):
+            handle_creative_command(user_message)
             entry.delete(0, tk.END)
             return
         
