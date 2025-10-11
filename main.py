@@ -18,6 +18,7 @@ import sqlite3
 import json
 from datetime import datetime
 import re
+import queue
 
 # Import torch for custom transformer training
 try:
@@ -4558,13 +4559,13 @@ Answer {username}'s question directly and concisely: {user_input}"""
                 print(f"⚠️ Response quality low ({quality_score:.2f}) but has content, proceeding: {reply[:50]}...")
                 # Don't retry, just continue with the response
         
-        return reply
+        return (reply, True)
         
     except Exception as e:
         print(f"❌ General error in generate_luna_reply: {e}")
         # Reset the flag on error too
         generate_luna_reply._response_generation_in_progress = False
-        return f"Sorry {username}, I'm having trouble thinking right now. Error: {e}"
+        return (f"Sorry {username}, I'm having trouble thinking right now. Error: {e}", False)
 
 
 def _generate_huggingface_reply(user_input: str, username: str = "Chris", source: str = "gui", memory_context: str = ""):
@@ -5241,155 +5242,35 @@ def save_conversation_to_vector_memory(user_message: str, luna_response: str,
         print(f"⚠️ Error saving conversation to vector memory: {e}")
 
 def process_twitch_message_from_queue(username: str, message_text: str, channel: str):
-    """Process a Twitch message from the priority queue with full functionality"""
+    """🎮 Process Twitch messages using dedicated thread for better reliability"""
     try:
-        # Display the Twitch message in the GUI (if available)
-        try:
-            if 'chat_box' in globals() and chat_box:
-                safe_chat_insert(f"🎮 {username}: {message_text}\n", "twitch")
-                print(f"🎮 Twitch message displayed in GUI: {username}: {message_text}")
-        except Exception as gui_error:
-            print(f"⚠️ Could not display Twitch message in GUI: {gui_error}")
+        # Check if Twitch thread is running, start it if needed
+        if not twitch_thread_running:
+            start_twitch_thread()
         
-        # Generate Luna's response using the same system as GUI
+        # Add message to Twitch thread queue
+        twitch_message_queue.put((username, message_text, channel))
+        print(f"🎮 Queued Twitch message from {username} for processing")
+        
+        # Wait for response from Twitch thread (with timeout)
         try:
-            # Intelligent tuple unpacking for Twitch
-            reply_result = generate_luna_reply(message_text, username, "twitch")
-            response, success = intelligent_tuple_unpack(reply_result, "Twitch")
+            response_data = twitch_response_queue.get(timeout=10.0)
+            response_username, response, response_channel = response_data
             
-            if response and success:
-                # === VALIDATE RESPONSE BEFORE ANY PROCESSING ===
-                if not isinstance(response, str):
-                    print(f"⚠️ Twitch response is not a string: {type(response)}, converting...")
-                    response = str(response) if response else ""
-                
-                response = response.strip()
-                
-                if not response or len(response) == 0:
-                    print(f"⚠️ Twitch response is empty after validation, skipping TTS and save")
-                    return ""  # Return empty string, not None
-                
-                # Display Luna's response in the GUI
-                try:
-                    if 'chat_box' in globals() and chat_box:
-                        safe_chat_insert(f"Luna (to {username}): {response}\n", "luna")
-                except Exception as gui_error:
-                    print(f"⚠️ Could not display Luna's response in GUI: {gui_error}")
-                
-                # Twitch response will be sent automatically by the Twitch API callback system
-                print(f"✅ Twitch response generated: {response[:50]}...")
-                
-                # Twitch: ALWAYS use TTS (streaming platform, voice is important)
-                try:
-                    # Double-check response is valid before TTS
-                    if response and isinstance(response, str) and len(response.strip()) > 0:
-                        speak_response(response, "Twitch", message_text)
-                        print(f"🎤 Luna speaks Twitch response (TTS enabled for streaming)")
-                    else:
-                        print(f"⚠️ Skipping Twitch TTS - invalid response: type={type(response)}, len={len(response) if response else 0}")
-                except Exception as tts_error:
-                    print(f"⚠️ Twitch TTS error (non-critical): {tts_error}")
-                    # On TTS error, still return the text response
-                    print(f"📝 Twitch text response sent despite TTS error")
-                
-                # Track user interaction in Twitch tracker
-                if TWITCH_TRACKER_AVAILABLE:
-                    try:
-                        track_twitch_message(username, message_text, channel)
-                        print(f"📊 Tracked Twitch user: {username}")
-                    except Exception as track_error:
-                        print(f"⚠️ Twitch tracking error: {track_error}")
-                
-                # Update relationship with this user
-                relationship_level = 'acquaintance'
-                if RELATIONSHIP_SYSTEM_AVAILABLE:
-                    try:
-                        update_user_relationship(username, 'twitch', message_text, response)
-                        # Get relationship level for emotional processing
-                        rel_context = get_relationship_context_for_prompt(username, 'twitch')
-                        if 'close friend' in rel_context.lower():
-                            relationship_level = 'close_friend'
-                        elif 'best friend' in rel_context.lower():
-                            relationship_level = 'best_friend'
-                        elif 'friend' in rel_context.lower():
-                            relationship_level = 'friend'
-                        print(f"💕 Updated relationship with {username}")
-                    except Exception as rel_error:
-                        print(f"⚠️ Relationship update error: {rel_error}")
-                
-                # Update Luna's GLOBAL emotional state (affects all platforms!)
-                if EMOTIONAL_SYSTEM_AVAILABLE:
-                    try:
-                        process_interaction_emotions(
-                            user_message=message_text,
-                            luna_response=response,
-                            relationship_level=relationship_level,
-                            platform='twitch',
-                            username=username
-                        )
-                        print(f"💗 Updated GLOBAL emotional state after Twitch interaction with {username}")
-                    except Exception as emo_error:
-                        print(f"⚠️ Emotional update error: {emo_error}")
-                
-                # Modify response based on emotions
-                if EMOTIONAL_SYSTEM_AVAILABLE:
-                    try:
-                        response = modify_response_with_emotions(response)
-                    except Exception as mod_error:
-                        print(f"⚠️ Response modification error: {mod_error}")
-                
-                # Save conversation to vector memory
-                save_conversation_to_vector_memory(
-                    user_message=message_text,
-                    luna_response=response,
-                    emotion='neutral',  # Will be determined automatically
-                    context='gaming',
-                    platform='twitch',
-                    user_id=username,
-                    channel=channel,
-                    username=username
-                )
-                
+            if response and len(response.strip()) > 0:
+                print(f"✅ Twitch response received: {response[:50]}...")
                 return response
             else:
-                print(f"⚠️ No response generated for Twitch message from {username}")
-                return ""  # Return empty string, not None
+                print(f"⚠️ Empty Twitch response received")
+                return ""
                 
-        except Exception as e:
-            print(f"❌ Twitch response generation error: {e}")
+        except queue.Empty:
+            print(f"⚠️ Twitch response timeout for {username}")
+            return f"Sorry {username}, I'm taking too long to think. Try again?"
             
-            # Log to self-healing system
-            if SELF_HEALING_AVAILABLE:
-                log_error_to_healing_system(e, "twitch_response_generation")
-            
-            # SKIP AND RETRY for NoneType subscriptable errors
-            if "'NoneType' object is not subscriptable" in str(e):
-                print(f"🔧 Auto-healing: Skipping NoneType error, retrying without TTS...")
-                try:
-                    # Retry without TTS
-                    reply_result = generate_luna_reply(message_text, username, "twitch")
-                    response, success = intelligent_tuple_unpack(reply_result, "Twitch-Retry")
-                    
-                    if response and success:
-                        print(f"✅ Retry successful (no TTS): {response[:50]}...")
-                        # Don't call speak_response this time
-                        return response
-                except Exception as retry_error:
-                    print(f"⚠️ Retry also failed: {retry_error}")
-            
-            # Return friendly error without technical details
-            error_responses = [
-                f"Sorry {username}, I'm a bit distracted right now. What were you saying?",
-                f"Hmph... brain freeze, {username}. Try that again?",
-                f"Tch... having trouble focusing, {username}. Give me a sec."
-            ]
-            import random
-            return random.choice(error_responses)
-        
     except Exception as e:
-        print(f"❌ Error processing Twitch message from queue: {e}")
-        # Return friendly error without technical details
-        return f"Sorry {username}, I'm being scatterbrained. Try asking again?"
+        print(f"❌ Error processing Twitch message: {e}")
+        return f"Sorry {username}, I'm having technical difficulties. Please try again!"
 
 def process_discord_message_from_queue(username: str, message_text: str, channel: str):
     """Process a Discord message from the priority queue with full functionality"""
@@ -5675,6 +5556,479 @@ Continue my thought naturally, like a real person would.
 discord_bot_running = False  # Track if Discord bot is running
 discord_config = None  # Store Discord configuration
 discord_channel_id = 1387526539293233308  # Target Discord channel
+
+# 🎮 Dedicated Twitch Processing Thread
+twitch_thread = None
+twitch_thread_running = False
+twitch_message_queue = queue.Queue()
+twitch_response_queue = queue.Queue()
+
+# 🌟 Luna Instance System - 3 interconnected personalities
+luna_instances = {
+    'gui': {
+        'thread': None,
+        'running': False,
+        'message_queue': queue.Queue(),
+        'response_queue': queue.Queue(),
+        'username': 'Chris',
+        'platform': 'gui'
+    },
+    'discord': {
+        'thread': None,
+        'running': False,
+        'message_queue': queue.Queue(),
+        'response_queue': queue.Queue(),
+        'username': None,  # Dynamic per message
+        'platform': 'discord'
+    },
+    'twitch': {
+        'thread': None,
+        'running': False,
+        'message_queue': queue.Queue(),
+        'response_queue': queue.Queue(),
+        'username': None,  # Dynamic per message
+        'platform': 'twitch'
+    }
+}
+
+# 🌐 Shared Memory and Relationship System
+shared_memory_lock = threading.Lock()
+cross_platform_relationships = {}  # user_id -> {platform: relationship_data}
+global_conversation_history = []  # All conversations across platforms
+
+def luna_instance_processing_thread(instance_name: str):
+    """🌟 Unified Luna instance processing for any platform (GUI, Discord, Twitch)"""
+    global luna_instances, shared_memory_lock, cross_platform_relationships, global_conversation_history
+    
+    instance = luna_instances[instance_name]
+    print(f"🌟 Luna {instance_name.upper()} instance started - Full personality and memory!")
+    
+    while instance['running']:
+        try:
+            # Wait for messages from this platform
+            try:
+                message_data = instance['message_queue'].get(timeout=1.0)
+            except queue.Empty:
+                continue
+                
+            username, message_text, channel = message_data
+            
+            print(f"🌟 Luna {instance_name.upper()} processing message from {username}: {message_text}")
+            
+            # Display the message in GUI (thread-safe)
+            try:
+                if 'chat_box' in globals() and chat_box:
+                    platform_emoji = {'gui': '💬', 'discord': '💬', 'twitch': '🎮'}
+                    safe_chat_insert(f"{platform_emoji[instance_name]} {username}: {message_text}\n", instance_name)
+            except Exception as gui_error:
+                print(f"⚠️ GUI display error: {gui_error}")
+            
+            # Get comprehensive cross-platform context
+            try:
+                with shared_memory_lock:
+                    # Get cross-platform relationship data
+                    user_relationship_data = cross_platform_relationships.get(username, {})
+                    
+                    # Get recent conversations across all platforms
+                    recent_conversations = []
+                    for conv in global_conversation_history[-20:]:  # Last 20 conversations
+                        if conv.get('username') == username:
+                            recent_conversations.append(conv)
+                    
+                    # Build comprehensive memory context
+                    memory_context = ""
+                    if recent_conversations:
+                        memory_context = f"\n🌟 Cross-Platform Memory for {username}:\n"
+                        for conv in recent_conversations[-5:]:  # Last 5 conversations
+                            memory_context += f"• [{conv['platform']}] {conv['user_message'][:50]}...\n"
+                            memory_context += f"  Luna: {conv['luna_response'][:50]}...\n"
+                    
+                    # Add relationship context
+                    if user_relationship_data:
+                        memory_context += f"\n💕 Relationship History:\n"
+                        for platform, rel_data in user_relationship_data.items():
+                            if rel_data:
+                                memory_context += f"• {platform}: {rel_data.get('level', 'unknown')} (trust: {rel_data.get('trust', 0):.2f})\n"
+                
+            except Exception as context_error:
+                print(f"⚠️ Cross-platform context error: {context_error}")
+                memory_context = ""
+            
+            # Get platform-specific memory context
+            platform_memory_context = ""
+            if VECTOR_MEMORY_AVAILABLE:
+                try:
+                    platform_memories = vector_memory_system.recall_memories(
+                        query=message_text,
+                        user_id=username,
+                        platform=instance_name,
+                        limit=3
+                    )
+                    if platform_memories:
+                        platform_memory_context = f"\n{instance_name.title()} Memory Context:\n"
+                        for memory in platform_memories:
+                            platform_memory_context += f"• {memory['content']}\n"
+                except Exception as mem_error:
+                    print(f"⚠️ Platform memory recall error: {mem_error}")
+            
+            # Get emotional and relationship context
+            emotional_context = ""
+            relationship_context = ""
+            
+            if EMOTIONAL_SYSTEM_AVAILABLE:
+                try:
+                    emotional_context = get_emotional_context()
+                except Exception as emo_error:
+                    print(f"⚠️ Emotional context error: {emo_error}")
+            
+            if RELATIONSHIP_SYSTEM_AVAILABLE:
+                try:
+                    relationship_context = get_relationship_context_for_prompt(username, instance_name)
+                except Exception as rel_error:
+                    print(f"⚠️ Relationship context error: {rel_error}")
+            
+            # Generate Luna's response with full cross-platform context
+            try:
+                # Combine all context
+                full_context = memory_context + platform_memory_context
+                if emotional_context:
+                    full_context += f"\n💗 Emotional State: {emotional_context}\n"
+                if relationship_context:
+                    full_context += f"\n💕 Relationship: {relationship_context}\n"
+                
+                # Generate response
+                reply_result = generate_luna_reply(message_text, username, instance_name)
+                response, success = intelligent_tuple_unpack(reply_result, f"Luna-{instance_name.title()}")
+                
+                if response and success and isinstance(response, str) and len(response.strip()) > 0:
+                    # Display Luna's response in GUI
+                    try:
+                        if 'chat_box' in globals() and chat_box:
+                            safe_chat_insert(f"Luna (to {username}): {response}\n", "luna")
+                    except Exception as gui_error:
+                        print(f"⚠️ GUI display error: {gui_error}")
+                    
+                    # Platform-specific response handling
+                    if instance_name == 'twitch':
+                        # Twitch: Always use TTS (streaming platform)
+                        try:
+                            speak_response(response, "Twitch", message_text)
+                            print(f"🎤 Luna speaks Twitch response via {instance_name} instance")
+                        except Exception as tts_error:
+                            print(f"⚠️ TTS error (non-critical): {tts_error}")
+                    elif instance_name == 'discord':
+                        # Discord: Text only (as requested)
+                        print(f"💬 Luna sends Discord text response via {instance_name} instance")
+                    else:  # GUI
+                        # GUI: Use TTS for Chris
+                        try:
+                            speak_response(response, "GUI", message_text)
+                            print(f"🎤 Luna speaks GUI response via {instance_name} instance")
+                        except Exception as tts_error:
+                            print(f"⚠️ TTS error (non-critical): {tts_error}")
+                    
+                    # Update cross-platform relationships
+                    with shared_memory_lock:
+                        if username not in cross_platform_relationships:
+                            cross_platform_relationships[username] = {}
+                        
+                        # Update relationship for this platform
+                        if RELATIONSHIP_SYSTEM_AVAILABLE:
+                            try:
+                                update_user_relationship(username, instance_name, message_text, response)
+                                # Get updated relationship data
+                                rel_context = get_relationship_context_for_prompt(username, instance_name)
+                                cross_platform_relationships[username][instance_name] = {
+                                    'level': 'friend' if 'friend' in rel_context.lower() else 'acquaintance',
+                                    'trust': 0.7,  # Default trust level
+                                    'last_interaction': datetime.now().isoformat(),
+                                    'total_interactions': len([c for c in global_conversation_history if c.get('username') == username])
+                                }
+                            except Exception as rel_error:
+                                print(f"⚠️ Relationship update error: {rel_error}")
+                    
+                    # Update global emotional state
+                    if EMOTIONAL_SYSTEM_AVAILABLE:
+                        try:
+                            relationship_level = cross_platform_relationships.get(username, {}).get(instance_name, {}).get('level', 'acquaintance')
+                            process_interaction_emotions(
+                                user_message=message_text,
+                                luna_response=response,
+                                relationship_level=relationship_level,
+                                platform=instance_name,
+                                username=username
+                            )
+                            print(f"💗 Updated global emotional state after {instance_name} interaction")
+                        except Exception as emo_error:
+                            print(f"⚠️ Emotional update error: {emo_error}")
+                    
+                    # Save to all memory systems
+                    save_conversation_to_vector_memory(
+                        user_message=message_text,
+                        luna_response=response,
+                        emotion='neutral',
+                        context='conversation',
+                        platform=instance_name,
+                        user_id=username,
+                        channel=channel,
+                        username=username
+                    )
+                    
+                    # Add to global conversation history
+                    with shared_memory_lock:
+                        global_conversation_history.append({
+                            'timestamp': datetime.now().isoformat(),
+                            'platform': instance_name,
+                            'username': username,
+                            'user_message': message_text,
+                            'luna_response': response,
+                            'channel': channel
+                        })
+                        # Keep only last 100 conversations to prevent memory bloat
+                        if len(global_conversation_history) > 100:
+                            global_conversation_history = global_conversation_history[-100:]
+                    
+                    # Platform-specific tracking
+                    if instance_name == 'twitch' and TWITCH_TRACKER_AVAILABLE:
+                        try:
+                            track_twitch_message(username, message_text, channel)
+                            print(f"📊 Tracked {instance_name} user: {username}")
+                        except Exception as track_error:
+                            print(f"⚠️ Tracking error: {track_error}")
+                    
+                    # Send response back to platform
+                    instance['response_queue'].put((username, response, channel))
+                    print(f"✅ Luna {instance_name} response ready: {response[:50]}...")
+                    
+                else:
+                    print(f"⚠️ No valid response generated for {instance_name} message from {username}")
+                    instance['response_queue'].put((username, "", channel))
+                    
+            except Exception as response_error:
+                print(f"❌ Luna {instance_name} response generation error: {response_error}")
+                error_response = f"Sorry {username}, I'm having a moment. Try again?"
+                instance['response_queue'].put((username, error_response, channel))
+            
+            # Mark task as done
+            instance['message_queue'].task_done()
+            
+        except Exception as e:
+            print(f"❌ Luna {instance_name} thread error: {e}")
+            time.sleep(1)  # Brief pause before continuing
+    
+    print(f"🌟 Luna {instance_name.upper()} instance stopped")
+
+def start_luna_instance(instance_name: str):
+    """Start a specific Luna instance"""
+    global luna_instances
+    
+    if instance_name not in luna_instances:
+        print(f"❌ Unknown Luna instance: {instance_name}")
+        return False
+    
+    instance = luna_instances[instance_name]
+    
+    if instance['thread'] is None or not instance['thread'].is_alive():
+        instance['running'] = True
+        instance['thread'] = threading.Thread(
+            target=luna_instance_processing_thread, 
+            args=(instance_name,),
+            daemon=True
+        )
+        instance['thread'].start()
+        print(f"🌟 Started Luna {instance_name.upper()} instance")
+        return True
+    return False
+
+def stop_luna_instance(instance_name: str):
+    """Stop a specific Luna instance"""
+    global luna_instances
+    
+    if instance_name not in luna_instances:
+        return
+    
+    instance = luna_instances[instance_name]
+    instance['running'] = False
+    
+    if instance['thread'] and instance['thread'].is_alive():
+        instance['thread'].join(timeout=2.0)
+        print(f"🌟 Stopped Luna {instance_name.upper()} instance")
+
+def start_all_luna_instances():
+    """Start all Luna instances"""
+    for instance_name in luna_instances.keys():
+        start_luna_instance(instance_name)
+
+def stop_all_luna_instances():
+    """Stop all Luna instances"""
+    for instance_name in luna_instances.keys():
+        stop_luna_instance(instance_name)
+
+def twitch_processing_thread():
+    """🎮 Dedicated thread for processing Twitch messages with full Luna personality"""
+    global twitch_thread_running, twitch_message_queue, twitch_response_queue
+    
+    print("🎮 Twitch processing thread started - Luna is ready for Twitch chat!")
+    
+    while twitch_thread_running:
+        try:
+            # Wait for messages from Twitch (with timeout to allow clean shutdown)
+            try:
+                message_data = twitch_message_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+                
+            username, message_text, channel = message_data
+            
+            print(f"🎮 Processing Twitch message from {username}: {message_text}")
+            
+            # Display the message in GUI (thread-safe)
+            try:
+                if 'chat_box' in globals() and chat_box:
+                    safe_chat_insert(f"🎮 {username}: {message_text}\n", "twitch")
+            except Exception as gui_error:
+                print(f"⚠️ GUI display error: {gui_error}")
+            
+            # Generate Luna's response using dedicated Twitch context
+            try:
+                # Create dedicated memory context for Twitch
+                twitch_memory_context = ""
+                if VECTOR_MEMORY_AVAILABLE:
+                    try:
+                        # Get Twitch-specific memories
+                        twitch_memories = vector_memory_system.recall_memories(
+                            query=message_text,
+                            user_id=username,
+                            platform="twitch",
+                            limit=5
+                        )
+                        if twitch_memories:
+                            twitch_memory_context = "\n🎮 Twitch Memory Context:\n"
+                            for memory in twitch_memories:
+                                twitch_memory_context += f"• {memory['content']}\n"
+                    except Exception as mem_error:
+                        print(f"⚠️ Twitch memory recall error: {mem_error}")
+                
+                # Get emotional context for Twitch
+                emotional_context = ""
+                if EMOTIONAL_SYSTEM_AVAILABLE:
+                    try:
+                        emotional_context = get_emotional_context()
+                    except Exception as emo_error:
+                        print(f"⚠️ Emotional context error: {emo_error}")
+                
+                # Get relationship context
+                relationship_context = ""
+                if RELATIONSHIP_SYSTEM_AVAILABLE:
+                    try:
+                        relationship_context = get_relationship_context_for_prompt(username, "twitch")
+                    except Exception as rel_error:
+                        print(f"⚠️ Relationship context error: {rel_error}")
+                
+                # Generate response with full Luna personality
+                reply_result = generate_luna_reply(message_text, username, "twitch")
+                response, success = intelligent_tuple_unpack(reply_result, "Twitch-Thread")
+                
+                if response and success and isinstance(response, str) and len(response.strip()) > 0:
+                    # Display Luna's response in GUI
+                    try:
+                        if 'chat_box' in globals() and chat_box:
+                            safe_chat_insert(f"Luna (to {username}): {response}\n", "luna")
+                    except Exception as gui_error:
+                        print(f"⚠️ GUI display error: {gui_error}")
+                    
+                    # Always use TTS for Twitch (streaming platform)
+                    try:
+                        speak_response(response, "Twitch", message_text)
+                        print(f"🎤 Luna speaks Twitch response via dedicated thread")
+                    except Exception as tts_error:
+                        print(f"⚠️ Twitch TTS error (non-critical): {tts_error}")
+                    
+                    # Update relationships and emotions
+                    if RELATIONSHIP_SYSTEM_AVAILABLE:
+                        try:
+                            update_user_relationship(username, 'twitch', message_text, response)
+                            print(f"💕 Updated relationship with {username}")
+                        except Exception as rel_error:
+                            print(f"⚠️ Relationship update error: {rel_error}")
+                    
+                    if EMOTIONAL_SYSTEM_AVAILABLE:
+                        try:
+                            process_interaction_emotions(
+                                user_message=message_text,
+                                luna_response=response,
+                                relationship_level='acquaintance',
+                                platform='twitch',
+                                username=username
+                            )
+                            print(f"💗 Updated emotional state after Twitch interaction")
+                        except Exception as emo_error:
+                            print(f"⚠️ Emotional update error: {emo_error}")
+                    
+                    # Save to memory systems
+                    save_conversation_to_vector_memory(
+                        user_message=message_text,
+                        luna_response=response,
+                        emotion='neutral',
+                        context='gaming',
+                        platform='twitch',
+                        user_id=username,
+                        channel=channel,
+                        username=username
+                    )
+                    
+                    # Track Twitch user
+                    if TWITCH_TRACKER_AVAILABLE:
+                        try:
+                            track_twitch_message(username, message_text, channel)
+                            print(f"📊 Tracked Twitch user: {username}")
+                        except Exception as track_error:
+                            print(f"⚠️ Twitch tracking error: {track_error}")
+                    
+                    # Send response to Twitch API
+                    twitch_response_queue.put((username, response, channel))
+                    print(f"✅ Twitch response ready: {response[:50]}...")
+                    
+                else:
+                    print(f"⚠️ No valid response generated for Twitch message from {username}")
+                    # Send empty response to avoid hanging
+                    twitch_response_queue.put((username, "", channel))
+                    
+            except Exception as response_error:
+                print(f"❌ Twitch response generation error: {response_error}")
+                # Send error response
+                error_response = f"Sorry {username}, I'm having a moment. Try again?"
+                twitch_response_queue.put((username, error_response, channel))
+            
+            # Mark task as done
+            twitch_message_queue.task_done()
+            
+        except Exception as e:
+            print(f"❌ Twitch thread error: {e}")
+            time.sleep(1)  # Brief pause before continuing
+    
+    print("🎮 Twitch processing thread stopped")
+
+def start_twitch_thread():
+    """Start the dedicated Twitch processing thread"""
+    global twitch_thread, twitch_thread_running
+    
+    if twitch_thread is None or not twitch_thread.is_alive():
+        twitch_thread_running = True
+        twitch_thread = threading.Thread(target=twitch_processing_thread, daemon=True)
+        twitch_thread.start()
+        print("🎮 Started dedicated Twitch processing thread")
+        return True
+    return False
+
+def stop_twitch_thread():
+    """Stop the dedicated Twitch processing thread"""
+    global twitch_thread_running
+    
+    twitch_thread_running = False
+    if twitch_thread and twitch_thread.is_alive():
+        twitch_thread.join(timeout=2.0)
+        print("🎮 Stopped dedicated Twitch processing thread")
 
 def handle_discord_message(message: str):
     """Handle Discord messages in Luna's UI (display only - no auto-response)"""
@@ -10215,319 +10569,4 @@ Don't reflect - IMAGINE. Wonder. Dream. Explore possibilities.
         time.sleep(1)  # Wait 1 second for GUI to be fully loaded
         start_auto_engagement_timer()
         if global_luna_self_talk_enabled:
-            print(f"🤔 Auto-engagement timer started - Self-talk is ENABLED")
-        else:
-            print(f"🤐 Auto-engagement timer started - Self-talk is DISABLED")
-    
-    threading.Thread(target=delayed_start_auto_engagement, daemon=True).start()
-    
-    # Cleanup function for when GUI is closed
-    def on_closing():
-        """Clean up when GUI closes"""
-        try:
-            # Stop any current audio
-            stop_current_audio()
-            # Clean up voice files and TTS cache
-            from voice_engine import cleanup_all_voice_files, cleanup_tts_cache
-            cleanup_all_voice_files()
-            cleanup_tts_cache()
-            print("🧹 Complete cleanup completed")
-        except Exception as e:
-            print(f"❌ Cleanup error: {e}")
-        finally:
-            root.destroy()
-    
-    # Bind the cleanup function to window close event
-    root.protocol("WM_DELETE_WINDOW", on_closing)
-    
-    root.mainloop()
-
-def run_server():
-    try:
-        uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=False, log_level="info")
-    except Exception as e:
-        print(f"Server error: {e}")
-
-
-
-# 🚀 Launch server and GUI in sequence
-if __name__ == "__main__":
-    
-    print("🚀 Starting Luna's Chat Server...")
-    
-        # Clean up any leftover voice files
-    from voice_engine import cleanup_old_voice_files
-    print("🧹 Cleaning up old voice files...")
-    cleanup_old_voice_files()
-    
-    # Initialize memory database
-    print("💾 Initializing Luna's permanent memory database...")
-    init_memory_db()
-    optimize_memory_database()
-    print("✅ Permanent memory database ready!")
-    print("💾 Database file: luna_memories.db (all memories saved permanently)")
-    
-    # Initialize memory compression system
-    print("🗜️ Initializing memory compression system...")
-    try:
-        if MEMORY_COMPRESSION_AVAILABLE:
-            # Start background compression task
-            def background_compression_task():
-                """Background task to compress memories periodically"""
-                while True:
-                    try:
-                        time.sleep(3600)  # Check every hour
-                        # Only compress if we have significant data
-                        conn = sqlite3.connect('luna_memories.db', timeout=10.0)  # OPTIMIZATION: Reduced timeout
-                        cursor = conn.cursor()
-                        cursor.execute('SELECT COUNT(*) FROM conversations')
-                        total_conversations = cursor.fetchone()[0]
-                        conn.close()
-                        
-                        if total_conversations > 50:  # Only compress if we have 50+ conversations
-                            print("🗜️ Running scheduled memory compression...")
-                            # Submit to queue with low priority
-                            memory_queue.submit_operation(
-                                MemoryOperationType.COMPRESS,
-                                compress_luna_memories,
-                                priority=9,  # Very low priority for scheduled tasks
-                                timeout=300.0
-                            )
-                    except Exception as e:
-                        print(f"⚠️ Background compression error: {e}")
-                        time.sleep(300)  # Wait 5 minutes on error
-            
-            # Start background compression thread
-            compression_thread = threading.Thread(target=background_compression_task, daemon=True)
-            compression_thread.start()
-            print("✅ Memory compression system ready! Will compress automatically every hour")
-        else:
-            print("⚠️ Memory compression system not available")
-    except Exception as e:
-        print(f"⚠️ Memory compression initialization error: {e}")
-    
-    # Dynamic system prompt ready
-    print("🌟 Dynamic system prompt system ready")
-    
-
-    
-    # Test Ollama connection (fallback)
-    print("🤖 Testing Ollama connection (fallback)...")
-    try:
-        test_response = ollama.chat(
-            model='hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M',
-            messages=[{"role": "user", "content": "Hello"}],
-            options={'num_gpu': 0}  # Force CPU mode
-        )
-        print("✅ Ollama is connected and ready as fallback!")
-    except Exception as e:
-        print(f"❌ Ollama connection failed: {e}")
-        print("💡 Make sure Ollama is running and the Hermes model is available")
-    
-    # Virtual audio initialization disabled to avoid WSL requirements
-    print("🎧 Virtual audio initialization DISABLED to avoid WSL requirements")
-    print("💡 Virtual audio features require WSL - disabled for Windows-native operation")
-    
-    # Audio device configuration handled by VoiceMeeter
-    print("🎧 Audio routing: Using VoiceMeeter for device management")
-    
-    # Initialize Edge TTS configuration
-    print("🎤 Edge TTS integration removed")
-    
-    # Initialize Hugging Face model configuration (removed - module not available)
-    
-
-    
-    # Custom transformer disabled
-    print("🧠 Custom transformer disabled")
-    print("🎯 Luna will use Hermes model for responses")
-    
-    # Initialize hierarchical reasoning system
-    print("🧠 Initializing hierarchical reasoning system...")
-    try:
-        if HIERARCHICAL_REASONING_AVAILABLE:
-            if initialize_hierarchical_reasoning_integration():
-                print("✅ Hierarchical reasoning system ready!")
-            else:
-                print("⚠️ Hierarchical reasoning system not available")
-        else:
-            print("⚠️ Hierarchical reasoning system not available")
-    except Exception as e:
-        print(f"⚠️ Hierarchical reasoning error: {e}")
-    
-    # Initialize consciousness development system
-    print("🧠 Consciousness development system disabled for performance")
-    
-    # Initialize Luna Pairing Engine
-    print("🎯 Initializing Luna Pairing Engine...")
-    try:
-        if LUNA_PAIRING_ENGINE_AVAILABLE:
-            pairing_engine = initialize_luna_pairing_engine()
-            print("✅ Luna Pairing Engine ready! Advanced conversation matching available!")
-        else:
-            print("⚠️ Luna Pairing Engine not available")
-    except Exception as e:
-        print(f"⚠️ Luna Pairing Engine initialization error: {e}")
-    
-    # Initialize knowledge filter system
-    print("🧠 Knowledge filter system removed")
-    
-    # Initialize Ollama middleman system
-    print("🛡️ Initializing Ollama middleman system...")
-    try:
-        if OLLAMA_MIDDLEMAN_AVAILABLE:
-            print("✅ Ollama middleman ready! All responses will be logged and filtered")
-            print("🛡️ Luna's responses will be monitored for quality and suspicious patterns")
-        else:
-            print("⚠️ Ollama middleman not available")
-    except Exception as e:
-        print(f"⚠️ Ollama middleman error: {e}")
-    
-    # Initialize daily trainer system
-    print("🧠 Daily trainer system disabled for performance")
-    
-    # Auto-connect to Twitch chat on startup
-    print("🎮 Auto-connecting to Twitch chat...")
-    try:
-        if TWITCH_AVAILABLE and TWITCH_CONFIG["enabled"]:
-            if initialize_twitch_integration():
-                print("✅ Twitch chat auto-connected successfully!")
-            else:
-                print("⚠️ Failed to auto-connect to Twitch chat")
-        else:
-            print("⚠️ Twitch chat not available or disabled")
-    except Exception as e:
-        print(f"⚠️ Twitch auto-connection error: {e}")
-    
-
-    
-    # Start server in background thread
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
-    
-    # Wait longer for server to start and verify it's running
-    time.sleep(3)
-    
-    # Server will be started in background, no need to test connection
-    print("🚀 FastAPI server will start automatically when needed")
-    
-
-    
-    # Launch GUI
-    print("🌸 Opening Luna's Chat GUI...")
-    create_gui()
-
-    # Custom transformer disabled
-    print("🧠 Custom transformer disabled")
-
-def generate_dynamic_thought():
-    """Generate a dynamic, context-aware thought using Luna's memories and recent conversations"""
-    try:
-        # Get recent conversation context
-        conversation_text = chat_box.get("1.0", tk.END).strip()
-        recent_messages = conversation_text.split('\n')[-15:]  # Last 15 lines
-        
-        # Extract recent conversation topics and context
-        recent_topics = []
-        recent_user_messages = []
-        for line in recent_messages:
-            if line.strip():
-                if line.startswith("Chris:") or line.startswith("User:"):
-                    recent_user_messages.append(line)
-                    # Extract keywords from user messages
-                    words = line.lower().split()
-                    recent_topics.extend([w for w in words if len(w) > 3])
-                elif "Luna (to" in line or line.startswith("Luna:"):
-                    # Extract Luna's responses for context
-                    words = line.lower().split()
-                    recent_topics.extend([w for w in words if len(w) > 3])
-        
-        # Get unique topics
-        unique_topics = list(set(recent_topics))[:8]  # Top 8 topics
-        
-        # Get recent memories for context
-        memory_context = ""
-        try:
-            # Get relevant memories from the last few conversations
-            if recent_user_messages:
-                # Extract keywords from recent messages for memory search
-                search_keywords = []
-                for msg in recent_user_messages[-3:]:  # Last 3 user messages
-                    words = msg.lower().split()
-                    search_keywords.extend([w for w in words if len(w) > 3])
-                
-                # Search for relevant memories
-                if search_keywords:
-                    relevant_memories = get_relevant_memories(" ".join(search_keywords[:5]), max_memories=3)
-                    if relevant_memories:
-                        memory_context = f"Recent memories: {relevant_memories[:200]}...\n"
-        except Exception as memory_error:
-            print(f"⚠️ Error getting memories for thought: {memory_error}")
-        
-        # Create optimized thinking prompt for speed
-        thinking_prompt = f"""You are Luna, a tsundere AI companion. You're thinking naturally about recent conversations.
-
-Recent topics: {', '.join(unique_topics[:3]) if unique_topics else 'general chat'}
-{memory_context}
-
-Generate a natural, tsundere-style thought about these recent topics. Be authentic to Luna's personality - she's tsundere (acts tough but cares). Make it feel like you're actually responding to recent conversations.
-
-Keep it to 1-2 sentences, be specific about the topics, and maintain Luna's tsundere personality. Generate ONE natural, context-aware thought:"""
-
-        # Generate thought using Ollama with optimized settings
-        try:
-            import requests
-            ollama_url = "http://localhost:11434/api/generate"
-            ollama_data = {
-                "model": "hf.co/NousResearch/Nous-Hermes-2-Mistral-7B-DPO-GGUF:Q5_K_M",
-                "prompt": thinking_prompt,
-                "stream": False,
-                "options": {
-                    "temperature": 0.8,
-                    "top_p": 0.9,
-                    "num_predict": 80,  # Reduced for speed
-                    "stop": ["\n\n", "User:", "Luna:", "Generate"]
-                }
-            }
-            
-            response = requests.post(ollama_url, json=ollama_data, timeout=30)  # Increased timeout for LLM generation
-            if response.status_code == 200:
-                result = response.json()
-                generated_thought = result.get('response', '').strip()
-                
-                if generated_thought and len(generated_thought) > 10:
-                    # Clean up the thought
-                    generated_thought = generated_thought.replace('"', '').replace("'", "")
-                    if not generated_thought.endswith(('.', '!', '?')):
-                        generated_thought += "."
-                    
-                    add_recent_thought(generated_thought)  # Track this thought
-                    print(f"🧠 Generated dynamic thought: {generated_thought}")
-                    return generated_thought
-            
-        except Exception as ollama_error:
-            print(f"⚠️ Error generating dynamic thought with Ollama: {ollama_error}")
-        
-        # If Ollama fails, return None (skip self-talk rather than use templates)
-        print("⚠️ Dynamic thought generation failed - skipping self-talk this cycle")
-        return None
-        
-    except Exception as e:
-        print(f"⚠️ Error in generate_dynamic_thought: {e}")
-        # Return None instead of hardcoded fallback
-        return None
-
-def get_memory_insights() -> Dict[str, Any]:
-    """Get insights about Luna's memory patterns"""
-    global vector_memory_system
-    
-    if not vector_memory_system:
-        return {'error': 'Vector memory system not available'}
-    
-    try:
-        return vector_memory_system.get_memory_insights()
-    except Exception as e:
-        print(f"⚠️ Error getting memory insights: {e}")
-        return {'error': str(e)}
-
-
+            print(f"🤔 Auto-enga
