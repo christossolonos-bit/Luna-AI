@@ -178,6 +178,29 @@ except Exception as e:
     emergence_framework = None
     print(f"⚠️ Emergence Framework initialization failed: {e}")
 
+# ⚛️ Luna Quantum Reasoning - Non-deterministic decision making and parallel reasoning
+try:
+    from luna_quantum_reasoning import (
+        initialize_quantum_reasoning, get_quantum_reasoning,
+        quantum_reason, QuantumReasoningEngine
+    )
+    # Initialize with ollama.chat function
+    quantum_reasoning_engine = initialize_quantum_reasoning(ollama.chat)
+    QUANTUM_REASONING_AVAILABLE = True
+    print("⚛️ Quantum Reasoning Engine initialized!")
+    print("   🌊 Superposition: Multiple reasoning paths simultaneously")
+    print("   🔗 Entanglement: Connected concepts influence each other")
+    print("   💥 Collapse: Coherent decisions from superposition")
+    print("   🚀 Tunneling: Unexpected solutions beyond conventional thinking")
+except ImportError as e:
+    QUANTUM_REASONING_AVAILABLE = False
+    quantum_reasoning_engine = None
+    print(f"⚠️ Quantum Reasoning not available: {e}")
+except Exception as e:
+    QUANTUM_REASONING_AVAILABLE = False
+    quantum_reasoning_engine = None
+    print(f"⚠️ Quantum Reasoning initialization failed: {e}")
+
 # Initialize vector memory system globally
 vector_memory_system = None
 if VECTOR_MEMORY_AVAILABLE:
@@ -3546,9 +3569,9 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
     # Hierarchical memory replaced by Lambda Architecture
     # Lambda provides both speed (fast path) and batch (deep path) context
     
-    # === LAMBDA ARCHITECTURE: Get fast or deep context based on query ===
+    # === LAMBDA ARCHITECTURE: Get fast or deep context based on query (ALL PLATFORMS) ===
     lambda_context = ""
-    if LAMBDA_ARCHITECTURE_AVAILABLE and lambda_architecture and source in ['discord', 'twitch']:
+    if LAMBDA_ARCHITECTURE_AVAILABLE and lambda_architecture:
         try:
             context, metadata = lambda_architecture.get_context_for_response(username, user_input, source, mode='auto')
             if context:
@@ -3706,6 +3729,41 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             except Exception as e:
                 print(f"⚠️ Pairing engine suggestion error: {e}")
         
+        # ⚛️ QUANTUM REASONING: For complex questions, use quantum parallel reasoning
+        quantum_reasoning_context = ""
+        complex_question_keywords = ['why', 'how', 'what if', 'should i', 'what do you think', 'philosophically', 'meaning']
+        is_complex_question = any(keyword in user_input.lower() for keyword in complex_question_keywords) and len(user_input) > 20
+        
+        if QUANTUM_REASONING_AVAILABLE and quantum_reasoning_engine and is_complex_question:
+            try:
+                print(f"⚛️ Complex question detected - engaging quantum reasoning...")
+                
+                # Prepare context for quantum reasoning
+                quantum_context = {
+                    'emotion': emotional_context if emotional_context else 'neutral',
+                    'relationship_level': 'close_friend' if 'best friend' in (relationship_context or '') else 'friend',
+                    'situation': 'philosophical' if any(w in user_input.lower() for w in ['why', 'meaning', 'purpose']) else 'analytical'
+                }
+                
+                # Perform quantum reasoning
+                reasoning_result = quantum_reasoning_engine.reason_with_uncertainty(user_input, quantum_context)
+                
+                if reasoning_result and reasoning_result.get('reasoning'):
+                    quantum_reasoning_context = f"\n⚛️ QUANTUM REASONING (confidence: {reasoning_result['confidence']:.2f}):\n"
+                    quantum_reasoning_context += f"{reasoning_result['reasoning']}\n"
+                    quantum_reasoning_context += f"(Explored {reasoning_result['paths_explored']} parallel reasoning paths)\n"
+                    
+                    # Include alternative perspectives if uncertainty is high
+                    if reasoning_result['confidence'] < 0.7 and reasoning_result.get('alternatives'):
+                        quantum_reasoning_context += f"\nAlternative perspectives considered:\n"
+                        for alt in reasoning_result['alternatives'][:2]:
+                            quantum_reasoning_context += f"- {alt[:100]}...\n"
+                    
+                    print(f"⚛️ Quantum reasoning generated (confidence: {reasoning_result['confidence']:.2f})")
+                    
+            except Exception as e:
+                print(f"⚠️ Quantum reasoning error: {e}")
+        
         # 🧠 Get relevant memories for context (especially for roasting/recall requests)
         memory_context = ""
         try:
@@ -3815,7 +3873,7 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
                     if TRANSFORMER_CONFIG.get("supervised_learning", False):
                         try:
                             # Generate Ollama response for comparison
-                            ollama_reply, ollama_success = _generate_ollama_reply(enhanced_input, username, source, memory_context)
+                            ollama_reply, ollama_success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context)
                             if ollama_success:
                                 ollama_quality = calculate_response_quality(ollama_reply, enhanced_input)
                                 
@@ -3844,20 +3902,20 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
                     # Fallback to Ollama
                     print(f"🧠 ❌ CUSTOM TRANSFORMER FAILED - Falling back to Ollama")
                     print(f"🧠 ======================================")
-                    reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context)
+                    reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context)
                     transformer_failure_count += 1
                     
             except Exception as transformer_error:
                 print(f"❌ Custom transformer error: {transformer_error}")
                 # Fallback to Ollama
-                reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context)
+                reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context)
                 transformer_failure_count += 1
                 
         else:
             # Default to Ollama (Hermes)
             print(f"🦙 Using Ollama (Hermes)")
             hermes_response_count += 1
-            reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context)
+            reply, success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context)
             
         
         # Detect mood for voice and memory (use original input, not enhanced)
@@ -4187,7 +4245,7 @@ Answer {username}'s question directly and concisely: {user_input}"""
                     # For Discord, use a more lenient retry
                     if source == "discord":
                         print("🎮 Using Discord-specific retry with higher token limits...")
-                    retry_reply, retry_success = _generate_ollama_reply(enhanced_input, username, source, memory_context)
+                    retry_reply, retry_success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context)
                     if retry_reply and len(retry_reply.strip()) > 0:
                         reply = retry_reply
                         success = retry_success
@@ -4225,7 +4283,7 @@ def _generate_huggingface_reply(user_input: str, username: str = "Chris", source
     print("🤖 Hugging Face model not available, falling back to Ollama")
     return _generate_ollama_reply(user_input, username, source, memory_context)
 
-def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str = "gui", memory_context: str = ""):
+def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str = "gui", memory_context: str = "", quantum_reasoning_context: str = ""):
     """Generate reply using Ollama with Hermes model"""
     print(f"🤖 Calling Ollama with optimized settings")
     
@@ -4242,6 +4300,10 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
     prompt = build_prompt(enhanced_input, is_twitch_message=(source=='twitch'), twitch_username=username if source=='twitch' else None, username=username, source=source)
     if memory_context:
         prompt += memory_context
+    
+    # Add quantum reasoning context if available
+    if quantum_reasoning_context:
+        prompt += quantum_reasoning_context
     
     # Prepare messages for Ollama with optimized settings
     messages = [

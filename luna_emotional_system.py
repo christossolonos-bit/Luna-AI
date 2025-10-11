@@ -1089,11 +1089,16 @@ def get_emotional_context() -> str:
     return ""
 
 def process_interaction_emotions(user_message: str, luna_response: str, 
-                                relationship_level: str = 'acquaintance'):
-    """Update Luna's emotions after interaction"""
+                                relationship_level: str = 'acquaintance',
+                                platform: str = 'gui', username: str = 'User'):
+    """Update Luna's GLOBAL emotions after interaction (affects all platforms)"""
     if emotional_system:
         emotional_system.process_interaction_emotions(
-            user_message, luna_response, relationship_level
+            user_message=user_message,
+            luna_response=luna_response,
+            relationship_level=relationship_level,
+            platform=platform,
+            username=username
         )
 
 def get_emotional_state() -> Dict:
