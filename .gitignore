@@ -24,11 +24,13 @@ voice_transcriber_config.json
 credentials.json
 auth.json
 
-# Database files (uncomment if you don't want to track databases)
+# Database files - Always exclude (too large for GitHub)
 *.db
 *.db-journal
 *.sqlite
 *.sqlite3
+luna_memories.db
+luna_dna_memory.db
 
 # Python
 __pycache__/
