@@ -1,0 +1,155 @@
+# Environment variables and secrets
+.env
+.env.local
+.env.*.local
+*.env
+
+# API keys and tokens
+*_token.txt
+*_config.json
+*token*
+*_key.txt
+*_secret.txt
+openai_api_config.json
+discord_config.json
+twitch_config.json
+audio_device_config.json
+voice_transcriber_config.json
+
+# Authentication files
+*.pem
+*.key
+*.cert
+*.p12
+credentials.json
+auth.json
+
+# Database files (uncomment if you don't want to track databases)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+*.pkl
+*.pt
+
+# Virtual environments
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Cache files
+*.cache
+cache/
+.cache/
+tts_cache/
+streaming_cache/
+memory_cache/
+
+# Temporary files
+*.tmp
+*.temp
+temp/
+tmp/
+
+# Audio files (if large)
+*.mp3
+*.wav
+*.ogg
+*.flac
+sounds/*.mp3
+sounds/*.wav
+
+# Model files (if large)
+*.bin
+*.onnx
+*.safetensors
+models/
+*.gguf
+*.ggml
+
+# Compressed files
+*.zip
+*.rar
+*.7z
+*.tar.gz
+
+# Backup files
+*.bak
+*.backup
+*_backup.*
+
+# Lock files
+*.lock
+*.pid
+
+# JSON data files with user info
+twitch_users.json
+discord_users.json
+luna_pairing_data.json
+
+# Training data
+training_log.json
+performance_optimization_results.json
+
+# Compressed memories
+compressed_memories/
+
+# Build artifacts
+*.exe
+*.dll
+*.so
+*.dylib
+
+# OS files
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Package manager
+poetry.lock
+Pipfile.lock
+
+# Documentation build
+docs/_build/
+site/
+
