@@ -1494,12 +1494,12 @@ TRANSFORMER_CONFIG = {
 # 🚀 Performance-optimized Ollama configuration
 OLLAMA_CONFIG = {
     "model": "mistral:7b",
-    "temperature": 0.8,  # Balanced temperature for good responses
-    "top_p": 0.9,  # Better generation quality
-    "top_k": 80,  # More variety in responses
-    "repeat_penalty": 1.1,
-    "num_ctx": 2048,  # OPTIMIZED: Further reduced for GUI responsiveness
-    "num_predict": 200,  # OPTIMIZED: Shorter for faster responses
+    "temperature": 0.6,  # Reduced for faster generation
+    "top_p": 0.7,  # Reduced for speed
+    "top_k": 40,  # Reduced for faster generation
+    "repeat_penalty": 1.05,  # Reduced for speed
+    "num_ctx": 1024,  # OPTIMIZED: Further reduced for GUI responsiveness
+    "num_predict": 100,  # OPTIMIZED: Much shorter for faster responses
     "stop": ["User:", "Luna:"],  # Only stop on role changes, not on double newlines
     "stream": False,  # Disable streaming for faster responses
 }
@@ -2633,19 +2633,7 @@ def research_memory_database(user_input: str, limit: int = 10, context_type: str
     start_operation("memory_research")
     try:
         # Try to use hybrid retrieval system if available for enhanced ranking
-        # BM25 and Hybrid systems removed
-                print(f"⚠️ Hybrid retrieval error: {e}, falling back to BM25")
-        
-        # Fallback to BM25 system if available
-        try:
-                        bm25_result = bm25_research_memory_database(user_input, limit)
-            if bm25_result and bm25_result != "No relevant memories found for this query.":
-                print(f"🧠 BM25 research found relevant context for: {user_input[:50]}...")
-                return f"📚 RELEVANT CONTEXT (BM25 ranked):\n{bm25_result}"
-        except ImportError:
-            print("⚠️ BM25 system not available, using keyword search")
-        except Exception as e:
-            print(f"⚠️ BM25 research error: {e}, using keyword search")
+        # BM25 and Hybrid systems removed - using keyword search
         
         # Fallback to original keyword-based search
         with db_lock:
@@ -2782,27 +2770,7 @@ def get_relevant_memories(user_input: str, limit: int = 5):
                 print(f"🚀 Memory cache hit for: '{user_input[:30]}...'")
                 return cached_result
         
-        # OPTIMIZATION: Use direct BM25 call with timeout protection
-        try:
-                        
-            # Use timeout wrapper to prevent hanging
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(bm25_search_memories, user_input, limit)
-                try:
-                    bm25_memories = future.result(timeout=1.0)  # 1 second max
-                    if bm25_memories:
-                        result = " | ".join(bm25_memories)
-                        print(f"🧠 BM25 retrieved {len(bm25_memories)} memories (fast)")
-                        _cache_memory_result(cache_key, result)
-                        return result
-                except concurrent.futures.TimeoutError:
-                    print(f"⚠️ BM25 retrieval timeout, skipping for speed")
-                    return ""
-        except ImportError:
-            pass
-        except Exception as e:
-            print(f"⚠️ BM25 error (non-blocking): {e}")
+        # BM25 system removed - skip memory retrieval for speed
         
         # Skip memory retrieval for speed - GUI responsiveness is priority
         return ""
@@ -2881,7 +2849,6 @@ def save_memory_with_rag(memory_type: str, content: str, mood: str = "soft", imp
             
             # Add to mind-map system if available
             # Mind-map system removed
-                    print(f"⚠️ Error adding to mind-map: {mindmap_error}")
             
     except Exception as e:
         # Silently continue without saving to avoid blocking the main conversation
@@ -3193,11 +3160,7 @@ def research_memories_manual(query: str, context_type: str = "all"):
     """Manually trigger memory research"""
     print(f"🔍 Researching memories for: '{query}'")
     try:
-        # Try mind-map search first for user profile queries
-        # Mind-map system removed
-                print(f"⚠️ Mind-map search error: {e}")
-        
-        # Fallback to regular research
+        # Mind-map system removed - using regular research
         results = research_memory_database(query, limit=10, context_type=context_type)
         if results:
             print("📚 Research Results:")
@@ -3217,7 +3180,7 @@ def get_user_profile_info(query: str = "") -> str:
     try:
         if query:
             # Search for specific information
-            results = # # search_user_profile(query, limit=10)
+            results = search_user_profile(query, limit=10)
             if results:
                 profile_info = f"User Profile Information for '{query}':\n"
                 for result in results:
@@ -3227,7 +3190,7 @@ def get_user_profile_info(query: str = "") -> str:
                 return f"No information found about '{query}' in user profile"
         else:
             # Get complete profile summary
-            summary = # # get_user_profile_summary()
+            summary = get_user_profile_summary()
             profile_info = "Complete User Profile Summary:\n\n"
             
             for category, items in summary.items():
@@ -4501,7 +4464,8 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
         # 🎭 Trigger VSeeFace expressions based on Luna's response content and mood
         # (Safety: Twitch chat mode is already enabled/disabled in twitch_chat_callback)
         try:
-            expression_triggered = # # check_triggers(reply, mood)
+            # Expression system removed
+            expression_triggered = False
             if expression_triggered:
                 print(f"🎭 Expression triggered for Luna's response (mood: {mood})")
         except Exception as e:
@@ -4631,10 +4595,10 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
         if memory_context:
             prompt += f"\n\n{memory_context}"
     else:
-        # Use full context for GUI
-        prompt = build_prompt(enhanced_input, is_twitch_message=(source=='twitch'), twitch_username=username if source=='twitch' else None, username=username, source=source)
+        # Use SIMPLIFIED prompt for GUI to prevent timeouts (was causing 9+ second delays)
+        prompt = get_luna_core_prompt()  # Use same lightweight prompt as Discord/Twitch
         if memory_context:
-            prompt += memory_context
+            prompt += f"\n\n{memory_context}"
     
     # Add creative thinking context if available (only for GUI)
     if creative_thinking_context and source == 'gui':
@@ -4707,7 +4671,7 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
         ollama_thread.start()
         
         # Wait for response with platform-specific timeout (increased for Hermes performance)
-        timeout_seconds = 5.0 if source == 'twitch' else 20.0 if source == 'discord' else 90.0
+        timeout_seconds = 5.0 if source == 'twitch' else 20.0 if source == 'discord' else 30.0  # Reduced GUI timeout from 90s to 30s
         try:
             result_type, result_data = response_queue.get(timeout=timeout_seconds)
             if result_type == 'success':
@@ -5555,9 +5519,9 @@ def process_discord_message_from_queue_old(username: str, message_text: str, cha
             
             # Log to self-healing system
             # Self-healing system removed
-                    print(f"⚠️ Retry also failed: {retry_error}")
             
             # Return friendly error without technical details
+        try:
             error_responses = [
                 f"Sorry {username}, I'm a bit distracted right now. Try again?",
                 f"Hmph... brain freeze, {username}. What were you saying?",
@@ -5565,6 +5529,9 @@ def process_discord_message_from_queue_old(username: str, message_text: str, cha
             ]
             import random
             return random.choice(error_responses)
+        except Exception as e:
+            print(f"❌ Error processing Discord message from queue: {e}")
+            return f"Sorry {username}, I'm being scatterbrained right now. Try asking again?"
         
     except Exception as e:
         print(f"❌ Error processing Discord message from queue: {e}")
@@ -5879,7 +5846,7 @@ def luna_instance_processing_thread(instance_name: str):
                     generation_thread.start()
                     
                     # Wait for completion with platform-specific timeout (Twitch=instant, Discord=few seconds, GUI=unlimited)
-                    timeout_seconds = 10.0 if instance_name == 'twitch' else 25.0 if instance_name == 'discord' else 120.0
+                    timeout_seconds = 10.0 if instance_name == 'twitch' else 25.0 if instance_name == 'discord' else 45.0  # Reduced GUI timeout from 120s to 45s
                     generation_thread.join(timeout=timeout_seconds)
                     
                     if generation_thread.is_alive():
@@ -6352,6 +6319,10 @@ def create_gui():
         safe_chat_insert("🌍 Global Awareness: Tracks conversations across all platforms!\n", "system")
         safe_chat_insert("🌟 Emergent Thoughts: Luna's thoughts arise from her memory patterns!\n", "system")
         # Self-healing system removed
+        try:
+            # Memory operations would go here
+            pass
+        except Exception as e:
             safe_chat_insert(f"❌ Error saving memory: {e}\n", "system")
             print(f"❌ Error saving manual memory: {e}")
 
@@ -6519,7 +6490,7 @@ def create_gui():
             query = " ".join(parts[2:])
             safe_chat_insert( f"🔍 Searching mind-map for: '{query}'\n", "system")
             try:
-                results = # # search_user_profile(query, limit=5)
+                results = search_user_profile(query, limit=5)
                 if results:
                     for result in results:
                         safe_chat_insert( f"• {result['type']}: {result['content']} (score: {result['score']:.2f})\n", "system")
@@ -6539,7 +6510,7 @@ def create_gui():
         elif parts[1] == "stats":
             safe_chat_insert( "📊 Mind-map statistics:\n", "system")
             try:
-                mindmap = # # get_mindmap_system()
+                mindmap = get_mindmap_system()
                 if mindmap:
                     stats = mindmap.get_mindmap_stats()
                     safe_chat_insert( f"• Total nodes: {stats['total_nodes']}\n", "system")
@@ -6594,7 +6565,7 @@ def create_gui():
         elif parts[1] == "stats":
             safe_chat_insert( "📊 Hybrid retrieval statistics:\n", "system")
             try:
-                                hybrid_system = get_hybrid_retrieval_system()
+                hybrid_system = get_hybrid_retrieval_system()
                 if hybrid_system:
                     stats = hybrid_system.get_retrieval_stats()
                     safe_chat_insert( f"• Alpha (BM25 weight): {stats['alpha']:.2f}\n", "system")
@@ -6651,7 +6622,7 @@ def create_gui():
         if parts[1] == "status":
             safe_chat_insert( "🧠 Chain of Thought System Status:\n", "system")
             try:
-                                cot_system = get_chain_of_thought_system()
+                cot_system = get_chain_of_thought_system()
                 if cot_system:
                     stats = cot_system.get_cot_stats()
                     safe_chat_insert( f"• System: {stats['system_name']}\n", "system")
@@ -6663,10 +6634,9 @@ def create_gui():
                     safe_chat_insert( "❌ CoT system not initialized\n", "system")
             except Exception as e:
                 safe_chat_insert( f"❌ Error: {e}\n", "system")
-        
         elif parts[1] == "toggle":
             try:
-                                cot_system = get_chain_of_thought_system()
+                cot_system = get_chain_of_thought_system()
                 if cot_system:
                     cot_system.cot_enabled = not cot_system.cot_enabled
                     status = "enabled" if cot_system.cot_enabled else "disabled"
@@ -6675,10 +6645,9 @@ def create_gui():
                     safe_chat_insert( "❌ CoT system not initialized\n", "system")
             except Exception as e:
                 safe_chat_insert( f"❌ Error: {e}\n", "system")
-        
         elif parts[1] == "debug":
             try:
-                                cot_system = get_chain_of_thought_system()
+                cot_system = get_chain_of_thought_system()
                 if cot_system:
                     cot_system.cot_debug = not cot_system.cot_debug
                     status = "enabled" if cot_system.cot_debug else "disabled"
@@ -6692,7 +6661,7 @@ def create_gui():
             test_question = " ".join(parts[2:])
             safe_chat_insert( f"🧠 Testing CoT with: '{test_question}'\n", "system")
             try:
-                                cot_system = get_chain_of_thought_system()
+                cot_system = get_chain_of_thought_system()
                 if cot_system:
                     question_type = cot_system.detect_question_type(test_question)
                     cot_process = cot_system.generate_chain_of_thought(test_question, question_type)
@@ -7699,7 +7668,7 @@ def create_gui():
             return
         
         try:
-                        healing = get_self_healing_system()
+            healing = get_self_healing_system()
             if not healing:
                 safe_chat_insert( "❌ Self-Healing System not initialized\n", "system")
                 return
@@ -7734,8 +7703,6 @@ def create_gui():
                 
         except Exception as e:
             safe_chat_insert( f"❌ Error: {e}\n", "system")
-        
-    
     def handle_transformer_status_command(command: str):
         """Handle custom transformer status commands"""
         try:
@@ -8117,7 +8084,7 @@ def create_gui():
         
         # Check for memory commands
         if user_message.lower().startswith('/remember'):
-            handle_memory_command(user_message, username)
+            # handle_memory_command removed
             entry.delete(0, tk.END)
             return
         
