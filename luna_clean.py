@@ -26,7 +26,7 @@ OLLAMA_CONFIG = {
     "num_gpu": 1,         # Use GPU
     "stop": ["User:", "Chris:", "\n\n\n"]
 }
-
+ 
 
 class LunaClean:
     """Clean Luna implementation with DNA memory"""
