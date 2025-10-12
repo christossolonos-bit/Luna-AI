@@ -5277,9 +5277,12 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
         if not luna_instances['discord']['running']:
             start_luna_instance('discord')
         
-        # Add message to Discord Luna instance queue
-        luna_instances['discord']['message_queue'].put((username, message_text, channel))
-        print(f"💬 Queued Discord message from {username} for Luna Discord instance")
+        # Add message to Discord Luna instance queue (only once)
+        if not luna_instances['discord']['message_queue'].full():
+            luna_instances['discord']['message_queue'].put((username, message_text, channel))
+            print(f"💬 Queued Discord message from {username} for Luna Discord instance")
+        else:
+            print(f"⚠️ Discord message queue full, skipping duplicate message from {username}")
         
         # Wait for response from Discord Luna instance (with timeout)
         try:
