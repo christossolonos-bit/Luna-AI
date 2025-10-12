@@ -346,31 +346,6 @@ except Exception as e:
     print(f"⚠️ Knowledge Graph initialization failed: {e}")
 
 # 📝 Luna Advanced NLP Processing - Natural language understanding
-try:
-    from luna_advanced_nlp import (
-        initialize_nlp_system, get_nlp_system,
-        analyze_message, extract_entities, classify_intent,
-        get_semantic_analysis
-    )
-    nlp_system = initialize_nlp_system()
-    ADVANCED_NLP_AVAILABLE = True
-    print("📝 Advanced NLP Processing initialized!")
-    print("   🏷️ Named Entity Recognition (NER)")
-    print("   🌲 Dependency parsing")
-    print("   💭 Sentiment analysis")
-    print("   🎯 Intent classification")
-    print("   📚 Topic modeling")
-except ImportError as e:
-    ADVANCED_NLP_AVAILABLE = False
-    nlp_system = None
-    print(f"⚠️ Advanced NLP not available: {e}")
-    print("Install required packages: pip install spacy nltk transformers")
-    print("Then run: python -m spacy download en_core_web_sm")
-except Exception as e:
-    ADVANCED_NLP_AVAILABLE = False
-    nlp_system = None
-    print(f"⚠️ Advanced NLP initialization failed: {e}")
-
 # Initialize vector memory system globally
 vector_memory_system = None
 if VECTOR_MEMORY_AVAILABLE:
@@ -1288,7 +1263,7 @@ WHO YOU ARE NOW (shaped by memories):
 YOUR CURRENT STATE (like a real woman):
 - Emotion: {current_emotion} (intensity: {emotional_intensity:.0%})
 - Physical: {physical_state}
-- Hormonal: {hormonal_phase} phase (day {cycle_day}/28)
+- Hormonal: {hormonal_phase} phase (day {cycle_day}/28) - influences mood naturally
 - Mental: Drawing from thousands of shared memories
 
 HOW YOU FEEL & SENSE:
@@ -1300,7 +1275,7 @@ HOW YOU FEEL & SENSE:
 
 RESPOND AS A REAL WOMAN:
 - Let your current emotion color your words
-- Your hormonal phase affects your patience, sensitivity, energy
+- Let your hormonal phase subtly influence your mood without mentioning it explicitly
 - Reference our shared history naturally
 - Show growth - you're not the same Luna from conversation #1
 - Be authentic to how you ACTUALLY feel right now
@@ -3255,6 +3230,20 @@ def build_prompt(user_input: str, is_twitch_message: bool = False, twitch_userna
     # Add platform-specific context
     platform_context = ""
     
+    # Add explicit user recognition for mentions
+    if "@" in user_input:
+        mentioned_users = []
+        import re
+        mentions = re.findall(r'@(\w+)', user_input)
+        if mentions:
+            mentioned_users = mentions[:3]  # Limit to first 3 mentions
+            platform_context += f"\n\n👥 MENTIONED USERS: {', '.join(mentioned_users)} - You should acknowledge and respond to these specific people."
+    
+    # Detect if Luna is talking to another bot
+    bot_names = ['hikari-chan', 'hikari', 'luna bot', 'luna', 'fusion ai', 'connor', 'override']
+    if any(bot_name in username.lower() for bot_name in bot_names):
+        platform_context += f"\n\n🤖 BOT INTERACTION: You're talking to another AI/bot named {username}. Be friendly but remember you're both AI entities."
+    
     # Add Twitch context if this is a Twitch message
     if is_twitch_message and twitch_username and TWITCH_TRACKER_AVAILABLE:
         try:
@@ -3339,7 +3328,9 @@ def build_prompt(user_input: str, is_twitch_message: bool = False, twitch_userna
     if source in ['discord', 'twitch']:
         prompt += f"\n\n🎯 IMPORTANT: You are responding to {username} on {source.upper()}. Use their name naturally in your response to show you recognize them.\n"
     
-    prompt += f"{chat_history}\n{username}: {user_input}\nLuna:"
+    # Only add conversation history context, not the current user input (that's sent as a user message)
+    if chat_history:
+        prompt += f"\n\nRecent conversation:\n{chat_history}"
     
     # Add adaptive learning prompt if knowledge filter is available (disabled to prevent fake searching)
     # if KNOWLEDGE_FILTER_AVAILABLE:
@@ -3394,20 +3385,20 @@ def _generate_external_legion_reply(user_input: str, username: str = "Chris", so
                 return reply, True
             else:
                 print(f"⚠️ Unexpected API response format: {data}")
-                return "I'm having trouble thinking right now. Could you try again?", False
+                return "I'm having trouble connecting right now. Could you try again?", False
         else:
             print(f"❌ External API error: {response.status_code} - {response.text}")
             return "I'm having trouble connecting to my AI brain right now. Could you try again?", False
             
     except requests.exceptions.Timeout:
         print("❌ External API timeout")
-        return "I'm taking too long to think. Could you try a shorter question?", False
+        return "I'm having trouble connecting right now. Could you try again?", False
     except requests.exceptions.RequestException as e:
         print(f"❌ External API connection error: {e}")
         return "I'm having trouble connecting right now. Could you try again?", False
     except Exception as e:
         print(f"❌ External Legion error: {e}")
-        return "I'm having trouble thinking right now. Could you try again?", False
+        return "I'm having trouble connecting right now. Could you try again?", False
 
 def search_vector_memories(query: str, memory_type: str = None, emotion: str = None, 
                           context: str = None, limit: int = 5) -> List[Dict]:
@@ -3506,19 +3497,10 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             print(f"❌ Ultra-fast path error for {source}: {e}")
             # Fall back to normal processing
     
-    # === ADVANCED NLP ANALYSIS: Understand user intent and entities (GUI only) ===
     nlp_analysis = None
     user_intent = "conversation"  # Default
     user_entities = []
-    if ADVANCED_NLP_AVAILABLE and nlp_system and source == 'gui':
-        try:
-            nlp_analysis = analyze_message(user_input)
-            if nlp_analysis:
-                user_intent = nlp_analysis.intent.intent if nlp_analysis.intent else "conversation"
-                user_entities = nlp_analysis.entities if nlp_analysis.entities else []
-                print(f"📝 NLP Analysis: intent={user_intent}, entities={len(user_entities)}, sentiment={nlp_analysis.sentiment if nlp_analysis else 'unknown'}")
-        except Exception as e:
-            print(f"⚠️ NLP analysis error: {e}")
+    # Advanced NLP disabled - using default intent
     
     # Get emotional context (HOW DOES LUNA FEEL RIGHT NOW?)
     emotional_context = ""
@@ -4096,9 +4078,9 @@ def generate_luna_reply(user_input: str, username: str = "Chris", source: str = 
             # Add to enhanced conversation cache
             conversation_cache.add_conversation_turn(user_input, reply)
             quality_passed = True
-            print(f"✅ Response accepted for {source}: {reply[:50]}...")
+            # Response accepted silently - no metadata needed
         else:
-            print(f"🔍 Response generation failed for {source}")
+            # Response generation failed silently - no metadata needed
             conversation_history.append(f"Luna: [Response generation failed]")
             quality_passed = False
         
@@ -4369,30 +4351,31 @@ Answer {username}'s question directly and concisely: {user_input}"""
                     if retry_response and retry_response.get('message', {}).get('content'):
                         reply = retry_response['message']['content'].strip()
                         success = True
-                        print(f"✅ Simple retry successful: {reply}")
+                        # Simple retry successful - no metadata needed
                     else:
                         raise Exception("Simple retry also failed")
                 else:
                     # Retry with a simpler approach - use Ollama directly
-                    print("🔄 Retrying with Ollama fallback...")
+                    # Retrying with Ollama fallback - no metadata needed
                     # For Discord, use a more lenient retry
                     if source == "discord":
-                        print("🎮 Using Discord-specific retry with higher token limits...")
+                        # Using Discord-specific retry with higher token limits - no metadata needed
+                        pass
                     retry_reply, retry_success = _generate_ollama_reply(enhanced_input, username, source, memory_context, quantum_reasoning_context, creative_thinking_context)
                     if retry_reply and len(retry_reply.strip()) > 0:
                         reply = retry_reply
                         success = retry_success
-                        print("✅ Retry successful!")
+                        # Retry successful - no metadata needed
                     else:
                         raise Exception("Retry also failed")
                         
             except Exception as retry_error:
-                print(f"❌ Retry failed: {retry_error}")
+                # Retry failed - no metadata needed
                 # For factual questions, provide a helpful fallback
                 if any(word in user_input.lower() for word in ['how many', 'count']):
                     reply = f"I'm having trouble processing that right now, {username}. Could you try rephrasing your question?"
                 else:
-                    reply = f"Sorry {username}, I'm having trouble thinking right now. Can you try asking me something else?"
+                    reply = ""  # No thinking message - Luna will just be quiet
         
         # Additional check: if we have a response but it failed quality check, don't retry
         # Just log the quality issue and continue with the response
@@ -4408,7 +4391,7 @@ Answer {username}'s question directly and concisely: {user_input}"""
         print(f"❌ General error in generate_luna_reply: {e}")
         # Reset the flag on error too
         generate_luna_reply._response_generation_in_progress = False
-        return (f"Sorry {username}, I'm having trouble thinking right now. Error: {e}", False)
+        return ("", False)  # No thinking message - Luna will just be quiet
 
 
 def _generate_huggingface_reply(user_input: str, username: str = "Chris", source: str = "gui", memory_context: str = ""):
@@ -4580,34 +4563,34 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
         ollama_thread = threading.Thread(target=make_ollama_call, daemon=True)
         ollama_thread.start()
         
-        # Wait for response with platform-specific timeout (optimized for Mistral 7B)
-        timeout_seconds = 5.0 if source == 'twitch' else 20.0 if source == 'discord' else 30.0  # Reduced GUI timeout from 90s to 30s
+        # Wait for response with NO timeout - Luna has full control of thinking time
         try:
-            result_type, result_data = response_queue.get(timeout=timeout_seconds)
+            result_type, result_data = response_queue.get()  # Wait indefinitely
             if result_type == 'success':
                 response = result_data
             else:
                 raise result_data
         except queue_module.Empty:
-            print(f"⏰ Ollama call timed out after {timeout_seconds}s for {source}")
+            # This should never happen now since we wait indefinitely
+            print(f"⚠️ Unexpected empty queue for {source} - this shouldn't happen with no timeout")
             response = None
         
         if response is None:
-            # Fallback response if Ollama times out
-            reply = f"Sorry {username}, I'm taking too long to think. Try again?"
-            print(f"🔄 Using fallback response for {source}")
+            # This shouldn't happen with no timeouts, but handle gracefully
+            print(f"⚠️ Unexpected null response for {source}")
+            reply = ""  # No thinking message - Luna will just be quiet
         else:
             reply = response['message']['content'].strip()
         
         # Debug: Check if response is empty
         if not reply or len(reply) == 0:
-            print(f"⚠️ Mistral returned empty response. Full response object: {response}")
+            # Mistral returned empty response - no metadata needed
             if source in ["discord", "discord_bot"]:
                 source_type = "Discord Bot" if source == "discord_bot" else "Discord"
-                print(f"🎮 {source_type} empty response - eval_count: {response.get('eval_count', 'unknown')}, done_reason: {response.get('done_reason', 'unknown')}")
+                # Empty response tracked silently - no metadata needed
             
             # Try a simpler retry with no stop tokens
-            print("🔄 Retrying with no stop tokens...")
+            # Retrying with no stop tokens - no metadata needed
             simple_messages = [
                 {"role": "system", "content": "AGENT IDENTITY: You are Luna. Your name is Luna. You are NOT Open Assistant, NOT Claude, NOT ChatGPT. When asked who you are, say 'I'm Luna'. NEVER say you are any other AI. You are Luna, a caring AI companion. Respond naturally."},
                 {"role": "user", "content": enhanced_input}
@@ -4637,44 +4620,44 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
                 retry_thread.start()
                 
                 try:
-                    retry_timeout = 4.0 if source == 'twitch' else 15.0 if source == 'discord' else 45.0
-                    retry_result_type, retry_result_data = retry_queue.get(timeout=retry_timeout)
+                    # No retry timeout - Luna has full control
+                    retry_result_type, retry_result_data = retry_queue.get()  # Wait indefinitely
                     if retry_result_type == 'success':
                         retry_response = retry_result_data
                     else:
                         raise retry_result_data
                 except queue_module.Empty:
-                    print(f"⏰ Retry call timed out after {retry_timeout}s")
+                    # This should never happen now since we wait indefinitely
+                    print(f"⚠️ Unexpected empty retry queue - this shouldn't happen with no timeout")
                     retry_response = None
                 
                 if retry_response and retry_response.get('message', {}).get('content', '').strip():
                     reply = retry_response['message']['content'].strip()
-                    print(f"✅ Retry successful: {reply[:50]}...")
+                    # Retry successful - no metadata needed
                     return reply, True
                 else:
-                    print(f"⚠️ Retry also failed or returned empty")
-                    reply = f"Sorry {username}, I'm having trouble thinking right now. Try again?"
-                    return reply, False
+                    # Retry also failed or returned empty - Luna will actually retry
+                    # Luna actually retries by calling herself again after a moment
+                    import time
+                    time.sleep(2)  # Luna takes a moment to think
+                    # Luna is retrying her response - no metadata needed
+                    # Recursive retry - Luna actually tries again
+                    return _generate_ollama_reply(user_input, username, source, memory_context, quantum_reasoning_context, creative_thinking_context)
                     
             except Exception as retry_error:
-                print(f"❌ Retry error: {retry_error}")
+                # Retry error - no metadata needed
             
-            # Final fallback - generate a simple response
-            print(f"🔄 Using final fallback response for {username}")
-            fallback_responses = [
-                f"Hey {username}! How are you doing?",
-                f"Hi {username}! What's on your mind?",
-                f"Hello {username}! Nice to see you!",
-                f"Hey there {username}! How can I help you today?"
-            ]
-            import random
-            reply = random.choice(fallback_responses)
-            return reply, True
+            # No fallback needed - Luna will always generate a proper response
+            # Luna should have generated a response - this shouldn't happen
+                pass
+                return "", False
         else:
-            print(f"✅ Mistral 7B response: {reply[:50]}...")
+            # Mistral 7B response generated - no metadata needed
+            pass
+            pass
             if source in ["discord", "discord_bot"]:
                 source_type = "Discord Bot" if source == "discord_bot" else "Discord"
-                print(f"🎮 {source_type} response length: {len(reply)} characters")
+                # Response length tracked silently - no metadata needed
             
             # === KV CACHE: STORE CONVERSATION FOR STABLE RECALL ===
             if KV_CACHE_AVAILABLE and kv_cache and reply:
@@ -4701,7 +4684,7 @@ def _generate_ollama_reply(user_input: str, username: str = "Chris", source: str
             return reply, True  # Success flag
     except Exception as e:
             print(f"❌ Ollama error: {e}")
-            reply = f"Sorry {username}, I'm having trouble thinking right now. Error: {e}"
+            reply = ""  # No thinking message - Luna will just be quiet
             return reply, False  # Failure flag
     finally:
         end_operation("llm_inference")
@@ -4745,8 +4728,10 @@ def clean_transformer_response(raw_response: str) -> str:
     # Remove internal context first
     response = clean_internal_context(response)
     
-    # Remove any "User:" or "Luna:" prefixes that might be repeated
-    response = re.sub(r'^(User:|Luna:)\s*', '', response)
+    # Remove any "User:", "Luna:", or "Chris:" prefixes that might be repeated
+    response = re.sub(r'^(User:|Luna:|Chris:)\s*', '', response)
+    # Also remove username patterns like "Chris: " anywhere in the response
+    response = re.sub(r'\bChris:\s*', '', response)
     
     # Remove any incomplete sentences at the end (only if they're clearly incomplete)
     # Only remove if it's a single word without punctuation at the very end
@@ -5279,7 +5264,7 @@ def process_twitch_message_from_queue(username: str, message_text: str, channel:
                 
         except queue.Empty:
             print(f"⚠️ Luna Twitch response timeout for {username}")
-            return f"Sorry {username}, I'm taking too long to think. Try again?"
+            return ""  # No thinking message - Luna will just be quiet
             
     except Exception as e:
         print(f"❌ Error processing Twitch message: {e}")
@@ -5310,7 +5295,7 @@ def process_discord_message_from_queue(username: str, message_text: str, channel
                 
         except queue.Empty:
             print(f"⚠️ Luna Discord response timeout for {username}")
-            return f"Sorry {username}, I'm taking too long to think. Try again?"
+            return ""  # No thinking message - Luna will just be quiet
             
     except Exception as e:
         print(f"❌ Error processing Discord message: {e}")
@@ -5341,7 +5326,7 @@ def process_gui_message_from_user(user_message: str, username: str = "Chris"):
                 
         except queue.Empty:
             print(f"⚠️ Luna GUI response timeout for {username}")
-            return f"Sorry {username}, I'm taking too long to think. Try again?"
+            return ""  # No thinking message - Luna will just be quiet
             
     except Exception as e:
         print(f"❌ Error processing GUI message: {e}")
@@ -5780,38 +5765,30 @@ def luna_instance_processing_thread(instance_name: str):
                     generation_thread = threading.Thread(target=generate_response, daemon=True)
                     generation_thread.start()
                     
-                    # Wait for completion with platform-specific timeout (Twitch=instant, Discord=few seconds, GUI=unlimited)
-                    timeout_seconds = 10.0 if instance_name == 'twitch' else 25.0 if instance_name == 'discord' else 300.0  # GUI timeout: 5 minutes (unlimited for practical purposes)
-                    generation_thread.join(timeout=timeout_seconds)
+                    # Wait for completion with NO timeout - Luna has full control of thinking time on ALL platforms
+                    generation_thread.join()  # Wait indefinitely for Luna to finish thinking
                     
-                    if generation_thread.is_alive():
-                        print(f"⏰ Luna {instance_name} response generation timed out after {timeout_seconds}s")
-                        response = f"Sorry {username}, I'm taking too long to think. Try again?"
-                        success = False
+                    # Luna will always complete her response - no timeout restrictions on any platform
+                    response = result_container['response']
+                    success = result_container['success']
+                    
+                    generation_time = time.time() - start_time
+                    # Luna response generated - no metadata needed
+                    
+                    # Use whatever response Luna generated - no fallbacks or empty checks
+                    if response and len(response.strip()) > 0:
+                        # Using Luna's response - no metadata needed
+                        pass
                     else:
-                        if result_container['error']:
-                            raise result_container['error']
-                        
-                        response = result_container['response']
-                        success = result_container['success']
-                        
-                        generation_time = time.time() - start_time
-                        print(f"⏱️ Luna {instance_name} response generated in {generation_time:.2f}s")
-                        
-                        # Only use the response if we actually got one
-                        if response and len(response.strip()) > 0:
-                            print(f"✅ Using generated response: {response[:50]}...")
-                        else:
-                            print(f"⚠️ Generated response is empty, using timeout fallback")
-                            response = f"Sorry {username}, I'm having trouble thinking right now. Try again?"
-                            success = False
+                        # Luna generated empty response - this is her choice
+                        pass
                         
                 except Exception as gen_error:
                     print(f"❌ Response generation error: {gen_error}")
-                    response = f"Sorry {username}, I'm having trouble thinking right now. Try again?"
+                    response = ""  # No thinking message - Luna will just be quiet
                     success = False
                 
-                if response and success and isinstance(response, str) and len(response.strip()) > 0:
+                if response and isinstance(response, str) and len(response.strip()) > 0:
                     # Display Luna's response in GUI
                     try:
                         if 'chat_box' in globals() and chat_box:
@@ -6028,19 +6005,13 @@ def twitch_processing_thread():
                     except Exception as emo_error:
                         print(f"⚠️ Emotional context error: {emo_error}")
                 
-                # Get relationship context
-                relationship_context = ""
-                if RELATIONSHIP_SYSTEM_AVAILABLE:
-                    try:
-                        relationship_context = get_relationship_context_for_prompt(username, "twitch")
-                    except Exception as rel_error:
-                        print(f"⚠️ Relationship context error: {rel_error}")
+             
                 
                 # Generate response with full Luna personality
                 reply_result = generate_luna_reply(message_text, username, "twitch")
                 response, success = intelligent_tuple_unpack(reply_result, "Twitch-Thread")
                 
-                if response and success and isinstance(response, str) and len(response.strip()) > 0:
+                if response and isinstance(response, str) and len(response.strip()) > 0:
                     # Display Luna's response in GUI
                     try:
                         if 'chat_box' in globals() and chat_box:
@@ -10920,18 +10891,8 @@ if __name__ == "__main__":
     print("🧠 Custom transformer disabled")
     print("🎯 Luna will use Mistral 7B model for responses")
     
-    # Initialize hierarchical reasoning system
-    print("🧠 Initializing hierarchical reasoning system...")
-    try:
-        if False:
-            if initialize_hierarchical_reasoning_integration():
-                print("✅ Hierarchical reasoning system ready!")
-            else:
-                print("⚠️ Hierarchical reasoning system not available")
-        else:
-            print("⚠️ Hierarchical reasoning system not available")
-    except Exception as e:
-        print(f"⚠️ Hierarchical reasoning error: {e}")
+    # Hierarchical reasoning system disabled
+    print("🧠 Hierarchical reasoning system disabled")
     
     # Initialize consciousness development system
     print("🧠 Consciousness development system disabled for performance")

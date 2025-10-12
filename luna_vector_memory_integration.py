@@ -18,8 +18,8 @@ from datetime import datetime
 import numpy as np
 
 from luna_vector_memory_system import LunaVectorMemorySystem, VectorMemory
-from hybrid_retrieval_system import HybridRetrievalSystem
-from luna_mindmap_system import LunaMindMap, MemoryNode
+# Removed hybrid_retrieval_system - module not available
+# Removed luna_mindmap_system - module not available
 
 class LunaVectorMemoryIntegration:
     """Integrates vector memory system with existing Luna memory systems"""
@@ -27,15 +27,16 @@ class LunaVectorMemoryIntegration:
     def __init__(self, vector_db_path: str = "luna_vector_memories.db",
                  main_db_path: str = "luna_memories.db"):
         self.vector_memory = LunaVectorMemorySystem(vector_db_path)
-        self.hybrid_retrieval = HybridRetrievalSystem()
-        self.mindmap = LunaMindMap(main_db_path)
+        # Removed hybrid_retrieval and mindmap - modules not available
+        self.hybrid_retrieval = None
+        self.mindmap = None
         
         # Integration settings
         self.vector_weight = 0.3  # Weight of vector similarity in hybrid scoring
         self.semantic_weight = 0.4  # Weight of semantic similarity
         self.temporal_weight = 0.3  # Weight of temporal relevance
         
-        print("🧠 Luna Vector Memory Integration initialized")
+        print("🧠 Luna Vector Memory Integration initialized (simplified)")
         print(f"📊 Integration weights: Vector={self.vector_weight}, Semantic={self.semantic_weight}, Temporal={self.temporal_weight}")
     
     def add_memory_with_vector_representation(self, content: str, memory_type: str,
@@ -52,25 +53,10 @@ class LunaVectorMemoryIntegration:
         )
         results['vector_id'] = vector_id
         
-        # 2. Add to mind-map system
-        try:
-            mindmap_id = self.mindmap.add_memory_node(
-                content=content,
-                node_type=self._map_memory_type_to_node_type(memory_type),
-                tags=tags or [],
-                metadata={
-                    'vector_id': vector_id,
-                    'emotion': emotion,
-                    'context': context,
-                    'platform': platform,
-                    'user_id': user_id,
-                    'importance': min(5, max(1, int(importance * 5)))  # Store importance in metadata
-                }
-            )
-            results['mindmap_id'] = mindmap_id
-        except Exception as e:
-            print(f"⚠️ Error adding to mind-map: {e}")
-            results['mindmap_id'] = None
+        # 2. Mind-map system disabled
+        mindmap_id = None
+        print("🧠 Mind-map system disabled")
+        results['mindmap_id'] = None
         
         # 3. Add to hybrid retrieval system (if it has an add method)
         try:
@@ -170,24 +156,9 @@ class LunaVectorMemoryIntegration:
         ]
         
         # 2. Mind-map search
-        try:
-            mindmap_results = self.mindmap.search_mindmap(
-                query, limit=limit
-            )
-            results['mindmap_results'] = [
-                {
-                    'id': node['node'].id,
-                    'content': node['node'].content,
-                    'type': node['node'].node_type,
-                    'importance': node['node'].importance,
-                    'connections': len(node['node'].connections),
-                    'system': 'mindmap'
-                }
-                for node in mindmap_results[:limit]
-            ]
-        except Exception as e:
-            print(f"⚠️ Error in mind-map search: {e}")
-            results['mindmap_results'] = []
+        # Mind-map system disabled
+        results['mindmap_results'] = []
+        print("🧠 Mind-map search disabled")
         
         # 3. Hybrid scoring and ranking
         hybrid_results = self._combine_search_results(
