@@ -5781,7 +5781,7 @@ def luna_instance_processing_thread(instance_name: str):
                     generation_thread.start()
                     
                     # Wait for completion with platform-specific timeout (Twitch=instant, Discord=few seconds, GUI=unlimited)
-                    timeout_seconds = 10.0 if instance_name == 'twitch' else 25.0 if instance_name == 'discord' else 45.0  # Reduced GUI timeout from 120s to 45s
+                    timeout_seconds = 10.0 if instance_name == 'twitch' else 25.0 if instance_name == 'discord' else 300.0  # GUI timeout: 5 minutes (unlimited for practical purposes)
                     generation_thread.join(timeout=timeout_seconds)
                     
                     if generation_thread.is_alive():
@@ -5797,6 +5797,14 @@ def luna_instance_processing_thread(instance_name: str):
                         
                         generation_time = time.time() - start_time
                         print(f"⏱️ Luna {instance_name} response generated in {generation_time:.2f}s")
+                        
+                        # Only use the response if we actually got one
+                        if response and len(response.strip()) > 0:
+                            print(f"✅ Using generated response: {response[:50]}...")
+                        else:
+                            print(f"⚠️ Generated response is empty, using timeout fallback")
+                            response = f"Sorry {username}, I'm having trouble thinking right now. Try again?"
+                            success = False
                         
                 except Exception as gen_error:
                     print(f"❌ Response generation error: {gen_error}")
