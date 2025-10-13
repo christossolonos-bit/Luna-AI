@@ -6,11 +6,11 @@ Create a `.env` file in the Luna Waifu directory with your tokens:
 
 ```bash
 # Twitch Configuration
-TWITCH_ACCESS_TOKEN=i4uj12hcmjn649mpnty4oslg16q4vs
-TWITCH_REFRESH_TOKEN=feqvsqlfk5elj7bz5igsdfiq22khui0tscdifx68z7tzlsvbu8
-TWITCH_CLIENT_ID=gp762nuuoqcoxypju8c569th9wz7q5
-TWITCH_USERNAME=solosluna
-TWITCH_CHANNEL=solonaras
+TWITCH_ACCESS_TOKEN=
+TWITCH_REFRESH_TOKEN=
+TWITCH_CLIENT_ID=
+TWITCH_USERNAME=
+TWITCH_CHANNEL=
 
 # Discord Configuration  
 DISCORD_TOKEN=your_discord_bot_token_here
