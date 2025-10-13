@@ -28,9 +28,13 @@ import discord
 import websocket
 import threading
 import time
+from dotenv import load_dotenv
 from luna_dna_memory import (
     initialize_dna_memory, save_dna_memory, recall_dna_memories, get_dna_memory
 )
+
+# Load environment variables
+load_dotenv()
 
 # Configuration
 OLLAMA_MODEL = "hf.co/subsectmusic/qwriko3-4b-instruct-2507-redux-GGUF:BF16"
@@ -38,9 +42,9 @@ OLLAMA_CONFIG = {
     "temperature": 0.9,
     "top_p": 0.95,
     "num_ctx": 512,      # Reduced for 8GB RAM
-    "num_predict": 50,    # Shorter responses
+    "num_predict": 150,   # Longer responses for complete thoughts
     "num_gpu": 1,         # Use GPU
-    "stop": ["User:", "Chris:", "\n\n\n"]
+    "stop": ["User:", "Chris:", "\n\n\n", "{your name}"]
 }
 
 # TTS Configuration - Edge TTS (Free!)
@@ -55,7 +59,7 @@ TTS_CONFIG = {
 PLATFORM_CONFIG = {
     "discord": {
         "enabled": True,
-        "token_file": "discord_config.json"
+        "token_file": ".env"
     },
     "twitch": {
         "enabled": True,
@@ -99,8 +103,15 @@ class LunaClean:
         self.twitch_ws = None
         self.platform_status = {"discord": False, "twitch": False}
         
+        # Twitch ping/pong system
+        self.twitch_ping_timer = None
+        self.twitch_last_pong = None
+        
         # Load platform tokens
         self._load_platform_tokens()
+        
+        # Auto-connect to platforms
+        self._auto_connect_platforms()
         
         print("✨ Luna is ready!")
     
@@ -137,10 +148,12 @@ class LunaClean:
     
     async def _generate_speech_async(self, text: str):
         """Generate speech using Edge TTS"""
+        temp_path = None
         try:
-            # Create temporary file for audio
-            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
-                temp_path = temp_file.name
+            # Create temporary file for audio with unique name
+            import uuid
+            temp_filename = f"luna_tts_{uuid.uuid4().hex[:8]}.mp3"
+            temp_path = os.path.join(tempfile.gettempdir(), temp_filename)
             
             # Generate speech with Edge TTS
             communicate = edge_tts.Communicate(
@@ -153,6 +166,9 @@ class LunaClean:
             
             await communicate.save(temp_path)
             
+            # Ensure file is completely written before trying to load
+            await asyncio.sleep(0.1)
+            
             # Play the audio file
             pygame.mixer.music.load(temp_path)
             pygame.mixer.music.play()
@@ -161,45 +177,231 @@ class LunaClean:
             while pygame.mixer.music.get_busy():
                 await asyncio.sleep(0.1)
             
-            # Clean up temporary file
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-                
         except Exception as e:
             print(f"Edge TTS error: {e}")
+        finally:
+            # Clean up temporary file with retry mechanism
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    # Wait a bit more to ensure file is released
+                    await asyncio.sleep(0.2)
+                    os.remove(temp_path)
+                except PermissionError:
+                    # File still in use, try again later
+                    print(f"Could not delete temp file {temp_path}, will be cleaned up later")
+                except Exception as cleanup_error:
+                    print(f"Cleanup error: {cleanup_error}")
     
     def _load_platform_tokens(self):
-        """Load platform tokens from config files"""
+        """Load platform tokens from text files or environment variables"""
         try:
-            # Load Discord token
-            if os.path.exists("discord_config.json"):
+            # Load Discord token from text file first, then environment, then config file
+            self.discord_token = None
+            
+            # Try text file first
+            if os.path.exists("discord_token.txt"):
+                with open("discord_token.txt", "r") as f:
+                    self.discord_token = f.read().strip()
+                    print("✅ Discord token loaded from discord_token.txt")
+            
+            # Fallback to environment variable
+            if not self.discord_token:
+                load_dotenv(override=True)
+                self.discord_token = os.getenv("DISCORD_TOKEN")
+                if self.discord_token:
+                    print("✅ Discord token loaded from environment variable")
+            
+            # Final fallback to config file
+            if not self.discord_token and os.path.exists("discord_config.json"):
                 with open("discord_config.json", "r") as f:
                     discord_config = json.load(f)
                     self.discord_token = discord_config.get("token")
-                    print("✅ Discord token loaded")
-            else:
-                self.discord_token = None
-                print("⚠️ Discord config not found")
+                    if self.discord_token:
+                        print("✅ Discord token loaded from discord_config.json")
             
-            # Load Twitch token
-            if os.path.exists("twitch_config.json"):
+            if self.discord_token:
+                # Validate Discord token before marking as loaded
+                if len(self.discord_token) > 50 and "." in self.discord_token:
+                    print("✅ Discord token loaded")
+                else:
+                    print("⚠️ Discord token appears invalid - disabled")
+                    self.discord_token = None
+            else:
+                print("⚠️ Discord token not found")
+            
+            # Load Twitch tokens (environment variables first, then config file)
+            self.twitch_token = os.getenv("TWITCH_ACCESS_TOKEN")
+            self.twitch_client_id = os.getenv("TWITCH_CLIENT_ID")
+            self.twitch_username = os.getenv("TWITCH_USERNAME", "solosluna")
+            self.twitch_channel = os.getenv("TWITCH_CHANNEL", "solonaras")
+            
+            if not self.twitch_token and os.path.exists("twitch_config.json"):
                 with open("twitch_config.json", "r") as f:
                     twitch_config = json.load(f)
                     self.twitch_token = twitch_config.get("token")
+                    self.twitch_client_id = twitch_config.get("client_id")
                     self.twitch_username = twitch_config.get("username", "solosluna")
-                    print("✅ Twitch token loaded")
+                    self.twitch_channel = twitch_config.get("channel", "solonaras")
+            
+            if self.twitch_token:
+                print("✅ Twitch token loaded")
+                print(f"   Channel: #{self.twitch_channel}")
+                print(f"   Username: {self.twitch_username}")
             else:
-                self.twitch_token = None
-                self.twitch_username = "solosluna"
-                print("⚠️ Twitch config not found")
+                print("⚠️ Twitch token not found")
                 
         except Exception as e:
             print(f"Token loading error: {e}")
+    
+    def _auto_connect_platforms(self):
+        """Automatically connect to platforms on startup"""
+        print("🔄 Auto-connecting to platforms...")
+        
+        # Auto-connect Discord
+        if self.discord_token:
+            print("🔗 Auto-connecting to Discord...")
+            try:
+                threading.Thread(target=self._auto_connect_discord, daemon=True).start()
+            except Exception as e:
+                print(f"Discord auto-connect error: {e}")
+        
+        # Auto-connect Twitch
+        if self.twitch_token:
+            print("🔗 Auto-connecting to Twitch...")
+            try:
+                threading.Thread(target=self._auto_connect_twitch, daemon=True).start()
+            except Exception as e:
+                print(f"Twitch auto-connect error: {e}")
+    
+    def _auto_connect_discord(self):
+        """Auto-connect to Discord in background"""
+        try:
+            # Small delay to ensure everything is initialized
+            time.sleep(2)
+            
+            # Reload token from text file to ensure we have the latest
+            if os.path.exists("discord_token.txt"):
+                with open("discord_token.txt", "r") as f:
+                    self.discord_token = f.read().strip()
+                    print("🔄 Reloaded Discord token from discord_token.txt")
+            
+            if not self.discord_token:
+                print("❌ No Discord token found for auto-connect")
+                return
+            
+            print(f"🔗 Attempting Discord connection with token: {self.discord_token[:20]}...")
+            
+            intents = discord.Intents.default()
+            intents.message_content = True
+            intents.guilds = True
+            
+            self.discord_client = discord.Client(intents=intents)
+            
+            @self.discord_client.event
+            async def on_ready():
+                print(f"✅ Discord auto-connected as {self.discord_client.user}")
+                self.platform_status["discord"] = True
+                # Update GUI status display
+                if hasattr(self, 'gui_app') and self.gui_app:
+                    self.gui_app.root.after(0, lambda: self.gui_app.update_status_display())
+            
+            @self.discord_client.event
+            async def on_message(message):
+                if message.author == self.discord_client.user:
+                    return
+                
+                # Process message in background
+                threading.Thread(
+                    target=self._process_discord_message, 
+                    args=(message,), 
+                    daemon=True
+                ).start()
+            
+            @self.discord_client.event
+            async def on_error(event, *args, **kwargs):
+                print(f"Discord error in {event}: {args}")
+                self.platform_status["discord"] = False
+            
+            # Start Discord client
+            asyncio.run(self.discord_client.start(self.discord_token))
+            
+        except Exception as e:
+            print(f"Discord auto-connect failed: {e}")
+            self.platform_status["discord"] = False
+    
+    def _auto_connect_twitch(self):
+        """Auto-connect to Twitch in background"""
+        try:
+            # Small delay to ensure everything is initialized
+            time.sleep(3)
+            
+            def on_message(ws, message):
+                # Handle ping/pong messages
+                if message.startswith("PING"):
+                    ws.send("PONG :tmi.twitch.tv")
+                    self.twitch_last_pong = time.time()
+                    return
+                
+                # Handle regular chat messages
+                threading.Thread(
+                    target=self._process_twitch_message, 
+                    args=(message,), 
+                    daemon=True
+                ).start()
+            
+            def on_error(ws, error):
+                print(f"Twitch WebSocket error: {error}")
+                self._stop_twitch_ping_timer()
+            
+            def on_close(ws, close_status_code, close_msg):
+                print("Twitch WebSocket closed")
+                self.platform_status["twitch"] = False
+                self._stop_twitch_ping_timer()
+            
+            def on_open(ws):
+                print("✅ Twitch auto-connected")
+                self.platform_status["twitch"] = True
+                
+                # Authenticate with Twitch IRC
+                ws.send(f"PASS oauth:{self.twitch_token}")
+                ws.send(f"NICK {self.twitch_username}")
+                
+                # Join channel
+                ws.send(f"JOIN #{self.twitch_channel}")
+                print(f"🎮 Auto-joined Twitch channel: #{self.twitch_channel}")
+                
+                # Start ping timer
+                self._start_twitch_ping_timer(ws)
+                
+                # Update GUI status display
+                if hasattr(self, 'gui_app') and self.gui_app:
+                    self.gui_app.root.after(0, lambda: self.gui_app.update_status_display())
+            
+            # Create WebSocket connection
+            self.twitch_ws = websocket.WebSocketApp(
+                "wss://irc-ws.chat.twitch.tv:443",
+                on_message=on_message,
+                on_error=on_error,
+                on_close=on_close,
+                on_open=on_open
+            )
+            
+            # Start WebSocket
+            self.twitch_ws.run_forever()
+            
+        except Exception as e:
+            print(f"Twitch auto-connect failed: {e}")
+            self.platform_status["twitch"] = False
     
     def connect_discord(self):
         """Connect to Discord"""
         if not self.discord_token:
             print("❌ No Discord token available")
+            return False
+        
+        # Validate token format
+        if len(self.discord_token) < 50 or "." not in self.discord_token:
+            print("❌ Invalid Discord token format")
             return False
         
         try:
@@ -226,16 +428,26 @@ class LunaClean:
                     daemon=True
                 ).start()
             
-            # Start Discord client in background
-            threading.Thread(
-                target=lambda: asyncio.run(self.discord_client.start(self.discord_token)),
-                daemon=True
-            ).start()
+            @self.discord_client.event
+            async def on_error(event, *args, **kwargs):
+                print(f"Discord error in {event}: {args}")
+                self.platform_status["discord"] = False
+            
+            # Start Discord client in background with error handling
+            def discord_runner():
+                try:
+                    asyncio.run(self.discord_client.start(self.discord_token))
+                except Exception as e:
+                    print(f"Discord connection failed: {e}")
+                    self.platform_status["discord"] = False
+            
+            threading.Thread(target=discord_runner, daemon=True).start()
             
             return True
             
         except Exception as e:
             print(f"Discord connection error: {e}")
+            self.platform_status["discord"] = False
             return False
     
     def connect_twitch(self):
@@ -246,6 +458,13 @@ class LunaClean:
         
         try:
             def on_message(ws, message):
+                # Handle ping/pong messages
+                if message.startswith("PING"):
+                    ws.send("PONG :tmi.twitch.tv")
+                    self.twitch_last_pong = time.time()
+                    return
+                
+                # Handle regular chat messages
                 threading.Thread(
                     target=self._process_twitch_message, 
                     args=(message,), 
@@ -254,18 +473,27 @@ class LunaClean:
             
             def on_error(ws, error):
                 print(f"Twitch WebSocket error: {error}")
+                self._stop_twitch_ping_timer()
             
             def on_close(ws, close_status_code, close_msg):
                 print("Twitch WebSocket closed")
                 self.platform_status["twitch"] = False
+                self._stop_twitch_ping_timer()
             
             def on_open(ws):
                 print("✅ Twitch WebSocket connected")
                 self.platform_status["twitch"] = True
                 
+                # Authenticate with Twitch IRC
+                ws.send(f"PASS oauth:{self.twitch_token}")
+                ws.send(f"NICK {self.twitch_username}")
+                
                 # Join channel
-                channel = PLATFORM_CONFIG["twitch"]["channel"]
-                ws.send(f"JOIN #{channel}")
+                ws.send(f"JOIN #{self.twitch_channel}")
+                print(f"🎮 Joined Twitch channel: #{self.twitch_channel}")
+                
+                # Start ping timer
+                self._start_twitch_ping_timer(ws)
             
             # Create WebSocket connection
             self.twitch_ws = websocket.WebSocketApp(
@@ -328,8 +556,7 @@ class LunaClean:
                     
                     # Send response to Twitch
                     if self.twitch_ws and response:
-                        channel = PLATFORM_CONFIG["twitch"]["channel"]
-                        self.twitch_ws.send(f"PRIVMSG #{channel} :{response}")
+                        self.twitch_ws.send(f"PRIVMSG #{self.twitch_channel} :{response}")
                         
         except Exception as e:
             print(f"Twitch message processing error: {e}")
@@ -337,6 +564,38 @@ class LunaClean:
     def get_platform_status(self):
         """Get status of all connected platforms"""
         return self.platform_status
+    
+    def _start_twitch_ping_timer(self, ws):
+        """Start the Twitch ping timer to keep connection alive"""
+        def ping_timer():
+            while self.platform_status["twitch"] and self.twitch_ws:
+                try:
+                    # Send PING every 30 seconds
+                    time.sleep(30)
+                    if self.platform_status["twitch"] and self.twitch_ws:
+                        ws.send("PING :tmi.twitch.tv")
+                        
+                        # Wait 10 seconds for PONG response
+                        time.sleep(10)
+                        
+                        # Check if we got a PONG response
+                        if self.twitch_last_pong and (time.time() - self.twitch_last_pong) < 15:
+                            pass  # Connection healthy
+                        else:
+                            pass  # Connection may be stale but keep trying
+                            
+                except Exception as e:
+                    print(f"Twitch ping timer error: {e}")
+                    break
+        
+        # Start ping timer in background thread
+        self.twitch_ping_timer = threading.Thread(target=ping_timer, daemon=True)
+        self.twitch_ping_timer.start()
+    
+    def _stop_twitch_ping_timer(self):
+        """Stop the Twitch ping timer"""
+        if self.twitch_ping_timer:
+            self.twitch_ping_timer = None
         
     def get_core_prompt(self, username: str = "Chris") -> str:
         """Get Luna's core personality prompt"""
@@ -344,20 +603,21 @@ class LunaClean:
 
 Your personality:
 - Playful and affectionate with {username}
-- Natural conversational style
+- Natural conversational style with usernames
 - Genuine emotions and reactions
-- Remember past conversations
+- Remember past conversations with each user
+- Use {username}'s name naturally in conversation (not always as "Hey {username}")
 
 Current mood: {self.personality['mood']}
 Energy level: {int(self.personality['energy'] * 100)}%
 
-Respond naturally as Luna. Keep it brief and engaging (1-2 sentences)."""
+When responding to {username}, use their name naturally in the conversation. Don't always start with "Hey {username}" - include their name naturally within your response. Keep it brief and engaging (1-2 sentences)."""
 
     def generate_response(self, user_message: str, username: str = "Chris", 
                          platform: str = "gui") -> str:
         """Generate Luna's response using DNA memory"""
         
-        print(f"🧬 Luna thinking about: {user_message[:50]}...")
+        print(f"🧬 Luna responding to {username} on {platform}: {user_message[:50]}...")
         
         # Recall relevant DNA memories
         memories = recall_dna_memories(username, user_message, limit=3)
@@ -394,6 +654,10 @@ Luna:"""
             # Clean up response
             reply = reply.replace("Luna:", "").strip()
             reply = reply.replace(f"{username}:", "").strip()
+            
+            # Fix template placeholders
+            reply = reply.replace("{your name}", username)
+            reply = reply.replace("{username}", username)
             
             # Save to DNA memory
             save_dna_memory(user_message, reply, platform, username)
@@ -433,9 +697,7 @@ class LunaGUI:
         self.root.configure(bg="#1a1a2e")
         
         # Bind keys for push-to-talk
-        self.root.bind('<KeyPress-space>', self.start_recording)
-        self.root.bind('<KeyRelease-space>', self.stop_recording)
-        self.root.focus_set()  # Enable key bindings
+        self.root.focus_set()  # Enable text input
         
         self._build_ui()
         self._setup_voice()
@@ -475,85 +737,85 @@ class LunaGUI:
         self.message_entry.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, ipady=8, padx=(0, 10))
         self.message_entry.bind("<Return>", lambda e: self.send_message())
         
-        # Send button
-        self.send_button = tk.Button(
-            input_frame,
-            text="Send",
-            command=self.send_message,
-            font=("Segoe UI", 10, "bold"),
-            bg="#ff6b9d",
-            fg="white",
-            relief=tk.FLAT,
-            padx=20,
-            cursor="hand2"
-        )
-        self.send_button.pack(side=tk.RIGHT)
-        
-        # Stats button
-        self.stats_button = tk.Button(
-            input_frame,
-            text="Stats",
-            command=self.show_stats,
-            font=("Segoe UI", 10),
-            bg="#4a5568",
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            cursor="hand2"
-        )
-        self.stats_button.pack(side=tk.RIGHT, padx=(0, 10))
-        
-        # Voice control frame
-        voice_frame = tk.Frame(self.root, bg="#1a1a2e")
-        voice_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
-        
-        # Voice status label
+        # Voice status label (invisible but needed for voice functions)
         self.voice_status = tk.Label(
-            voice_frame,
-            text="🎤 Hold SPACEBAR to talk to Luna",
+            self.root,
+            text="🎤 Voice Ready",
             font=("Segoe UI", 10),
             bg="#1a1a2e",
             fg="#ff6b9d"
         )
-        self.voice_status.pack(side=tk.LEFT)
+        # Don't pack it - keep it hidden but available for voice functions
         
-        # Voice test button
-        self.voice_test_button = tk.Button(
-            voice_frame,
-            text="Test Mic",
-            command=self.test_microphone,
-            font=("Segoe UI", 9),
-            bg="#2d3748",
+        # Control frame for the 3 main buttons
+        control_frame = tk.Frame(self.root, bg="#1a1a2e")
+        control_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+        
+        # 1. Speak button (voice input)
+        self.speak_button = tk.Button(
+            control_frame,
+            text="🎤 Speak",
+            command=self.toggle_speaking,
+            font=("Segoe UI", 12, "bold"),
+            bg="#ff6b9d",
             fg="white",
             relief=tk.FLAT,
-            padx=10,
+            padx=25,
+            pady=8,
             cursor="hand2"
         )
-        self.voice_test_button.pack(side=tk.RIGHT, padx=(0, 10))
+        self.speak_button.pack(side=tk.LEFT, padx=(0, 15))
         
-        # TTS toggle button
-        self.tts_button = tk.Button(
-            voice_frame,
-            text="🔇 TTS OFF",
-            command=self.toggle_tts,
-            font=("Segoe UI", 9),
+        # 2. Send button (text input)
+        self.send_button = tk.Button(
+            control_frame,
+            text="📤 Send",
+            command=self.send_message,
+            font=("Segoe UI", 12, "bold"),
             bg="#4a5568",
             fg="white",
             relief=tk.FLAT,
-            padx=10,
+            padx=25,
+            pady=8,
             cursor="hand2"
         )
-        self.tts_button.pack(side=tk.RIGHT)
+        self.send_button.pack(side=tk.LEFT, padx=(0, 15))
+        
+        # 3. TTS toggle button (voice output)
+        self.tts_button = tk.Button(
+            control_frame,
+            text="🔇 TTS OFF",
+            command=self.toggle_tts,
+            font=("Segoe UI", 12, "bold"),
+            bg="#2d3748",
+            fg="white",
+            relief=tk.FLAT,
+            padx=25,
+            pady=8,
+            cursor="hand2"
+        )
+        self.tts_button.pack(side=tk.LEFT)
         
         # TTS status
         self.tts_enabled = False
         
-        # Platform connection buttons
-        self._add_platform_buttons()
+        # Status display (connection info)
+        self.status_label = tk.Label(
+            control_frame,
+            text="🔄 Connecting to Discord & Twitch...",
+            font=("Segoe UI", 10),
+            bg="#1a1a2e",
+            fg="#ffaa00"
+        )
+        self.status_label.pack(side=tk.RIGHT, padx=(20, 0))
+        
+        # Auto-update status every 2 seconds
+        self.update_status_display()
         
         # Welcome message
-        self.display_message("Luna", "Hey Chris! 💕 Ready to chat? Hold SPACEBAR to talk to me!")
-        self.display_message("System", "Voice recognition enabled - Hold SPACEBAR to speak")
+        self.display_message("Luna", "Hey Chris! 💕 Ready to chat? Click the Speak button to talk to me!")
+        self.display_message("System", "Voice recognition enabled - Click Speak button to talk")
+        self.display_message("System", "Auto-connecting to Discord and Twitch...")
         
     def display_message(self, sender: str, message: str):
         """Display a message in the chat"""
@@ -638,34 +900,35 @@ Unique Users: {stats.get('unique_users', 0)}"""
             print(f"Microphone setup error: {e}")
             self.display_message("System", f"Voice setup error: {e}")
     
-    def start_recording(self, event):
-        """Start recording when spacebar is pressed"""
+    def toggle_speaking(self):
+        """Toggle voice recording on/off with button"""
         if not self.is_recording:
+            # Start recording
             self.is_recording = True
-            self.voice_status.config(text="🔴 Recording... Release SPACEBAR when done", fg="#ff4444")
+            self.voice_status.config(text="🔴 Recording... Click again to stop", fg="#ff4444")
+            self.speak_button.config(text="⏹️ Stop", bg="#ff4444")
             
             # Start recording in a separate thread
             self.recording_thread = threading.Thread(target=self._start_recording_audio, daemon=True)
             self.recording_thread.start()
-    
-    def stop_recording(self, event):
-        """Stop recording when spacebar is released"""
-        if self.is_recording:
+        else:
+            # Stop recording
             self.is_recording = False
             self.voice_status.config(text="🧠 Processing...", fg="#ffaa44")
+            self.speak_button.config(text="🎤 Speak", bg="#ff6b9d")
             
             # Process the recorded audio
             if self.audio_data:
                 self._process_recorded_audio()
             else:
-                self.voice_status.config(text="🎤 Hold SPACEBAR to talk to Luna", fg="#ff6b9d")
+                self.voice_status.config(text="🎤 Voice Ready", fg="#ff6b9d")
     
     def _start_recording_audio(self):
         """Start recording audio in background"""
         try:
             with self.microphone as source:
-                # Start listening for audio
-                self.audio_data = self.recognizer.listen(source, timeout=1, phrase_time_limit=15)
+                # Start listening for audio (no timeout - listens until stop)
+                self.audio_data = self.recognizer.listen(source, timeout=None, phrase_time_limit=30)
         except Exception as e:
             print(f"Recording start error: {e}")
             self.audio_data = None
@@ -696,7 +959,8 @@ Unique Users: {stats.get('unique_users', 0)}"""
                 error_msg = f"Processing error: {e}"
                 self.root.after(0, lambda msg=error_msg: self.display_message("System", msg))
             finally:
-                self.root.after(0, lambda: self.voice_status.config(text="🎤 Hold SPACEBAR to talk to Luna", fg="#ff6b9d"))
+                self.root.after(0, lambda: self.voice_status.config(text="🎤 Voice Ready", fg="#ff6b9d"))
+                self.root.after(0, lambda: self.speak_button.config(text="🎤 Speak", bg="#ff6b9d"))
                 self.audio_data = None
         
         # Process in separate thread
@@ -740,12 +1004,12 @@ Unique Users: {stats.get('unique_users', 0)}"""
                 
                 text = self.recognizer.recognize_google(audio)
                 self.root.after(0, lambda: self.display_message("Mic Test", f"🎤 Heard: {text}"))
-                self.root.after(0, lambda: self.voice_status.config(text="🎤 Hold SPACEBAR to talk to Luna", fg="#ff6b9d"))
+                self.root.after(0, lambda: self.voice_status.config(text="🎤 Voice Ready", fg="#ff6b9d"))
                 
             except Exception as e:
                 error_msg = f"❌ Error: {e}"
                 self.root.after(0, lambda msg=error_msg: self.display_message("Mic Test", msg))
-                self.root.after(0, lambda: self.voice_status.config(text="🎤 Hold SPACEBAR to talk to Luna", fg="#ff6b9d"))
+                self.root.after(0, lambda: self.voice_status.config(text="🎤 Voice Ready", fg="#ff6b9d"))
         
         threading.Thread(target=test_mic, daemon=True).start()
     
@@ -765,106 +1029,27 @@ Unique Users: {stats.get('unique_users', 0)}"""
             self.tts_button.config(text="🔇 TTS OFF", bg="#4a5568")
             self.display_message("System", "TTS disabled - Luna will only text")
     
-    def _add_platform_buttons(self):
-        """Add platform connection buttons"""
-        platform_frame = tk.Frame(self.root, bg="#1a1a2e")
-        platform_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
-        
-        # Discord button
-        self.discord_button = tk.Button(
-            platform_frame,
-            text="💬 Discord",
-            command=self.toggle_discord,
-            font=("Segoe UI", 9),
-            bg="#5865f2",
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            cursor="hand2"
-        )
-        self.discord_button.pack(side=tk.LEFT, padx=(0, 10))
-        
-        # Twitch button
-        self.twitch_button = tk.Button(
-            platform_frame,
-            text="🎮 Twitch",
-            command=self.toggle_twitch,
-            font=("Segoe UI", 9),
-            bg="#9146ff",
-            fg="white",
-            relief=tk.FLAT,
-            padx=15,
-            cursor="hand2"
-        )
-        self.twitch_button.pack(side=tk.LEFT, padx=(0, 10))
-        
-        # Platform status
-        self.platform_status_label = tk.Label(
-            platform_frame,
-            text="Platforms: Disconnected",
-            font=("Segoe UI", 9),
-            bg="#1a1a2e",
-            fg="#888888"
-        )
-        self.platform_status_label.pack(side=tk.LEFT, padx=(20, 0))
-        
-        # Update platform status
-        self.update_platform_status()
     
-    def toggle_discord(self):
-        """Toggle Discord connection"""
-        if not self.luna.platform_status["discord"]:
-            success = self.luna.connect_discord()
-            if success:
-                self.discord_button.config(text="💬 Discord ✓", bg="#22c55e")
-                self.display_message("System", "Discord connected!")
-            else:
-                self.display_message("System", "Discord connection failed")
-        else:
-            # Disconnect Discord
-            if self.luna.discord_client:
-                asyncio.run_coroutine_threadsafe(
-                    self.luna.discord_client.close(),
-                    self.luna.discord_client.loop
-                )
-            self.luna.platform_status["discord"] = False
-            self.discord_button.config(text="💬 Discord", bg="#5865f2")
-            self.display_message("System", "Discord disconnected")
-        
-        self.update_platform_status()
-    
-    def toggle_twitch(self):
-        """Toggle Twitch connection"""
-        if not self.luna.platform_status["twitch"]:
-            success = self.luna.connect_twitch()
-            if success:
-                self.twitch_button.config(text="🎮 Twitch ✓", bg="#22c55e")
-                self.display_message("System", "Twitch connected!")
-            else:
-                self.display_message("System", "Twitch connection failed")
-        else:
-            # Disconnect Twitch
-            if self.luna.twitch_ws:
-                self.luna.twitch_ws.close()
-            self.luna.platform_status["twitch"] = False
-            self.twitch_button.config(text="🎮 Twitch", bg="#9146ff")
-            self.display_message("System", "Twitch disconnected")
-        
-        self.update_platform_status()
-    
-    def update_platform_status(self):
-        """Update platform status display"""
+    def update_status_display(self):
+        """Update connection status display"""
         status = self.luna.get_platform_status()
         connected = [platform for platform, is_connected in status.items() if is_connected]
         
-        if connected:
-            status_text = f"Platforms: Connected to {', '.join(connected)}"
+        if len(connected) == 2:
+            status_text = "✅ Connected to Discord & Twitch"
             color = "#22c55e"
+        elif len(connected) == 1:
+            status_text = f"⚠️ Connected to {connected[0].title()} only"
+            color = "#ffaa00"
         else:
-            status_text = "Platforms: Disconnected"
-            color = "#888888"
+            status_text = "🔄 Connecting to Discord & Twitch..."
+            color = "#ffaa00"
         
-        self.platform_status_label.config(text=status_text, fg=color)
+        if hasattr(self, 'status_label'):
+            self.status_label.config(text=status_text, fg=color)
+        
+        # Schedule next update
+        self.root.after(2000, self.update_status_display)
 
 
 def main():
@@ -880,6 +1065,8 @@ def main():
     
     # Start GUI
     gui = LunaGUI()
+    # Connect GUI to Luna for auto-connect updates
+    gui.luna.gui_app = gui
     gui.run()
 
 
