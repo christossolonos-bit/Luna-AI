@@ -8,10 +8,14 @@ Optimized for 8GB RAM / 6GB VRAM systems.
 
 import ollama
 import tkinter as tk
-from tkinter import scrolledtext
+from tkinter import scrolledtext, messagebox
 import threading
 import time
 from datetime import datetime
+import speech_recognition as sr
+import pyaudio
+import wave
+import os
 from luna_dna_memory import (
     initialize_dna_memory, save_dna_memory, recall_dna_memories, get_dna_memory
 )
@@ -122,19 +126,31 @@ Luna:"""
 
 
 class LunaGUI:
-    """Simple GUI for chatting with Luna"""
+    """Voice-enabled GUI for chatting with Luna"""
     
     def __init__(self):
         self.luna = LunaClean()
         self.username = "Chris"
         
+        # Voice recognition setup
+        self.recognizer = sr.Recognizer()
+        self.microphone = sr.Microphone()
+        self.is_recording = False
+        self.recording_thread = None
+        
         # Create window
         self.root = tk.Tk()
-        self.root.title("🌸 Luna - DNA Memory Chat")
-        self.root.geometry("800x600")
+        self.root.title("🌸 Luna - Voice Chat with DNA Memory")
+        self.root.geometry("900x700")
         self.root.configure(bg="#1a1a2e")
         
+        # Bind keys for push-to-talk
+        self.root.bind('<KeyPress-space>', self.start_recording)
+        self.root.bind('<KeyRelease-space>', self.stop_recording)
+        self.root.focus_set()  # Enable key bindings
+        
         self._build_ui()
+        self._setup_voice()
         
     def _build_ui(self):
         """Build the user interface"""
@@ -199,8 +215,37 @@ class LunaGUI:
         )
         self.stats_button.pack(side=tk.RIGHT, padx=(0, 10))
         
+        # Voice control frame
+        voice_frame = tk.Frame(self.root, bg="#1a1a2e")
+        voice_frame.pack(fill=tk.X, padx=20, pady=(0, 10))
+        
+        # Voice status label
+        self.voice_status = tk.Label(
+            voice_frame,
+            text="🎤 Hold SPACEBAR to talk to Luna",
+            font=("Segoe UI", 10),
+            bg="#1a1a2e",
+            fg="#ff6b9d"
+        )
+        self.voice_status.pack(side=tk.LEFT)
+        
+        # Voice test button
+        self.voice_test_button = tk.Button(
+            voice_frame,
+            text="Test Mic",
+            command=self.test_microphone,
+            font=("Segoe UI", 9),
+            bg="#2d3748",
+            fg="white",
+            relief=tk.FLAT,
+            padx=10,
+            cursor="hand2"
+        )
+        self.voice_test_button.pack(side=tk.RIGHT)
+        
         # Welcome message
-        self.display_message("Luna", "Hey Chris! 💕 Ready to chat? I'm using my new DNA memory system!")
+        self.display_message("Luna", "Hey Chris! 💕 Ready to chat? Hold SPACEBAR to talk to me!")
+        self.display_message("System", "Voice recognition enabled - Hold SPACEBAR to speak")
         
     def display_message(self, sender: str, message: str):
         """Display a message in the chat"""
@@ -267,6 +312,111 @@ Unique Users: {stats.get('unique_users', 0)}"""
         """Start the GUI"""
         self.message_entry.focus()
         self.root.mainloop()
+    
+    def _setup_voice(self):
+        """Setup voice recognition"""
+        try:
+            # Adjust for ambient noise
+            with self.microphone as source:
+                print("Calibrating microphone...")
+                self.recognizer.adjust_for_ambient_noise(source, duration=1)
+            print("Microphone calibrated!")
+        except Exception as e:
+            print(f"Microphone setup error: {e}")
+            self.display_message("System", f"Voice setup error: {e}")
+    
+    def start_recording(self, event):
+        """Start recording when spacebar is pressed"""
+        if not self.is_recording:
+            self.is_recording = True
+            self.voice_status.config(text="🔴 Recording... Release SPACEBAR when done", fg="#ff4444")
+            
+            # Start recording in a separate thread
+            self.recording_thread = threading.Thread(target=self._record_audio, daemon=True)
+            self.recording_thread.start()
+    
+    def stop_recording(self, event):
+        """Stop recording when spacebar is released"""
+        if self.is_recording:
+            self.is_recording = False
+            self.voice_status.config(text="🎤 Hold SPACEBAR to talk to Luna", fg="#ff6b9d")
+    
+    def _record_audio(self):
+        """Record audio in a separate thread"""
+        try:
+            with self.microphone as source:
+                # Record until spacebar is released
+                audio = self.recognizer.listen(source, timeout=1, phrase_time_limit=10)
+            
+            if not self.is_recording:
+                return  # Recording was cancelled
+            
+            # Transcribe audio
+            self.root.after(0, lambda: self.voice_status.config(text="🧠 Processing...", fg="#ffaa44"))
+            
+            text = self.recognizer.recognize_google(audio)
+            
+            if text.strip():
+                # Display transcribed text and send to Luna
+                self.root.after(0, lambda: self.display_message("Voice", f"🎤 {text}"))
+                self.root.after(0, lambda: self._process_voice_input(text))
+            else:
+                self.root.after(0, lambda: self.display_message("System", "No speech detected"))
+                
+        except sr.WaitTimeoutError:
+            if self.is_recording:
+                self.root.after(0, lambda: self.display_message("System", "Recording timeout"))
+        except sr.UnknownValueError:
+            if self.is_recording:
+                self.root.after(0, lambda: self.display_message("System", "Could not understand speech"))
+        except sr.RequestError as e:
+            if self.is_recording:
+                self.root.after(0, lambda: self.display_message("System", f"Speech recognition error: {e}"))
+        except Exception as e:
+            if self.is_recording:
+                self.root.after(0, lambda: self.display_message("System", f"Recording error: {e}"))
+        finally:
+            self.root.after(0, lambda: self.voice_status.config(text="🎤 Hold SPACEBAR to talk to Luna", fg="#ff6b9d"))
+    
+    def _process_voice_input(self, text: str):
+        """Process voice input and generate Luna's response"""
+        # Update the text entry with voice input
+        self.message_entry.delete(0, tk.END)
+        self.message_entry.insert(0, text)
+        
+        # Generate and display response in thread
+        def generate_and_display():
+            try:
+                response = self.luna.generate_response(text, self.username, "voice_gui")
+                self.root.after(0, lambda: self.display_message("Luna", response))
+            except Exception as e:
+                self.root.after(0, lambda: self.display_message("System", f"Error generating response: {e}"))
+        
+        threading.Thread(target=generate_and_display, daemon=True).start()
+    
+    def test_microphone(self):
+        """Test microphone functionality"""
+        def test_mic():
+            try:
+                self.voice_status.config(text="🎤 Testing microphone...", fg="#ffaa44")
+                
+                with self.microphone as source:
+                    self.recognizer.adjust_for_ambient_noise(source, duration=1)
+                
+                self.root.after(0, lambda: self.voice_status.config(text="🎤 Say something...", fg="#44ff44"))
+                
+                with self.microphone as source:
+                    audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=5)
+                
+                text = self.recognizer.recognize_google(audio)
+                self.root.after(0, lambda: self.display_message("Mic Test", f"🎤 Heard: {text}"))
+                self.root.after(0, lambda: self.voice_status.config(text="🎤 Hold SPACEBAR to talk to Luna", fg="#ff6b9d"))
+                
+            except Exception as e:
+                self.root.after(0, lambda: self.display_message("Mic Test", f"❌ Error: {e}"))
+                self.root.after(0, lambda: self.voice_status.config(text="🎤 Hold SPACEBAR to talk to Luna", fg="#ff6b9d"))
+        
+        threading.Thread(target=test_mic, daemon=True).start()
 
 
 def main():

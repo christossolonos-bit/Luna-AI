@@ -7,11 +7,17 @@
 ## 🚀 Quick Start
 
 ```bash
-# Run Luna with DNA memory
+# Install voice dependencies
+pip install -r requirements_voice.txt
+
+# Run Luna with DNA memory + Voice chat
 python luna_clean.py
 
 # Test the DNA system
 python test_dna_memory.py
+
+# Test voice recognition
+python test_voice.py
 ```
 
 ---
@@ -132,6 +138,9 @@ Return top 5 matches sorted by score
 - ✅ Automatic pruning
 - ✅ Multi-user support
 - ✅ Simple GUI chat
+- ✅ **Voice recognition with push-to-talk**
+- ✅ **Real-time speech transcription**
+- ✅ **Microphone testing**
 - ✅ Memory statistics
 
 ### Planned

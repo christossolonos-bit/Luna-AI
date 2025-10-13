@@ -1,0 +1,4 @@
+# Voice Recognition Dependencies for Luna
+speechrecognition==3.10.0
+pyaudio==0.2.11
+ollama>=0.2.0
