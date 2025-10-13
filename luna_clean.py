@@ -44,7 +44,7 @@ OLLAMA_CONFIG = {
     "num_ctx": 512,      # Reduced for 8GB RAM
     "num_predict": 150,   # Longer responses for complete thoughts
     "num_gpu": 1,         # Use GPU
-    "stop": ["User:", "Chris:", "\n\n\n", "{your name}"]
+    "stop": ["User:", "Chris:", "\n\n\n"]
 }
 
 # TTS Configuration - Edge TTS (Free!)
