@@ -16,6 +16,13 @@ import speech_recognition as sr
 import pyaudio
 import wave
 import os
+import requests
+import json
+import threading
+import pygame
+import edge_tts
+import asyncio
+import tempfile
 from luna_dna_memory import (
     initialize_dna_memory, save_dna_memory, recall_dna_memories, get_dna_memory
 )
@@ -30,16 +37,36 @@ OLLAMA_CONFIG = {
     "num_gpu": 1,         # Use GPU
     "stop": ["User:", "Chris:", "\n\n\n"]
 }
+
+# TTS Configuration - Edge TTS (Free!)
+TTS_CONFIG = {
+    "voice": "en-US-AvaMultilingualNeural",  # Edge TTS Ava multilingual voice
+    "rate": "+0%",      # Speech rate
+    "pitch": "+0Hz",    # Voice pitch
+    "volume": "+0%"     # Voice volume
+}
   
 
 class LunaClean:
-    """Clean Luna implementation with DNA memory"""
+    """Clean Luna implementation with DNA memory and TTS"""
     
     def __init__(self):
         print("🧬 Initializing Luna with DNA Memory System...")
         
         # Initialize DNA memory
         self.dna_memory = initialize_dna_memory()
+        
+        # Initialize TTS
+        self.tts_enabled = False
+        self._setup_tts()
+        
+        # Initialize pygame for audio playback
+        try:
+            pygame.mixer.init()
+            self.audio_available = True
+        except:
+            self.audio_available = False
+            print("⚠️ Audio playback not available")
         
         # Luna's personality core
         self.personality = {
@@ -50,6 +77,70 @@ class LunaClean:
         }
         
         print("✨ Luna is ready!")
+    
+    def _setup_tts(self):
+        """Setup text-to-speech with Edge TTS Ava multilingual voice"""
+        try:
+            # Edge TTS is free and doesn't need API key
+            self.tts_enabled = True
+            print("🎤 TTS enabled with Edge TTS Ava multilingual voice (Free!)")
+        except Exception as e:
+            print(f"⚠️ TTS setup error: {e}")
+            self.tts_enabled = False
+    
+    def speak(self, text: str):
+        """Convert text to speech using Edge TTS Ava multilingual voice"""
+        if not self.tts_enabled or not self.audio_available:
+            return
+        
+        def _speak_thread():
+            try:
+                # Clean text for TTS
+                clean_text = text.replace("💕", "").replace("🌸", "").replace("🎤", "").strip()
+                if not clean_text:
+                    return
+                
+                # Generate speech using Edge TTS
+                asyncio.run(self._generate_speech_async(clean_text))
+                        
+            except Exception as e:
+                print(f"TTS error: {e}")
+        
+        # Run TTS in separate thread
+        threading.Thread(target=_speak_thread, daemon=True).start()
+    
+    async def _generate_speech_async(self, text: str):
+        """Generate speech using Edge TTS"""
+        try:
+            # Create temporary file for audio
+            with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+                temp_path = temp_file.name
+            
+            # Generate speech with Edge TTS
+            communicate = edge_tts.Communicate(
+                text=text,
+                voice=TTS_CONFIG["voice"],
+                rate=TTS_CONFIG["rate"],
+                pitch=TTS_CONFIG["pitch"],
+                volume=TTS_CONFIG["volume"]
+            )
+            
+            await communicate.save(temp_path)
+            
+            # Play the audio file
+            pygame.mixer.music.load(temp_path)
+            pygame.mixer.music.play()
+            
+            # Wait for playback to finish
+            while pygame.mixer.music.get_busy():
+                await asyncio.sleep(0.1)
+            
+            # Clean up temporary file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                
+        except Exception as e:
+            print(f"Edge TTS error: {e}")
         
     def get_core_prompt(self, username: str = "Chris") -> str:
         """Get Luna's core personality prompt"""
@@ -241,7 +332,24 @@ class LunaGUI:
             padx=10,
             cursor="hand2"
         )
-        self.voice_test_button.pack(side=tk.RIGHT)
+        self.voice_test_button.pack(side=tk.RIGHT, padx=(0, 10))
+        
+        # TTS toggle button
+        self.tts_button = tk.Button(
+            voice_frame,
+            text="🔇 TTS OFF",
+            command=self.toggle_tts,
+            font=("Segoe UI", 9),
+            bg="#4a5568",
+            fg="white",
+            relief=tk.FLAT,
+            padx=10,
+            cursor="hand2"
+        )
+        self.tts_button.pack(side=tk.RIGHT)
+        
+        # TTS status
+        self.tts_enabled = False
         
         # Welcome message
         self.display_message("Luna", "Hey Chris! 💕 Ready to chat? Hold SPACEBAR to talk to me!")
@@ -289,6 +397,11 @@ class LunaGUI:
             try:
                 response = self.luna.generate_response(message, self.username, "gui")
                 self.root.after(0, lambda: self.display_message("Luna", response))
+                
+                # Speak response if TTS is enabled
+                if self.tts_enabled and self.luna.tts_enabled:
+                    self.root.after(0, lambda: self.luna.speak(response))
+                    
             finally:
                 self.root.after(0, lambda: self.send_button.config(state=tk.NORMAL))
                 self.root.after(0, lambda: self.message_entry.config(state=tk.NORMAL))
@@ -371,10 +484,12 @@ Unique Users: {stats.get('unique_users', 0)}"""
                 self.root.after(0, lambda: self.display_message("System", "Could not understand speech"))
         except sr.RequestError as e:
             if self.is_recording:
-                self.root.after(0, lambda: self.display_message("System", f"Speech recognition error: {e}"))
+                error_msg = f"Speech recognition error: {e}"
+                self.root.after(0, lambda msg=error_msg: self.display_message("System", msg))
         except Exception as e:
             if self.is_recording:
-                self.root.after(0, lambda: self.display_message("System", f"Recording error: {e}"))
+                error_msg = f"Recording error: {e}"
+                self.root.after(0, lambda msg=error_msg: self.display_message("System", msg))
         finally:
             self.root.after(0, lambda: self.voice_status.config(text="🎤 Hold SPACEBAR to talk to Luna", fg="#ff6b9d"))
     
@@ -389,8 +504,14 @@ Unique Users: {stats.get('unique_users', 0)}"""
             try:
                 response = self.luna.generate_response(text, self.username, "voice_gui")
                 self.root.after(0, lambda: self.display_message("Luna", response))
+                
+                # Speak response if TTS is enabled
+                if self.tts_enabled and self.luna.tts_enabled:
+                    self.root.after(0, lambda: self.luna.speak(response))
+                    
             except Exception as e:
-                self.root.after(0, lambda: self.display_message("System", f"Error generating response: {e}"))
+                error_msg = f"Error generating response: {e}"
+                self.root.after(0, lambda msg=error_msg: self.display_message("System", msg))
         
         threading.Thread(target=generate_and_display, daemon=True).start()
     
@@ -413,10 +534,27 @@ Unique Users: {stats.get('unique_users', 0)}"""
                 self.root.after(0, lambda: self.voice_status.config(text="🎤 Hold SPACEBAR to talk to Luna", fg="#ff6b9d"))
                 
             except Exception as e:
-                self.root.after(0, lambda: self.display_message("Mic Test", f"❌ Error: {e}"))
+                error_msg = f"❌ Error: {e}"
+                self.root.after(0, lambda msg=error_msg: self.display_message("Mic Test", msg))
                 self.root.after(0, lambda: self.voice_status.config(text="🎤 Hold SPACEBAR to talk to Luna", fg="#ff6b9d"))
         
         threading.Thread(target=test_mic, daemon=True).start()
+    
+    def toggle_tts(self):
+        """Toggle text-to-speech on/off"""
+        self.tts_enabled = not self.tts_enabled
+        
+        if self.tts_enabled:
+            if self.luna.tts_enabled:
+                self.tts_button.config(text="🔊 TTS ON", bg="#22c55e")
+                self.display_message("System", "TTS enabled - Luna will speak her responses with Ava voice")
+            else:
+                self.tts_enabled = False  # Revert if Luna's TTS is not available
+                self.tts_button.config(text="🔇 TTS OFF", bg="#4a5568")
+                self.display_message("System", "TTS not available - Edge TTS setup error")
+        else:
+            self.tts_button.config(text="🔇 TTS OFF", bg="#4a5568")
+            self.display_message("System", "TTS disabled - Luna will only text")
 
 
 def main():

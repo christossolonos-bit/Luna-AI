@@ -10,7 +10,7 @@
 # Install voice dependencies
 pip install -r requirements_voice.txt
 
-# Run Luna with DNA memory + Voice chat
+# Run Luna with DNA memory + Voice chat + TTS
 python luna_clean.py
 
 # Test the DNA system
@@ -18,6 +18,9 @@ python test_dna_memory.py
 
 # Test voice recognition
 python test_voice.py
+
+# Test TTS with Ava voice
+python test_tts.py
 ```
 
 ---
@@ -140,6 +143,9 @@ Return top 5 matches sorted by score
 - ✅ Simple GUI chat
 - ✅ **Voice recognition with push-to-talk**
 - ✅ **Real-time speech transcription**
+- ✅ **Ava multilingual TTS voice**
+- ✅ **28+ languages support**
+- ✅ **Voice + text responses**
 - ✅ **Microphone testing**
 - ✅ Memory statistics
 
