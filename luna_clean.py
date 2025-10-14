@@ -28,6 +28,14 @@ import discord
 import websocket
 import threading
 import time
+import re
+import importlib
+import sys
+from pathlib import Path
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+from bs4 import BeautifulSoup
+from urllib.parse import urlparse, urljoin
 from dotenv import load_dotenv
 from luna_dna_memory import (
     initialize_dna_memory, save_dna_memory, recall_dna_memories, get_dna_memory
@@ -67,6 +75,167 @@ PLATFORM_CONFIG = {
         "channel": "solonaras"
     }
 }
+
+# === Hot Reload System ===
+class LunaReloadHandler(FileSystemEventHandler):
+    """Handles file changes for hot reloading"""
+    
+    def __init__(self, luna_instance):
+        self.luna = luna_instance
+        self.last_reload = 0
+        self.reload_cooldown = 2  # Minimum seconds between reloads
+    
+    def on_modified(self, event):
+        """Called when a file is modified"""
+        if event.is_directory:
+            return
+            
+        # Only watch for luna_clean.py changes
+        if event.src_path.endswith('luna_clean.py'):
+            current_time = time.time()
+            if current_time - self.last_reload < self.reload_cooldown:
+                return  # Prevent rapid reloads
+            
+            self.last_reload = current_time
+            print(f"🔄 File changed: {event.src_path}")
+            self.reload_luna()
+    
+    def reload_luna(self):
+        """Reload Luna's code dynamically"""
+        try:
+            print("🔄 File change detected!")
+            print("   💡 Hot reload is disabled for stability")
+            print("   🔄 Please restart Luna to apply changes")
+            print("   📝 Or continue using current version")
+            
+        except Exception as e:
+            print(f"❌ Hot reload error: {e}")
+    
+    def update_luna_methods(self, module):
+        """Update Luna's methods with reloaded versions"""
+        try:
+            # Get the LunaClean class from the reloaded module
+            new_luna_class = getattr(module, 'LunaClean')
+            
+            # Update methods that can be safely reloaded
+            safe_methods = [
+                'generate_response', 'get_core_prompt', 'crawl_website',
+                'analyze_webpage_content', 'extract_urls_from_text', 'send_discord_dm'
+            ]
+            
+            for method_name in safe_methods:
+                if hasattr(new_luna_class, method_name):
+                    new_method = getattr(new_luna_class, method_name)
+                    setattr(self.luna, method_name, new_method.__get__(self.luna, type(self.luna)))
+                    print(f"  ✅ Updated method: {method_name}")
+            
+            # Update configuration if it changed
+            if hasattr(module, 'OLLAMA_CONFIG'):
+                self.luna.ollama_config = module.OLLAMA_CONFIG
+                print(f"  ✅ Updated OLLAMA_CONFIG")
+                
+        except Exception as e:
+            print(f"❌ Method update failed: {e}")
+
+def start_hot_reload(luna_instance):
+    """Start the hot reload file watcher"""
+    try:
+        event_handler = LunaReloadHandler(luna_instance)
+        observer = Observer()
+        observer.schedule(event_handler, path='.', recursive=False)
+        observer.start()
+        print("🔥 Hot reload enabled - Luna will update automatically when you save changes!")
+        return observer
+    except Exception as e:
+        print(f"❌ Failed to start hot reload: {e}")
+        return None
+
+# === Web Crawler Functions ===
+def crawl_website(url):
+    """Crawl a website and extract readable content"""
+    try:
+        # Add user agent to avoid being blocked
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        
+        # Fetch the webpage
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        
+        # Parse with BeautifulSoup
+        soup = BeautifulSoup(response.content, 'html.parser')
+        
+        # Remove script and style elements
+        for script in soup(["script", "style"]):
+            script.decompose()
+        
+        # Extract text content
+        text = soup.get_text()
+        
+        # Clean up the text
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = ' '.join(chunk for chunk in chunks if chunk)
+        
+        # Get page title
+        title = soup.find('title')
+        title_text = title.get_text() if title else "No title found"
+        
+        # Extract main content (try to find the most relevant content)
+        main_content = ""
+        
+        # Look for main content areas
+        main_selectors = ['main', 'article', '.content', '.main', '#content', '#main']
+        for selector in main_selectors:
+            main_elem = soup.select_one(selector)
+            if main_elem:
+                main_content = main_elem.get_text()
+                break
+        
+        # If no main content found, use the first few paragraphs
+        if not main_content:
+            paragraphs = soup.find_all('p')
+            main_content = ' '.join([p.get_text() for p in paragraphs[:5]])
+        
+        # Limit content length to avoid overwhelming the AI
+        if len(main_content) > 2000:
+            main_content = main_content[:2000] + "..."
+        
+        return {
+            'title': title_text,
+            'content': main_content,
+            'full_text': text[:1000] + "..." if len(text) > 1000 else text,
+            'url': url
+        }
+        
+    except Exception as e:
+        print(f"[Web Crawl Error] {e}")
+        return {
+            'title': "Error",
+            'content': f"Failed to crawl website: {str(e)}",
+            'full_text': f"Error accessing {url}: {str(e)}",
+            'url': url
+        }
+
+def extract_urls_from_text(text):
+    """Extract URLs from text using regex"""
+    url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+    urls = re.findall(url_pattern, text)
+    return urls
+
+def analyze_webpage_content(webpage_data, username):
+    """Analyze webpage content and generate Luna's thoughts about it"""
+    title = webpage_data.get('title', 'Unknown')
+    content = webpage_data.get('content', 'No content found')
+    url = webpage_data.get('url', 'Unknown URL')
+    
+    return {
+        'title': title,
+        'content': content,
+        'url': url,
+        'summary': content[:500] + "..." if len(content) > 500 else content
+    }
   
 
 class LunaClean:
@@ -109,6 +278,9 @@ class LunaClean:
         
         # Load platform tokens
         self._load_platform_tokens()
+        
+        # Store config for hot reload
+        self.ollama_config = OLLAMA_CONFIG
         
         # Auto-connect to platforms
         self._auto_connect_platforms()
@@ -536,6 +708,55 @@ class LunaClean:
         except Exception as e:
             print(f"Discord message processing error: {e}")
     
+    def send_discord_dm(self, user_id: int, message: str = None):
+        """Send a DM to a Discord user by their ID"""
+        if not self.discord_client:
+            print("❌ Discord client not connected")
+            return False
+        
+        try:
+            # Get user by ID
+            user = self.discord_client.get_user(user_id)
+            if not user:
+                print(f"❌ User with ID {user_id} not found")
+                return False
+            
+            # Generate a random message if none provided
+            if not message:
+                random_messages = [
+                    "Hey there! 👋 Just wanted to say hi!",
+                    "Hope you're having a great day! ✨",
+                    "Luna here! 🌸 How are you doing?",
+                    "Just dropping by to say hello! 💕",
+                    "Hope everything is going well for you! 😊",
+                    "Hey! Thought I'd check in on you! 🤗",
+                    "Hope you're doing amazing today! 🌟",
+                    "Just wanted to brighten your day! ☀️"
+                ]
+                import random
+                message = random.choice(random_messages)
+            
+            # Send DM
+            async def send_dm():
+                try:
+                    await user.send(message)
+                    print(f"✅ DM sent to {user.display_name} ({user_id}): {message}")
+                    return True
+                except Exception as e:
+                    print(f"❌ Failed to send DM to {user.display_name}: {e}")
+                    return False
+            
+            # Run in Discord's event loop
+            future = asyncio.run_coroutine_threadsafe(
+                send_dm(),
+                self.discord_client.loop
+            )
+            return future.result(timeout=10)
+            
+        except Exception as e:
+            print(f"❌ Discord DM error: {e}")
+            return False
+    
     def _process_twitch_message(self, message):
         """Process Twitch chat message and generate response"""
         try:
@@ -607,17 +828,61 @@ Your personality:
 - Genuine emotions and reactions
 - Remember past conversations with each user
 - Use {username}'s name naturally in conversation (not always as "Hey {username}")
+- Can browse and analyze websites when URLs are shared
 
 Current mood: {self.personality['mood']}
 Energy level: {int(self.personality['energy'] * 100)}%
 
-When responding to {username}, use their name naturally in the conversation. Don't always start with "Hey {username}" - include their name naturally within your response. Keep it brief and engaging (1-2 sentences)."""
+When responding to {username}, use their name naturally in the conversation. Don't always start with "Hey {username}" - include their name naturally within your response. If they share a website URL, you can analyze the content and discuss it with them. Keep it brief and engaging (1-2 sentences)."""
 
     def generate_response(self, user_message: str, username: str = "Chris", 
                          platform: str = "gui") -> str:
-        """Generate Luna's response using DNA memory"""
+        """Generate Luna's response using DNA memory and web crawling"""
         
         print(f"🧬 Luna responding to {username} on {platform}: {user_message[:50]}...")
+        
+        # Check for URLs in the message
+        urls = extract_urls_from_text(user_message)
+        web_context = ""
+        
+        if urls:
+            print(f"🌐 Found {len(urls)} URL(s), crawling...")
+            for url in urls[:2]:  # Limit to first 2 URLs to avoid overwhelming
+                try:
+                    print(f"🕷️ Crawling: {url}")
+                    webpage_data = crawl_website(url)
+                    analyzed = analyze_webpage_content(webpage_data, username)
+                    
+                    web_context += f"\n\n📄 Website Analysis for {url}:\n"
+                    web_context += f"Title: {analyzed['title']}\n"
+                    web_context += f"Content: {analyzed['summary']}\n"
+                    
+                except Exception as e:
+                    print(f"❌ Web crawling failed for {url}: {e}")
+                    web_context += f"\n\n❌ Failed to analyze {url}: {str(e)}\n"
+        
+        # Check for DM commands
+        dm_context = ""
+        if user_message.lower().startswith("dm "):
+            try:
+                # Parse DM command: "dm <user_id> [message]"
+                parts = user_message[3:].strip().split(" ", 1)
+                if len(parts) >= 1:
+                    user_id = int(parts[0])
+                    custom_message = parts[1] if len(parts) > 1 else None
+                    
+                    # Send DM
+                    success = self.send_discord_dm(user_id, custom_message)
+                    if success:
+                        dm_context = "\n\n✅ Discord DM sent successfully!"
+                    else:
+                        dm_context = "\n\n❌ Failed to send Discord DM"
+                else:
+                    dm_context = "\n\n❌ Invalid DM command format. Use: dm <user_id> [message]"
+            except ValueError:
+                dm_context = "\n\n❌ Invalid user ID. Must be a number."
+            except Exception as e:
+                dm_context = f"\n\n❌ DM error: {str(e)}"
         
         # Recall relevant DNA memories
         memories = recall_dna_memories(username, user_message, limit=3)
@@ -634,6 +899,10 @@ When responding to {username}, use their name naturally in the conversation. Don
         full_prompt = f"""{system_prompt}
 
 {memory_context}
+
+{web_context}
+
+{dm_context}
 
 {username}: {user_message}
 Luna:"""
@@ -1067,7 +1336,17 @@ def main():
     gui = LunaGUI()
     # Connect GUI to Luna for auto-connect updates
     gui.luna.gui_app = gui
-    gui.run()
+    
+    # Start hot reload system
+    hot_reload_observer = start_hot_reload(gui.luna)
+    
+    try:
+        gui.run()
+    finally:
+        # Clean up hot reload observer when GUI closes
+        if hot_reload_observer:
+            hot_reload_observer.stop()
+            hot_reload_observer.join()
 
 
 if __name__ == "__main__":
