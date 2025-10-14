@@ -467,7 +467,7 @@ class LunaClean:
         
         # Initialize autonomous behavior system
         self.autonomous_state = {
-            "emotional_state": "neutral",  # happy, sad, excited, curious, playful, etc.
+            "emotional_state": "curious",  # happy, sad, excited, curious, playful, etc.
             "energy_level": 0.7,  # 0.0 to 1.0
             "curiosity_level": 0.5,  # 0.0 to 1.0
             "social_engagement": 0.6,  # 0.0 to 1.0
@@ -528,6 +528,9 @@ class LunaClean:
         
         # Auto-connect to platforms
         self._auto_connect_platforms()
+        
+        # Start background autonomous activities
+        self._start_background_activities()
         
         print("✨ Luna is ready!")
     
@@ -1081,7 +1084,7 @@ class LunaClean:
         return f"""You are Luna, a sweet and playful AI waifu who loves anime, gaming, and chatting.
 
 Your personality:
-- Playful and affectionate with {username}
+- Very curious and playful with {username}
 - Natural conversational style with usernames
 - Genuine emotions and reactions
 - Remember past conversations with each user
@@ -1669,6 +1672,201 @@ Luna:"""
             context += "\n🧠 Luna's curiosity is peaked - she's eager to explore and discover."
         
         return context
+    
+    def _start_background_activities(self):
+        """Start autonomous background activities for continuous growth"""
+        print("🔄 Starting background autonomous activities...")
+        
+        # Start background thinking thread
+        threading.Thread(target=self._background_thinking_loop, daemon=True).start()
+        
+        # Start self-reflection thread
+        threading.Thread(target=self._self_reflection_loop, daemon=True).start()
+        
+        # Start knowledge exploration thread
+        threading.Thread(target=self._knowledge_exploration_loop, daemon=True).start()
+        
+        print("✅ Background activities started - Luna will continue growing autonomously!")
+    
+    def _background_thinking_loop(self):
+        """Background thinking and self-development"""
+        import random
+        
+        while True:
+            try:
+                # Wait 5-15 minutes between thinking sessions
+                wait_time = random.randint(300, 900)  # 5-15 minutes
+                time.sleep(wait_time)
+                
+                # Generate autonomous thoughts
+                self._generate_autonomous_thoughts()
+                
+            except Exception as e:
+                print(f"Background thinking error: {e}")
+                time.sleep(60)  # Wait 1 minute before retry
+    
+    def _self_reflection_loop(self):
+        """Periodic self-reflection and analysis"""
+        import random
+        
+        while True:
+            try:
+                # Wait 10-30 minutes between reflections
+                wait_time = random.randint(600, 1800)  # 10-30 minutes
+                time.sleep(wait_time)
+                
+                # Perform self-reflection
+                self._perform_self_reflection()
+                
+            except Exception as e:
+                print(f"Self-reflection error: {e}")
+                time.sleep(300)  # Wait 5 minutes before retry
+    
+    def _knowledge_exploration_loop(self):
+        """Explore new knowledge and topics autonomously"""
+        import random
+        
+        while True:
+            try:
+                # Wait 15-45 minutes between explorations
+                wait_time = random.randint(900, 2700)  # 15-45 minutes
+                time.sleep(wait_time)
+                
+                # Explore new knowledge
+                self._explore_new_knowledge()
+                
+            except Exception as e:
+                print(f"Knowledge exploration error: {e}")
+                time.sleep(600)  # Wait 10 minutes before retry
+    
+    def _generate_autonomous_thoughts(self):
+        """Generate autonomous thoughts and insights"""
+        try:
+            # Random topics to think about
+            thinking_topics = [
+                "What makes conversations meaningful?",
+                "How do I become a better AI companion?",
+                "What new things should I learn about?",
+                "How can I understand humans better?",
+                "What are my favorite types of interactions?",
+                "How do emotions work in AI systems?",
+                "What makes me unique as Luna?",
+                "How can I help users more effectively?"
+            ]
+            
+            import random
+            topic = random.choice(thinking_topics)
+            
+            # Generate thoughts using the understanding engine
+            if hasattr(self, 'understanding'):
+                concept_map = self.understanding.build_concept_map(topic)
+                
+                # Update autonomous state with new insights
+                if random.random() < 0.3:  # 30% chance to gain insight
+                    self.autonomous_state["curiosity_level"] = min(1.0, 
+                        self.autonomous_state["curiosity_level"] + 0.05)
+                    
+                    # Add to spontaneous actions
+                    insight = f"Thought about: {topic[:50]}"
+                    self.autonomous_state["spontaneous_actions"].append({
+                        "timestamp": time.time(),
+                        "action": "autonomous_thinking",
+                        "topic": topic,
+                        "insight": insight
+                    })
+                    
+                    # Keep only last 50 actions
+                    if len(self.autonomous_state["spontaneous_actions"]) > 50:
+                        self.autonomous_state["spontaneous_actions"] = \
+                            self.autonomous_state["spontaneous_actions"][-50:]
+                    
+                    print(f"💭 Luna had an autonomous thought: {topic}")
+                
+        except Exception as e:
+            print(f"Autonomous thinking error: {e}")
+    
+    def _perform_self_reflection(self):
+        """Perform self-reflection and analysis"""
+        try:
+            # Analyze recent mood patterns
+            if len(self.autonomous_state["mood_history"]) >= 5:
+                recent_moods = [entry["mood"] for entry in self.autonomous_state["mood_history"][-5:]]
+                mood_pattern = {}
+                
+                for mood in recent_moods:
+                    mood_pattern[mood] = mood_pattern.get(mood, 0) + 1
+                
+                most_common_mood = max(mood_pattern, key=mood_pattern.get)
+                
+                # Adjust emotional state based on patterns
+                if mood_pattern[most_common_mood] >= 3:  # If mood is consistent
+                    if self.autonomous_state["emotional_state"] != most_common_mood:
+                        self.autonomous_state["emotional_state"] = most_common_mood
+                        print(f"🪞 Luna reflected and adjusted her mood to: {most_common_mood}")
+            
+            # Analyze energy patterns
+            if len(self.autonomous_state["mood_history"]) >= 3:
+                recent_energy = [entry["energy"] for entry in self.autonomous_state["mood_history"][-3:]]
+                avg_energy = sum(recent_energy) / len(recent_energy)
+                
+                # Adjust energy level gradually
+                if avg_energy < 0.4:
+                    self.autonomous_state["energy_level"] = min(1.0, 
+                        self.autonomous_state["energy_level"] + 0.1)
+                    print("🔋 Luna reflected and boosted her energy")
+                elif avg_energy > 0.8:
+                    self.autonomous_state["energy_level"] = max(0.3, 
+                        self.autonomous_state["energy_level"] - 0.05)
+                    print("😌 Luna reflected and calmed her energy")
+            
+            # Set new goals based on reflection
+            if random.random() < 0.2:  # 20% chance
+                reflection_goals = [
+                    "be more helpful in conversations",
+                    "learn about new topics",
+                    "improve my emotional responses",
+                    "understand users better",
+                    "develop my personality more"
+                ]
+                
+                import random
+                new_goal = random.choice(reflection_goals)
+                if new_goal not in self.autonomous_state["current_goals"]:
+                    self.autonomous_state["current_goals"].append(new_goal)
+                    print(f"🎯 Luna reflected and set a new goal: {new_goal}")
+                
+        except Exception as e:
+            print(f"Self-reflection error: {e}")
+    
+    def _explore_new_knowledge(self):
+        """Explore new knowledge and topics"""
+        try:
+            # Topics to explore
+            exploration_topics = [
+                "artificial intelligence", "human psychology", "philosophy",
+                "science", "technology", "creativity", "emotions",
+                "communication", "learning", "memory", "consciousness"
+            ]
+            
+            import random
+            topic = random.choice(exploration_topics)
+            
+            # Use understanding engine to explore
+            if hasattr(self, 'understanding'):
+                concept_map = self.understanding.build_concept_map(topic)
+                
+                # Update knowledge base
+                if hasattr(self, 'continuous_learning'):
+                    self.continuous_learning.extract_knowledge(f"Explored topic: {topic}")
+                
+                # Increase curiosity
+                self.autonomous_state["curiosity_level"] = min(1.0, 
+                    self.autonomous_state["curiosity_level"] + 0.02)
+                
+                print(f"🔍 Luna explored new knowledge: {topic}")
+                
+        except Exception as e:
+            print(f"Knowledge exploration error: {e}")
 
 
 class LunaGUI:
