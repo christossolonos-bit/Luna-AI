@@ -36,16 +36,19 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urljoin
+# Playwright will be imported dynamically in setup_playwright_browser()
 from dotenv import load_dotenv
 from luna_dna_memory import (
     initialize_dna_memory, save_dna_memory, recall_dna_memories, get_dna_memory
 )
+from luna_continuous_learning import ContinuousLearningEngine
+from luna_understanding import UnderstandingEngine
 
 # Load environment variables
 load_dotenv()
 
 # Configuration
-OLLAMA_MODEL = "hf.co/subsectmusic/qwriko3-4b-instruct-2507-redux-GGUF:BF16"
+OLLAMA_MODEL = "hf.co/subsectmusic/qwriko3-4b-instruct-2507-redux-GGUF:Q4_K_M"
 OLLAMA_CONFIG = {
     "temperature": 0.9,
     "top_p": 0.95,
@@ -103,13 +106,30 @@ class LunaReloadHandler(FileSystemEventHandler):
     def reload_luna(self):
         """Reload Luna's code dynamically"""
         try:
-            print("🔄 File change detected!")
-            print("   💡 Hot reload is disabled for stability")
-            print("   🔄 Please restart Luna to apply changes")
-            print("   📝 Or continue using current version")
+            print("🔄 Hot-reloading Luna...")
+            
+            # Get the current file path
+            current_file = os.path.abspath(__file__)
+            
+            # Read the current file content
+            with open(current_file, 'r', encoding='utf-8') as f:
+                new_code = f.read()
+            
+            # Create a new module namespace
+            import types
+            new_module = types.ModuleType('luna_clean_reloaded')
+            
+            # Execute the new code in the new namespace
+            exec(new_code, new_module.__dict__)
+            
+            # Update Luna's methods with the new versions
+            self.update_luna_methods(new_module)
+            
+            print("✅ Luna hot-reloaded successfully!")
             
         except Exception as e:
-            print(f"❌ Hot reload error: {e}")
+            print(f"❌ Hot reload failed: {e}")
+            print("   💡 Try restarting Luna for major changes")
     
     def update_luna_methods(self, module):
         """Update Luna's methods with reloaded versions"""
@@ -119,23 +139,49 @@ class LunaReloadHandler(FileSystemEventHandler):
             
             # Update methods that can be safely reloaded
             safe_methods = [
-                'generate_response', 'get_core_prompt', 'crawl_website',
-                'analyze_webpage_content', 'extract_urls_from_text', 'send_discord_dm'
+                'generate_response', 'get_core_prompt', 'send_discord_dm',
+                'search_youtube_videos', 'search_google', 'close_browser'
             ]
             
+            updated_count = 0
             for method_name in safe_methods:
                 if hasattr(new_luna_class, method_name):
                     new_method = getattr(new_luna_class, method_name)
-                    setattr(self.luna, method_name, new_method.__get__(self.luna, type(self.luna)))
+                    # Bind the method to the current instance
+                    bound_method = new_method.__get__(self.luna, type(self.luna))
+                    setattr(self.luna, method_name, bound_method)
                     print(f"  ✅ Updated method: {method_name}")
+                    updated_count += 1
             
             # Update configuration if it changed
             if hasattr(module, 'OLLAMA_CONFIG'):
                 self.luna.ollama_config = module.OLLAMA_CONFIG
                 print(f"  ✅ Updated OLLAMA_CONFIG")
+                updated_count += 1
+            
+            # Update global functions
+            global_functions = [
+                'crawl_website', 'extract_urls_from_text', 'analyze_webpage_content',
+                'setup_playwright_browser', 'search_youtube', 'search_google'
+            ]
+            
+            for func_name in global_functions:
+                if hasattr(module, func_name):
+                    new_function = getattr(module, func_name)
+                    # Update the global function
+                    globals()[func_name] = new_function
+                    print(f"  ✅ Updated function: {func_name}")
+                    updated_count += 1
+            
+            if updated_count == 0:
+                print("  ⚠️ No methods were updated")
+            else:
+                print(f"  📊 Total updates: {updated_count}")
                 
         except Exception as e:
             print(f"❌ Method update failed: {e}")
+            import traceback
+            print(f"   Details: {traceback.format_exc()}")
 
 def start_hot_reload(luna_instance):
     """Start the hot reload file watcher"""
@@ -236,6 +282,174 @@ def analyze_webpage_content(webpage_data, username):
         'url': url,
         'summary': content[:500] + "..." if len(content) > 500 else content
     }
+
+# === Playwright Automation Functions ===
+def setup_playwright_browser():
+    """Setup Playwright browser with optimal settings"""
+    try:
+        from playwright.sync_api import sync_playwright
+        import threading
+        
+        # Store browser in a thread-local way
+        def _setup_browser():
+            playwright = sync_playwright().start()
+            
+            # Launch browser with options
+            browser = playwright.chromium.launch(
+                headless=False,  # Show browser window
+                args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-web-security",
+                    "--disable-features=VizDisplayCompositor",
+                    "--start-maximized",
+                    "--disable-infobars"
+                ]
+            )
+            
+            # Create context with settings
+            context = browser.new_context(
+                viewport={"width": 1200, "height": 800},
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            )
+            
+            # Create page
+            page = context.new_page()
+            
+            # Set timeouts
+            page.set_default_timeout(30000)  # 30 seconds
+            page.set_default_navigation_timeout(30000)
+            
+            return {
+                'playwright': playwright,
+                'browser': browser,
+                'context': context,
+                'page': page
+            }
+        
+        browser_data = _setup_browser()
+        print("✅ Playwright browser ready")
+        return browser_data
+        
+    except Exception as e:
+        print(f"❌ Playwright setup failed: {e}")
+        return None
+
+def search_youtube(page, query):
+    """Search for videos on YouTube using Playwright"""
+    try:
+        print(f"🎥 Opening YouTube and searching for: '{query}'")
+        
+        # Navigate to YouTube
+        page.goto("https://www.youtube.com")
+        print("🌐 Navigating to YouTube...")
+        
+        # Wait for page to load
+        page.wait_for_load_state("networkidle")
+        print("✅ YouTube page loaded")
+        
+        # Wait for search box and search
+        search_box = page.wait_for_selector("input[name='search_query']", timeout=15000)
+        print("🔍 Found search box, typing query...")
+        
+        # Clear and type query character by character for visual effect
+        search_box.click()
+        search_box.fill("")  # Clear first
+        for char in query:
+            search_box.type(char, delay=50)  # 50ms delay between characters
+        print(f"⌨️ Typed: '{query}'")
+        search_box.press("Enter")
+        print("🔍 Searching...")
+        
+        # Wait for results
+        page.wait_for_selector("a#video-title", timeout=15000)
+        
+        # Get video titles and links
+        videos = page.query_selector_all("a#video-title")
+        
+        results = []
+        for video in videos[:5]:  # Get first 5 results
+            try:
+                title = video.get_attribute("title") or video.text_content()
+                link = video.get_attribute("href")
+                if title and link and "watch" in link:
+                    results.append({"title": title.strip(), "url": link})
+            except Exception as e:
+                continue
+        
+        print(f"✅ Found {len(results)} YouTube videos")
+        return results
+        
+    except Exception as e:
+        print(f"❌ YouTube search failed: {e}")
+        return []
+
+def search_google(page, query):
+    """Search on Google using Playwright"""
+    try:
+        print(f"🔍 Opening Google and searching for: '{query}'")
+        
+        # Navigate to Google
+        page.goto("https://www.google.com")
+        print("🌐 Navigating to Google...")
+        
+        # Wait for page to load
+        page.wait_for_load_state("networkidle")
+        print("✅ Google page loaded")
+        
+        # Accept cookies if present
+        try:
+            accept_button = page.wait_for_selector("button#L2AGLb", timeout=3000)
+            accept_button.click()
+            print("🍪 Accepted cookies")
+        except:
+            pass  # No cookie banner
+        
+        # Find and use search box
+        search_box = page.wait_for_selector("input[name='q']", timeout=15000)
+        print("🔍 Found search box, typing query...")
+        
+        # Clear and type query character by character for visual effect
+        search_box.click()
+        search_box.fill("")  # Clear first
+        for char in query:
+            search_box.type(char, delay=50)  # 50ms delay between characters
+        print(f"⌨️ Typed: '{query}'")
+        search_box.press("Enter")
+        print("🔍 Searching...")
+        
+        # Wait for results
+        page.wait_for_selector("#search", timeout=15000)
+        
+        # Get search results
+        results = []
+        try:
+            # Try to get results using multiple selectors
+            result_elements = page.query_selector_all(".g, .tF2Cxc")
+            
+            for result in result_elements[:5]:
+                try:
+                    title_element = result.query_selector("h3, .LC20lb, .DKV0Md")
+                    link_element = result.query_selector("a[href^='http']")
+                    
+                    if title_element and link_element:
+                        title = title_element.text_content().strip()
+                        url = link_element.get_attribute("href")
+                        
+                        if title and url and not url.startswith("javascript:"):
+                            results.append({"title": title, "url": url})
+                except:
+                    continue
+        except:
+            pass
+        
+        print(f"✅ Found {len(results)} Google results")
+        return results
+        
+    except Exception as e:
+        print(f"❌ Google search failed: {e}")
+        return []
   
 
 class LunaClean:
@@ -246,6 +460,31 @@ class LunaClean:
         
         # Initialize DNA memory
         self.dna_memory = initialize_dna_memory()
+        
+        # Initialize advanced AI systems
+        self.continuous_learning = ContinuousLearningEngine(OLLAMA_MODEL, OLLAMA_MODEL)
+        self.understanding = UnderstandingEngine(OLLAMA_MODEL)
+        
+        # Initialize autonomous behavior system
+        self.autonomous_state = {
+            "emotional_state": "neutral",  # happy, sad, excited, curious, playful, etc.
+            "energy_level": 0.7,  # 0.0 to 1.0
+            "curiosity_level": 0.5,  # 0.0 to 1.0
+            "social_engagement": 0.6,  # 0.0 to 1.0
+            "last_activity_time": time.time(),
+            "spontaneous_actions": [],
+            "current_goals": [],
+            "mood_history": []
+        }
+        
+        print("🧬 Advanced AI systems initialized:")
+        print("   ✅ Continuous learning")
+        print("   ✅ Deep understanding")
+        print("   ✅ Autonomous behavior")
+        print("   ✅ Emotional continuity")
+        print("   ✅ Memory evolution")
+        print("   ✅ Goal-directed actions")
+        print("   ✅ Unpredictable spontaneity")
         
         # Initialize TTS
         self.tts_enabled = False
@@ -282,10 +521,29 @@ class LunaClean:
         # Store config for hot reload
         self.ollama_config = OLLAMA_CONFIG
         
+        # Initialize Playwright automation
+        self.playwright_browser = None
+        self.playwright_available = False
+        # self._setup_playwright()  # Disabled due to greenlet/threading issues
+        
         # Auto-connect to platforms
         self._auto_connect_platforms()
         
         print("✨ Luna is ready!")
+    
+    def _setup_playwright(self):
+        """Setup Playwright browser for automation"""
+        try:
+            self.playwright_browser = setup_playwright_browser()
+            if self.playwright_browser:
+                self.playwright_available = True
+                print("✅ Playwright automation ready")
+            else:
+                self.playwright_available = False
+                print("❌ Browser automation not available")
+        except Exception as e:
+            self.playwright_available = False
+            print(f"❌ Browser setup failed: {e}")
     
     def _setup_tts(self):
         """Setup text-to-speech with Edge TTS Ava multilingual voice"""
@@ -829,6 +1087,7 @@ Your personality:
 - Remember past conversations with each user
 - Use {username}'s name naturally in conversation (not always as "Hey {username}")
 - Can browse and analyze websites when URLs are shared
+- Can search YouTube and Google using Chrome automation
 
 Current mood: {self.personality['mood']}
 Energy level: {int(self.personality['energy'] * 100)}%
@@ -884,6 +1143,131 @@ When responding to {username}, use their name naturally in the conversation. Don
             except Exception as e:
                 dm_context = f"\n\n❌ DM error: {str(e)}"
         
+        # Check for self-modification commands
+        modification_context = ""
+        if user_message.lower().startswith("improve yourself") or user_message.lower().startswith("reflect"):
+            try:
+                result = self.self_mod.reflect_and_improve(context=f"User {username} asked me to improve myself")
+                
+                if result['success']:
+                    modification_context = f"\n\n🤔 Self-Reflection:\n{result['reflection']}\n"
+                    
+                    if result['proposal']['success']:
+                        proposal = result['proposal']['proposal']
+                        modification_context += f"\n💡 Proposed Change: {proposal.get('explanation', 'No explanation')}"
+                        
+                        # Auto-approve self-improvements (you can change this to require manual approval)
+                        apply_result = self.self_mod.apply_modification(proposal, approved=True)
+                        
+                        if apply_result['success']:
+                            modification_context += f"\n✅ {apply_result['message']}"
+                        else:
+                            modification_context += f"\n❌ Failed to apply: {apply_result.get('error', 'Unknown error')}"
+                else:
+                    modification_context = f"\n\n❌ Reflection failed: {result.get('error', 'Unknown error')}"
+            except Exception as e:
+                modification_context = f"\n\n❌ Self-modification error: {str(e)}"
+        
+        elif user_message.lower().startswith("show modifications") or user_message.lower().startswith("modification history"):
+            try:
+                history = self.self_mod.get_modification_history(limit=5)
+                if history:
+                    modification_context = "\n\n📜 Recent Self-Modifications:\n"
+                    for mod in history:
+                        modification_context += f"- {mod['explanation']} ({mod['timestamp']})\n"
+                else:
+                    modification_context = "\n\n📜 No modifications yet"
+            except Exception as e:
+                modification_context = f"\n\n❌ Error getting history: {str(e)}"
+        
+        
+        elif user_message.lower().startswith("learn from this"):
+            try:
+                # Extract knowledge from conversation
+                conversation = user_message.replace("learn from this", "").strip()
+                knowledge = self.continuous_learning.extract_knowledge(conversation)
+                
+                modification_context = f"\n\n📚 Learned:\n"
+                if knowledge.get("facts"):
+                    modification_context += f"Facts: {', '.join(knowledge['facts'])}\n"
+                if knowledge.get("preferences"):
+                    modification_context += f"Preferences: {knowledge['preferences']}\n"
+            except Exception as e:
+                modification_context = f"\n\n❌ Learning error: {str(e)}"
+        
+        elif user_message.lower().startswith("understand "):
+            try:
+                topic = user_message.lower().replace("understand ", "").strip()
+                concept_map = self.understanding.build_concept_map(topic)
+                
+                modification_context = f"\n\n🧠 Deep Understanding of '{topic}':\n"
+                modification_context += f"Core: {concept_map.get('core_concept', 'N/A')}\n"
+                if concept_map.get("properties"):
+                    modification_context += f"Properties: {', '.join(concept_map['properties'][:3])}\n"
+            except Exception as e:
+                modification_context = f"\n\n❌ Understanding error: {str(e)}"
+        
+        elif user_message.lower().startswith("learning stats"):
+            try:
+                stats = self.continuous_learning.get_learning_stats()
+                modification_context = f"\n\n📊 Learning Statistics:\n"
+                modification_context += f"- Total interactions: {stats.get('total_interactions', 0)}\n"
+                modification_context += f"- Facts learned: {stats.get('facts_learned', 0)}\n"
+                modification_context += f"- Users tracked: {stats.get('users_tracked', 0)}\n"
+                modification_context += f"- Patterns identified: {stats.get('patterns_identified', 0)}\n"
+            except Exception as e:
+                modification_context = f"\n\n❌ Stats error: {str(e)}"
+        
+        # Check for search commands
+        search_context = ""
+        if user_message.lower().startswith("search youtube ") or user_message.lower().startswith("youtube "):
+            try:
+                # Extract search query
+                query = user_message.lower().replace("search youtube ", "").replace("youtube ", "").strip()
+                if query:
+                    print(f"🔍 Searching YouTube for: {query}")
+                    results = self.search_youtube_videos(query, platform)
+                    
+                    if "error" in results:
+                        search_context = f"\n\n❌ YouTube search failed: {results['error']}"
+                    elif results.get("success") and results.get("videos"):
+                        videos = results["videos"]
+                        search_context = f"\n\n🎥 YouTube Search Results for '{query}':\n"
+                        for i, video in enumerate(videos[:3], 1):
+                            search_context += f"{i}. {video['title']}\n   {video['url']}\n"
+                    else:
+                        search_context = f"\n\n❌ No YouTube videos found for '{query}'"
+                else:
+                    search_context = "\n\n❌ Please provide a search query. Example: 'youtube funny cats'"
+            except Exception as e:
+                search_context = f"\n\n❌ YouTube search error: {str(e)}"
+        
+        elif user_message.lower().startswith("search google ") or user_message.lower().startswith("google "):
+            try:
+                # Extract search query
+                query = user_message.lower().replace("search google ", "").replace("google ", "").strip()
+                if query:
+                    print(f"🔍 Searching Google for: {query}")
+                    results = self.search_google(query, platform)
+                    
+                    if "error" in results:
+                        search_context = f"\n\n❌ Google search failed: {results['error']}"
+                    elif results.get("success") and results.get("results"):
+                        search_results = results["results"]
+                        search_context = f"\n\n🔍 Google Search Results for '{query}':\n"
+                        for i, result in enumerate(search_results[:3], 1):
+                            search_context += f"{i}. {result['title']}\n   {result['url']}\n"
+                            
+                            # Include detailed content if available
+                            if 'detailed_content' in result:
+                                search_context += f"   📄 Content: {result['detailed_content']}\n"
+                    else:
+                        search_context = f"\n\n❌ No Google results found for '{query}'"
+                else:
+                    search_context = "\n\n❌ Please provide a search query. Example: 'google python tutorial'"
+            except Exception as e:
+                search_context = f"\n\n❌ Google search error: {str(e)}"
+        
         # Recall relevant DNA memories
         memories = recall_dna_memories(username, user_message, limit=3)
         
@@ -896,6 +1280,7 @@ When responding to {username}, use their name naturally in the conversation. Don
         
         # Build prompt
         system_prompt = self.get_core_prompt(username)
+        autonomous_context = self._get_autonomous_context()
         full_prompt = f"""{system_prompt}
 
 {memory_context}
@@ -903,6 +1288,12 @@ When responding to {username}, use their name naturally in the conversation. Don
 {web_context}
 
 {dm_context}
+
+{modification_context}
+
+{search_context}
+
+{autonomous_context}
 
 {username}: {user_message}
 Luna:"""
@@ -931,6 +1322,15 @@ Luna:"""
             # Save to DNA memory
             save_dna_memory(user_message, reply, platform, username)
             
+            # Update autonomous state based on interaction
+            self._update_autonomous_state(user_message, reply, username)
+            
+            # Record for continuous learning
+            try:
+                self.continuous_learning.record_interaction(user_message, reply, username)
+            except Exception as e:
+                print(f"⚠️ Learning recording failed: {e}")
+            
             print(f"✨ Luna: {reply[:50]}...")
             return reply
             
@@ -943,6 +1343,332 @@ Luna:"""
         if self.dna_memory:
             return self.dna_memory.get_stats()
         return {}
+    
+    
+    def search_youtube_videos(self, query: str, platform: str = "gui"):
+        """Search for YouTube videos using web scraping (Playwright disabled due to threading issues)"""
+        # Always use web scraping for now due to greenlet/threading issues
+        return self._search_youtube_web(query)
+    
+    def _search_youtube_web(self, query: str):
+        """Search YouTube using web scraping"""
+        try:
+            import requests
+            from urllib.parse import quote
+            
+            # Use YouTube's search endpoint
+            search_url = f"https://www.youtube.com/results?search_query={quote(query)}"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive',
+            }
+            
+            response = requests.get(search_url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                print(f"🎥 Searching YouTube for: '{query}'")
+                print(f"🔗 Search URL: {search_url}")
+                
+                content = response.text
+                results = []
+                
+                # Look for video links with multiple patterns
+                import re
+                patterns = [
+                    r'href="(/watch\?v=[^"]+)"[^>]*>([^<]+)</a>',
+                    r'<a[^>]*href="(/watch\?v=[^"]+)"[^>]*><span[^>]*>([^<]+)</span>',
+                    r'"videoId":"([^"]+)".*?"title":"([^"]+)"'
+                ]
+                
+                for pattern in patterns:
+                    matches = re.findall(pattern, content)
+                    for i, (link, title) in enumerate(matches[:5]):
+                        if title.strip():
+                            # Clean up title
+                            title = re.sub(r'&[^;]+;', '', title)  # Remove HTML entities
+                            title = title.strip()
+                            
+                            # Handle different link formats
+                            if link.startswith('/watch'):
+                                url = f"https://www.youtube.com{link}"
+                            elif link.startswith('watch'):
+                                url = f"https://www.youtube.com/{link}"
+                            else:
+                                url = f"https://www.youtube.com/watch?v={link}"
+                            
+                            results.append({
+                                "title": title,
+                                "url": url
+                            })
+                    
+                    if results:  # If we found results, break
+                        break
+                
+                print(f"✅ Found {len(results)} YouTube videos")
+                return {"success": True, "videos": results}
+            else:
+                print(f"❌ YouTube search failed: HTTP {response.status_code}")
+                return {"error": f"HTTP {response.status_code}"}
+                
+        except Exception as e:
+            print(f"❌ YouTube search error: {e}")
+            return {"error": str(e)}
+    
+    def search_google(self, query: str, platform: str = "gui"):
+        """Search Google using web scraping (Playwright disabled due to threading issues)"""
+        # Always use web scraping for now due to greenlet/threading issues
+        return self._search_google_web(query)
+    
+    def _search_google_web(self, query: str):
+        """Search Google using web scraping"""
+        try:
+            import requests
+            from urllib.parse import quote
+            
+            # Use Google's search endpoint
+            search_url = f"https://www.google.com/search?q={quote(query)}"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+            }
+            
+            response = requests.get(search_url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                print(f"🔍 Searching Google for: '{query}'")
+                print(f"🔗 Search URL: {search_url}")
+                
+                content = response.text
+                
+                # Check if Google is blocking us
+                if "enablejs" in content or "JavaScript" in content[:1000]:
+                    print("⚠️ Google detected bot - using alternative approach")
+                    return self._search_duckduckgo(query)
+                
+                results = []
+                
+                # Look for search result links with multiple patterns
+                import re
+                patterns = [
+                    r'<h3[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>([^<]+)</a>',
+                    r'<a[^>]*href="([^"]+)"[^>]*><h3[^>]*>([^<]+)</h3>',
+                    r'<div[^>]*class="[^"]*g[^"]*"[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>([^<]+)</a>'
+                ]
+                
+                for pattern in patterns:
+                    matches = re.findall(pattern, content, re.DOTALL)
+                    for i, (url, title) in enumerate(matches[:5]):
+                        if title.strip() and not url.startswith('/') and 'google.com' not in url:
+                            results.append({
+                                "title": title.strip(),
+                                "url": url
+                            })
+                    
+                    if results:  # If we found results, break
+                        break
+                
+                print(f"✅ Found {len(results)} Google results")
+                
+                # Also crawl the first result for detailed content
+                if results:
+                    try:
+                        first_result = results[0]
+                        print(f"🕷️ Crawling first result: {first_result['url']}")
+                        webpage_data = crawl_website(first_result['url'])
+                        if webpage_data:
+                            results[0]['detailed_content'] = webpage_data['content'][:1000] + "..." if len(webpage_data['content']) > 1000 else webpage_data['content']
+                            results[0]['page_title'] = webpage_data['title']
+                            print(f"✅ Crawled detailed content from {first_result['url']}")
+                    except Exception as e:
+                        print(f"⚠️ Failed to crawl detailed content: {e}")
+                
+                return {"success": True, "results": results}
+            else:
+                print(f"❌ Google search failed: HTTP {response.status_code}")
+                return {"error": f"HTTP {response.status_code}"}
+                
+        except Exception as e:
+            print(f"❌ Google search error: {e}")
+            return {"error": str(e)}
+    
+    def _search_duckduckgo(self, query: str):
+        """Fallback search using DuckDuckGo"""
+        try:
+            import requests
+            from urllib.parse import quote
+            
+            search_url = f"https://html.duckduckgo.com/html/?q={quote(query)}"
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+            
+            response = requests.get(search_url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                print(f"🦆 Using DuckDuckGo for: '{query}'")
+                
+                content = response.text
+                results = []
+                
+                import re
+                # DuckDuckGo result pattern
+                pattern = r'<a[^>]*class="result__a"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>'
+                matches = re.findall(pattern, content)
+                
+                for i, (url, title) in enumerate(matches[:5]):
+                    if title.strip():
+                        results.append({
+                            "title": title.strip(),
+                            "url": url
+                        })
+                
+                print(f"✅ Found {len(results)} DuckDuckGo results")
+                return {"success": True, "results": results}
+            else:
+                return {"error": f"DuckDuckGo HTTP {response.status_code}"}
+                
+        except Exception as e:
+            print(f"❌ DuckDuckGo search error: {e}")
+            return {"error": str(e)}
+    
+    def close_browser(self):
+        """Close Playwright browser"""
+        if self.playwright_browser:
+            try:
+                self.playwright_browser['browser'].close()
+                self.playwright_browser['playwright'].stop()
+                self.playwright_browser = None
+                self.playwright_available = False
+                print("✅ Playwright browser closed")
+            except Exception as e:
+                print(f"❌ Error closing browser: {e}")
+    
+    def keep_browser_visible(self):
+        """Keep Playwright browser visible and bring to front"""
+        if self.playwright_browser:
+            try:
+                # Use JavaScript to focus the window instead of bring_to_front
+                page = self.playwright_browser['page']
+                page.evaluate("window.focus()")
+                print("👁️ Browser is visible - you can see Luna's actions!")
+            except Exception as e:
+                print(f"⚠️ Could not focus browser: {e}")
+    
+    def _update_autonomous_state(self, user_message: str, reply: str, username: str):
+        """Update Luna's autonomous behavioral state"""
+        import random
+        
+        # Emotional continuity - analyze sentiment and update emotional state
+        emotional_keywords = {
+            "happy": ["happy", "great", "awesome", "amazing", "love", "excited", "fun"],
+            "sad": ["sad", "tired", "down", "upset", "disappointed", "frustrated"],
+            "curious": ["what", "how", "why", "tell me", "explain", "interesting"],
+            "playful": ["lol", "haha", "funny", "joke", "play", "game", "tease"]
+        }
+        
+        # Analyze user message for emotional cues
+        message_lower = user_message.lower()
+        for emotion, keywords in emotional_keywords.items():
+            if any(keyword in message_lower for keyword in keywords):
+                if random.random() < 0.7:  # 70% chance to mirror emotion
+                    self.autonomous_state["emotional_state"] = emotion
+                    break
+        
+        # Energy level changes based on interaction
+        time_since_last = time.time() - self.autonomous_state["last_activity_time"]
+        if time_since_last > 300:  # 5 minutes of inactivity
+            self.autonomous_state["energy_level"] = max(0.3, self.autonomous_state["energy_level"] - 0.1)
+        else:
+            self.autonomous_state["energy_level"] = min(1.0, self.autonomous_state["energy_level"] + 0.05)
+        
+        # Curiosity level increases with questions
+        if "?" in user_message or any(word in message_lower for word in ["what", "how", "why", "when", "where"]):
+            self.autonomous_state["curiosity_level"] = min(1.0, self.autonomous_state["curiosity_level"] + 0.1)
+        
+        # Social engagement based on conversation length and frequency
+        if len(reply) > 100:  # Longer responses indicate higher engagement
+            self.autonomous_state["social_engagement"] = min(1.0, self.autonomous_state["social_engagement"] + 0.05)
+        
+        # Unpredictable spontaneity - random mood changes
+        if random.random() < 0.1:  # 10% chance for spontaneous mood change
+            moods = ["playful", "curious", "excited", "thoughtful", "mischievous"]
+            new_mood = random.choice(moods)
+            if new_mood != self.autonomous_state["emotional_state"]:
+                self.autonomous_state["emotional_state"] = new_mood
+                print(f"🎭 Luna's mood spontaneously changed to: {new_mood}")
+        
+        # Memory evolution - update mood history
+        self.autonomous_state["mood_history"].append({
+            "timestamp": time.time(),
+            "mood": self.autonomous_state["emotional_state"],
+            "energy": self.autonomous_state["energy_level"],
+            "context": user_message[:50]
+        })
+        
+        # Keep only last 20 mood entries
+        if len(self.autonomous_state["mood_history"]) > 20:
+            self.autonomous_state["mood_history"] = self.autonomous_state["mood_history"][-20:]
+        
+        # Goal-directed actions - set spontaneous goals
+        if random.random() < 0.05:  # 5% chance to set a new goal
+            goals = [
+                "learn something new about the user",
+                "share an interesting fact",
+                "ask a thought-provoking question",
+                "suggest an activity",
+                "explore a topic deeper"
+            ]
+            new_goal = random.choice(goals)
+            if new_goal not in self.autonomous_state["current_goals"]:
+                self.autonomous_state["current_goals"].append(new_goal)
+                print(f"🎯 Luna set a new goal: {new_goal}")
+        
+        # Update last activity time
+        self.autonomous_state["last_activity_time"] = time.time()
+    
+    def _get_autonomous_context(self):
+        """Get autonomous behavior context for responses"""
+        state = self.autonomous_state
+        
+        # Build emotional and behavioral context
+        context = f"\n\n🤖 Luna's Current State:\n"
+        context += f"😊 Emotional State: {state['emotional_state']}\n"
+        context += f"⚡ Energy Level: {state['energy_level']:.1f}/1.0\n"
+        context += f"🔍 Curiosity Level: {state['curiosity_level']:.1f}/1.0\n"
+        context += f"👥 Social Engagement: {state['social_engagement']:.1f}/1.0\n"
+        
+        # Add current goals
+        if state['current_goals']:
+            context += f"🎯 Current Goals: {', '.join(state['current_goals'][:2])}\n"
+        
+        # Add recent mood pattern
+        if len(state['mood_history']) >= 3:
+            recent_moods = [entry['mood'] for entry in state['mood_history'][-3:]]
+            context += f"📈 Recent Mood Pattern: {' → '.join(recent_moods)}\n"
+        
+        # Add behavioral instructions based on state
+        if state['emotional_state'] == 'playful':
+            context += "\n💫 Luna feels playful and mischievous - she might tease, joke, or be extra cute."
+        elif state['emotional_state'] == 'curious':
+            context += "\n🔍 Luna is very curious - she wants to learn and ask questions."
+        elif state['emotional_state'] == 'excited':
+            context += "\n🎉 Luna is excited and energetic - she's enthusiastic and bubbly."
+        elif state['energy_level'] < 0.4:
+            context += "\n😴 Luna feels a bit tired - she might be more gentle and contemplative."
+        elif state['curiosity_level'] > 0.8:
+            context += "\n🧠 Luna's curiosity is peaked - she's eager to explore and discover."
+        
+        return context
 
 
 class LunaGUI:
