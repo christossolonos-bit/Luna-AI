@@ -26,15 +26,18 @@ import random
 
 
 class DNAMemoryStrand:
-    """A single memory encoded as a DNA-like strand"""
+    """A single memory encoded as a DNA-like strand with global context"""
     
     def __init__(self, user_message: str, luna_response: str, 
-                 platform: str, username: str, timestamp: float = None):
+                 platform: str, username: str, timestamp: float = None,
+                 global_context: Dict = None, cross_platform_links: List = None):
         self.timestamp = timestamp or time.time()
         self.user_message = user_message
         self.luna_response = luna_response
         self.platform = platform
         self.username = username
+        self.global_context = global_context or {}
+        self.cross_platform_links = cross_platform_links or []
         
         # DNA properties
         self.strand_id = self._generate_strand_id()

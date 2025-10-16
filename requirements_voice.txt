@@ -19,3 +19,7 @@ watchdog>=3.0.0
 
 # Chrome Automation Dependencies
 playwright>=1.40.0
+
+# Vector Embeddings Dependencies
+sentence-transformers>=2.2.2
+numpy>=1.21.0
