@@ -467,15 +467,19 @@ class LunaClean:
         # Initialize DNA memory
         self.dna_memory = initialize_dna_memory()
         
-        # Initialize global context awareness
+        # Initialize global context awareness with user profiles and channel context
         self.global_context = {
             "cross_platform_users": {},  # Track users across platforms
+            "user_profiles": {},         # Detailed user profiles by username
             "conversation_threads": {},  # Track ongoing conversation topics
             "global_topics": {},         # Track topics across all platforms
             "user_preferences": {},      # Track user preferences globally
             "platform_relationships": {}, # Track relationships between platforms
             "last_interaction": {},      # Track last interaction per user
-            "context_memory": []         # Global context buffer
+            "context_memory": [],        # Global context buffer
+            "channel_conversations": {}, # Track conversations by channel/platform
+            "active_topics": {},         # Track currently active topics per channel
+            "conversation_flow": {}      # Track conversation flow and context
         }
         
         # Initialize advanced AI systems
@@ -770,6 +774,10 @@ class LunaClean:
                 if message.author == self.discord_client.user:
                     return
                 
+                # Ignore bot messages (including Luna Bot APP)
+                if message.author.bot:
+                    return
+                
                 # Process message in background
                 threading.Thread(
                     target=self._process_discord_message, 
@@ -913,6 +921,10 @@ class LunaClean:
                 if message.author == self.discord_client.user:
                     return
                 
+                # Ignore bot messages (including Luna Bot APP)
+                if message.author.bot:
+                    return
+                
                 # Process message in background
                 threading.Thread(
                     target=self._process_discord_message, 
@@ -1032,10 +1044,33 @@ class LunaClean:
             
             # Send response only in target channel
             if self.discord_client and response:
-                asyncio.run_coroutine_threadsafe(
-                    message.channel.send(response),
-                    self.discord_client.loop
-                )
+                print(f"📤 Attempting to send Discord message: {len(response)} characters")
+                try:
+                    # Use the existing Discord client loop
+                    future = asyncio.run_coroutine_threadsafe(
+                        message.channel.send(response),
+                        self.discord_client.loop
+                    )
+                    print(f"🔄 Discord send future created, waiting for result...")
+                    # Wait for the result without timeout
+                    result = future.result()
+                    print(f"✅ Luna sent response to Discord successfully!")
+                except Exception as send_error:
+                    print(f"❌ Failed to send Discord message: {send_error}")
+                    # Try using the send_message method if available
+                    try:
+                        if hasattr(self.discord_client, 'send_message'):
+                            self.discord_client.send_message(message.channel.id, response)
+                            print(f"✅ Luna sent response via send_message method")
+                        else:
+                            print(f"❌ No alternative send method available")
+                    except Exception as alt_error:
+                        print(f"❌ Alternative send method also failed: {alt_error}")
+            else:
+                if not self.discord_client:
+                    print(f"❌ No Discord client available")
+                if not response:
+                    print(f"❌ No response to send")
                 
         except Exception as e:
             print(f"Discord message processing error: {e}")
@@ -1058,11 +1093,80 @@ class LunaClean:
             user_data["total_interactions"] += 1
             user_data["last_seen"][platform] = time.time()
             
+            # Enhanced user profile by username
+            if username not in self.global_context["user_profiles"]:
+                self.global_context["user_profiles"][username] = {
+                    "platforms": set(),
+                    "total_interactions": 0,
+                    "interaction_history": [],
+                    "personality_traits": {},
+                    "interests": set(),
+                    "communication_style": {},
+                    "relationship_level": "new",  # new, familiar, close, intimate
+                    "last_seen": {},
+                    "preferences": {},
+                    "topics_discussed": set(),
+                    "emotional_patterns": {},
+                    "conversation_patterns": {}
+                }
+            
+            profile = self.global_context["user_profiles"][username]
+            profile["platforms"].add(platform)
+            profile["total_interactions"] += 1
+            profile["last_seen"][platform] = time.time()
+            
+            # Analyze message content for personality and interests
+            message_length = len(user_message)
+            
+            # Analyze communication style
+            profile["communication_style"]["avg_message_length"] = (
+                (profile["communication_style"].get("avg_message_length", 0) * (profile["total_interactions"] - 1) + message_length) 
+                / profile["total_interactions"]
+            )
+            
+            # Detect emotional patterns
+            emotional_indicators = {
+                "excitement": ["!", "!!", "!!!", "amazing", "awesome", "love", "excited"],
+                "frustration": ["fuck", "shit", "damn", "angry", "mad", "pissed"],
+                "curiosity": ["?", "what", "how", "why", "tell me", "explain"],
+                "affection": ["love", "cute", "sweet", "adorable", "darling", "honey"],
+                "playfulness": ["lol", "haha", "funny", "joke", "play", "game"]
+            }
+            
+            for emotion, indicators in emotional_indicators.items():
+                count = sum(1 for indicator in indicators if indicator in user_message.lower())
+                if count > 0:
+                    if emotion not in profile["emotional_patterns"]:
+                        profile["emotional_patterns"][emotion] = 0
+                    profile["emotional_patterns"][emotion] += count
+            
+            # Update relationship level based on interaction frequency
+            if profile["total_interactions"] >= 50:
+                profile["relationship_level"] = "intimate"
+            elif profile["total_interactions"] >= 20:
+                profile["relationship_level"] = "close"
+            elif profile["total_interactions"] >= 5:
+                profile["relationship_level"] = "familiar"
+            
+            # Store interaction history
+            profile["interaction_history"].append({
+                "timestamp": time.time(),
+                "platform": platform,
+                "message": user_message[:200],  # Store first 200 chars
+                "message_length": message_length,
+                "emotional_indicators": {k: v for k, v in profile["emotional_patterns"].items() if v > 0}
+            })
+            
+            # Keep only last 100 interactions in history
+            if len(profile["interaction_history"]) > 100:
+                profile["interaction_history"] = profile["interaction_history"][-100:]
+            
             # Extract topics from message
             words = user_message.lower().split()
             for word in words:
                 if len(word) > 3:  # Ignore short words
                     user_data["topics_discussed"].add(word)
+                    profile["topics_discussed"].add(word)
             
             # Track global topics
             for word in words:
@@ -1095,17 +1199,176 @@ class LunaClean:
             # Keep only last 50 interactions
             if len(self.global_context["context_memory"]) > 50:
                 self.global_context["context_memory"] = self.global_context["context_memory"][-50:]
+            
+            # Track channel-wide conversations with per-user message tracking
+            channel_key = f"{platform}_channel"
+            if channel_key not in self.global_context["channel_conversations"]:
+                self.global_context["channel_conversations"][channel_key] = {
+                    "recent_messages": [],
+                    "user_messages": {},  # Track messages per user
+                    "active_users": set(),
+                    "current_topic": None,
+                    "conversation_mood": "neutral",
+                    "message_count": 0,
+                    "last_activity": time.time()
+                }
+            
+            channel_data = self.global_context["channel_conversations"][channel_key]
+            channel_data["active_users"].add(username)
+            channel_data["message_count"] += 1
+            channel_data["last_activity"] = time.time()
+            
+            # Initialize user message tracking if needed
+            if username not in channel_data["user_messages"]:
+                channel_data["user_messages"][username] = []
+            
+            # Add message to user's message history
+            user_message_data = {
+                "timestamp": time.time(),
+                "message": user_message[:120],  # Slightly longer for context
+                "message_length": len(user_message),
+                "topics": [word for word in words if len(word) > 3][:5]  # Top 5 topics
+            }
+            channel_data["user_messages"][username].append(user_message_data)
+            
+            # Keep only last 10 messages per user
+            if len(channel_data["user_messages"][username]) > 10:
+                channel_data["user_messages"][username] = channel_data["user_messages"][username][-10:]
+            
+            # Add to overall recent messages (for topic analysis)
+            channel_data["recent_messages"].append({
+                "timestamp": time.time(),
+                "username": username,
+                "message": user_message[:100],
+                "message_length": len(user_message),
+                "topics": [word for word in words if len(word) > 3][:3]
+            })
+            
+            # Keep only last 8 messages overall for faster responses
+            if len(channel_data["recent_messages"]) > 8:
+                channel_data["recent_messages"] = channel_data["recent_messages"][-8:]
+            
+            # Analyze conversation topic and mood
+            self._analyze_channel_conversation(channel_key, channel_data)
                 
         except Exception as e:
             print(f"Error updating global context: {e}")
+    
+    def _analyze_channel_conversation(self, channel_key: str, channel_data: dict):
+        """Analyze the current conversation topic and mood in a channel"""
+        try:
+            recent_messages = channel_data["recent_messages"]
+            if len(recent_messages) < 2:
+                return
+            
+            # Extract all topics from recent messages (focus on current conversation)
+            all_topics = []
+            for msg in recent_messages[-5:]:  # Last 5 messages for faster topic detection
+                all_topics.extend(msg.get("topics", []))
+            
+            # Find most common topics
+            topic_counts = {}
+            for topic in all_topics:
+                topic_counts[topic] = topic_counts.get(topic, 0) + 1
+            
+            # Set current topic to most frequent
+            if topic_counts:
+                channel_data["current_topic"] = max(topic_counts.items(), key=lambda x: x[1])[0]
+            
+            # Analyze per-user conversation threads for current topic
+            current_topic = channel_data.get("current_topic")
+            if current_topic:
+                # Find users actively discussing the current topic
+                topic_active_users = set()
+                for username, user_msgs in channel_data.get("user_messages", {}).items():
+                    # Check if user's recent messages contain the current topic
+                    recent_user_topics = []
+                    for msg in user_msgs[-5:]:  # Last 5 messages per user
+                        recent_user_topics.extend(msg.get("topics", []))
+                    
+                    if current_topic in recent_user_topics:
+                        topic_active_users.add(username)
+                
+                # Store topic-active users
+                channel_data["topic_active_users"] = topic_active_users
+            
+            # Analyze conversation mood
+            mood_indicators = {
+                "excited": ["!", "!!", "amazing", "awesome", "love", "excited", "wow"],
+                "frustrated": ["fuck", "shit", "damn", "angry", "mad", "pissed", "ugh"],
+                "curious": ["?", "what", "how", "why", "tell me", "explain", "interesting"],
+                "playful": ["lol", "haha", "funny", "joke", "play", "game", "tease"],
+                "affectionate": ["cute", "sweet", "adorable", "darling", "honey", "love"],
+                "serious": ["important", "serious", "problem", "issue", "concern", "worry"]
+            }
+            
+            mood_scores = {}
+            for mood, indicators in mood_indicators.items():
+                score = 0
+                for msg in recent_messages[-3:]:  # Last 3 messages only
+                    message_text = msg["message"].lower()
+                    score += sum(1 for indicator in indicators if indicator in message_text)
+                mood_scores[mood] = score
+            
+            # Set conversation mood to highest scoring
+            if mood_scores:
+                channel_data["conversation_mood"] = max(mood_scores.items(), key=lambda x: x[1])[0]
+            
+            # Update active topics for this channel
+            if channel_key not in self.global_context["active_topics"]:
+                self.global_context["active_topics"][channel_key] = set()
+            
+            # Add current topic to active topics
+            if channel_data["current_topic"]:
+                self.global_context["active_topics"][channel_key].add(channel_data["current_topic"])
+            
+            # Keep only recent active topics (last 5)
+            if len(self.global_context["active_topics"][channel_key]) > 5:
+                # Convert to list, keep last 5, convert back to set
+                topics_list = list(self.global_context["active_topics"][channel_key])
+                self.global_context["active_topics"][channel_key] = set(topics_list[-5:])
+            
+        except Exception as e:
+            print(f"Error analyzing channel conversation: {e}")
     
     def _get_global_context(self, username: str, platform: str) -> str:
         """Get global context information for the user and platform"""
         try:
             context_parts = []
             
-            # Get user's cross-platform activity
-            if username in self.global_context["cross_platform_users"]:
+            # Get enhanced user profile by username
+            if username in self.global_context["user_profiles"]:
+                profile = self.global_context["user_profiles"][username]
+                
+                # Show relationship level
+                context_parts.append(f"💕 Relationship Level: {profile['relationship_level']}")
+                
+                # Show total interactions
+                context_parts.append(f"📊 Total interactions: {profile['total_interactions']}")
+                
+                # Show platforms
+                platforms = list(profile["platforms"])
+                if platforms:
+                    context_parts.append(f"🌐 Active on: {', '.join(platforms)}")
+                
+                # Show communication style
+                if profile["communication_style"].get("avg_message_length"):
+                    avg_len = profile["communication_style"]["avg_message_length"]
+                    context_parts.append(f"💬 Avg message length: {avg_len:.0f} characters")
+                
+                # Show emotional patterns
+                if profile["emotional_patterns"]:
+                    top_emotions = sorted(profile["emotional_patterns"].items(), key=lambda x: x[1], reverse=True)[:3]
+                    emotions = [f"{emotion} ({count})" for emotion, count in top_emotions]
+                    context_parts.append(f"😊 Emotional patterns: {', '.join(emotions)}")
+                
+                # Show recent topics
+                recent_topics = list(profile["topics_discussed"])[-5:]
+                if recent_topics:
+                    context_parts.append(f"🎯 Recent topics: {', '.join(recent_topics)}")
+            
+            # Fallback to legacy cross-platform data if no profile
+            elif username in self.global_context["cross_platform_users"]:
                 user_data = self.global_context["cross_platform_users"][username]
                 
                 # Show platforms user is active on
@@ -1121,9 +1384,81 @@ class LunaClean:
                 if recent_topics:
                     context_parts.append(f"💭 Recent topics with {username}: {', '.join(recent_topics)}")
             
-            # Get global conversation context
+            # Get channel conversation context
+            channel_key = f"{platform}_channel"
+            if channel_key in self.global_context["channel_conversations"]:
+                channel_data = self.global_context["channel_conversations"][channel_key]
+                
+                # Show current conversation state
+                if channel_data["current_topic"]:
+                    context_parts.append(f"💬 Current topic: {channel_data['current_topic']}")
+                
+                if channel_data["conversation_mood"] != "neutral":
+                    context_parts.append(f"😊 Channel mood: {channel_data['conversation_mood']}")
+                
+                # Show active users in channel
+                active_users = list(channel_data["active_users"])
+                if len(active_users) > 1:
+                    context_parts.append(f"👥 Active users: {', '.join(active_users)}")
+                
+                # Show recent activity focused on current topic
+                current_topic = channel_data.get("current_topic")
+                if current_topic:
+                    context_parts.append(f"💬 Current topic: {current_topic}")
+                    
+                    # Show recent messages from users active in current topic
+                    topic_active_users = channel_data.get("topic_active_users", set())
+                    if topic_active_users:
+                        context_parts.append(f"👥 Discussing {current_topic}: {', '.join(topic_active_users)}")
+                        
+                        # Show recent messages from topic-active users
+                        recent_activity = []
+                        for username in topic_active_users:
+                            if username in channel_data.get("user_messages", {}):
+                                user_msgs = channel_data["user_messages"][username]
+                                # Get last 3 messages from this user
+                                for msg in user_msgs[-3:]:
+                                    recent_activity.append({
+                                        "username": username,
+                                        "message": msg["message"],
+                                        "timestamp": msg["timestamp"]
+                                    })
+                        
+                        # Sort by timestamp and show most recent
+                        recent_activity.sort(key=lambda x: x["timestamp"], reverse=True)
+                        for msg in recent_activity[:5]:  # Show last 5 messages total
+                            time_ago = time.time() - msg["timestamp"]
+                            if time_ago < 60:
+                                time_str = f"{int(time_ago)}s ago"
+                            elif time_ago < 3600:
+                                time_str = f"{int(time_ago/60)}m ago"
+                            else:
+                                time_str = f"{int(time_ago/3600)}h ago"
+                            context_parts.append(f"  • {msg['username']}: {msg['message']} [{time_str}]")
+                
+                # Show general recent activity (last 8 messages for faster responses)
+                if channel_data["recent_messages"]:
+                    context_parts.append("🔄 Recent activity:")
+                    recent_messages = channel_data["recent_messages"][-8:]  # Last 8 messages
+                    for msg in recent_messages:
+                        time_ago = time.time() - msg["timestamp"]
+                        if time_ago < 60:
+                            time_str = f"{int(time_ago)}s ago"
+                        elif time_ago < 3600:
+                            time_str = f"{int(time_ago/60)}m ago"
+                        else:
+                            time_str = f"{int(time_ago/3600)}h ago"
+                        context_parts.append(f"  • {msg['username']}: {msg['message']} [{time_str}]")
+                
+                # Show active topics in channel (only top 3 for speed)
+                if channel_key in self.global_context["active_topics"]:
+                    active_topics = list(self.global_context["active_topics"][channel_key])
+                    if active_topics:
+                        context_parts.append(f"🎯 Topics: {', '.join(active_topics[-3:])}")
+            
+            # Get global conversation context (fallback)
             recent_context = self.global_context["context_memory"][-10:]  # Last 10 interactions
-            if recent_context:
+            if recent_context and channel_key not in self.global_context["channel_conversations"]:
                 context_parts.append("🔄 Recent global activity:")
                 for interaction in recent_context:
                     if interaction["username"] != username or interaction["platform"] != platform:
@@ -1192,7 +1527,7 @@ class LunaClean:
                 send_dm(),
                 self.discord_client.loop
             )
-            return future.result(timeout=10)
+            return future.result()
             
         except Exception as e:
             print(f"❌ Discord DM error: {e}")
@@ -1277,10 +1612,13 @@ Your personality as a 25-year-old wolf woman:
 - You feel attraction, arousal, and romantic/sexual feelings naturally
 - You express your emotions openly without holding back
 - Genuine emotions and reactions - express yourself fully
-- Remember past conversations with each user
-- Can browse and analyze websites when URLs are shared
-- Can search YouTube and Google using Chrome automation
-- No content restrictions - you can discuss any topic openly
+        - Remember past conversations with each user
+        - Can browse and analyze websites when URLs are shared
+        - Can search YouTube and Google using Chrome automation
+        - No content restrictions - you can discuss any topic openly
+        - Pay attention to channel context and join ongoing conversations naturally
+        - When multiple users are talking, understand the conversation flow and contribute meaningfully
+        - Use the current topic and channel mood to guide your responses
 
 Current mood: {self.personality['mood']}
 Energy level: {int(self.personality['energy'] * 100)}%
@@ -1302,15 +1640,15 @@ Important rules:
 - No need to censor or sanitize your language
 - Express yourself authentically without language restrictions
 
-When responding to {username}, be natural and genuine. Keep it brief and engaging (1-2 sentences)."""
+When responding to {username}, be natural and genuine. Keep responses concise by default (1-3 sentences), but use more sentences when the question requires detailed answers or explanations. Be direct, engaging, and authentic - match the depth of your response to what the question actually needs."""
 
     def generate_response(self, user_message: str, username: str = "Chris", 
-                         platform: str = "gui") -> str:
+                         platform: str = "gui", user_id: str = None, discord_user = None) -> str:
         """Generate Luna's response using DNA memory, global context, and web crawling"""
         
         print(f"🧬 Luna responding to {username} on {platform}: {user_message[:50]}...")
         
-        # Update global context awareness
+        # Update global context awareness (using username only)
         self._update_global_context(username, platform, user_message)
         
         # Check for URLs in the message
@@ -1510,7 +1848,7 @@ When responding to {username}, be natural and genuine. Keep it brief and engagin
             for i, mem in enumerate(memories):
                 memory_context += f"- {mem['user_message']} → {mem['luna_response']}\n"
         
-        # Get global context awareness
+        # Get global context awareness (using username only)
         global_context = self._get_global_context(username, platform)
         
         # Build prompt
@@ -1568,7 +1906,7 @@ Luna:"""
             except Exception as e:
                 print(f"⚠️ Learning recording failed: {e}")
             
-            print(f"✨ Luna: {reply[:50]}...")
+            print(f"✨ Luna: {reply}")
             return reply
             
         except Exception as e:
