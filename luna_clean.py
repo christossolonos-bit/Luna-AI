@@ -3146,10 +3146,28 @@ class LunaGUI:
             pady=8,
             cursor="hand2"
         )
-        self.tts_button.pack(side=tk.LEFT)
+        self.tts_button.pack(side=tk.LEFT, padx=(0, 15))
+        
+        # 4. Clear TTS button (clear audio files)
+        self.clear_tts_button = tk.Button(
+            control_frame,
+            text="🗑️ Clear Audio",
+            command=self.clear_tts_files,
+            font=("Segoe UI", 12, "bold"),
+            bg="#dc2626",
+            fg="white",
+            padx=20,
+            pady=8,
+            relief="flat",
+            cursor="hand2"
+        )
+        self.clear_tts_button.pack(side=tk.LEFT, padx=(0, 15))
         
         # TTS status
         self.tts_enabled = False
+        
+        # Start periodic TTS cleanup (every 5 minutes)
+        self._schedule_tts_cleanup()
         
         # Status display (connection info)
         self.status_label = tk.Label(
@@ -3250,7 +3268,13 @@ Unique Users: {stats.get('unique_users', 0)}"""
             with self.microphone as source:
                 print("Calibrating microphone...")
                 self.recognizer.adjust_for_ambient_noise(source, duration=1)
-            print("Microphone calibrated!")
+            
+            # Set more sensitive thresholds to prevent cutting off speech
+            self.recognizer.energy_threshold = 200  # Lower threshold for quieter speech
+            self.recognizer.pause_threshold = 0.8   # Longer pause before stopping
+            self.recognizer.dynamic_energy_threshold = True  # Adjust automatically
+            
+            print("Microphone calibrated with improved sensitivity!")
         except Exception as e:
             print(f"Microphone setup error: {e}")
             self.display_message("System", f"Voice setup error: {e}")
@@ -3283,7 +3307,8 @@ Unique Users: {stats.get('unique_users', 0)}"""
         try:
             with self.microphone as source:
                 # Start listening for audio (no timeout - listens until stop)
-                self.audio_data = self.recognizer.listen(source, timeout=None, phrase_time_limit=30)
+                # Increased phrase_time_limit to 120 seconds for longer recordings
+                self.audio_data = self.recognizer.listen(source, timeout=None, phrase_time_limit=120)
         except Exception as e:
             print(f"Recording start error: {e}")
             self.audio_data = None
@@ -3355,7 +3380,7 @@ Unique Users: {stats.get('unique_users', 0)}"""
                 self.root.after(0, lambda: self.voice_status.config(text="🎤 Say something...", fg="#44ff44"))
                 
                 with self.microphone as source:
-                    audio = self.recognizer.listen(source, timeout=5, phrase_time_limit=5)
+                    audio = self.recognizer.listen(source, timeout=10, phrase_time_limit=15)
                 
                 text = self.recognizer.recognize_google(audio)
                 self.root.after(0, lambda: self.display_message("Mic Test", f"🎤 Heard: {text}"))
@@ -3384,6 +3409,74 @@ Unique Users: {stats.get('unique_users', 0)}"""
             self.tts_button.config(text="🔇 TTS OFF", bg="#4a5568")
             self.display_message("System", "TTS disabled - Luna will only text")
     
+    def clear_tts_files(self):
+        """Clear TTS audio files and stop any playing audio"""
+        try:
+            # Stop any currently playing audio
+            if pygame.mixer.music.get_busy():
+                pygame.mixer.music.stop()
+                print("🛑 Stopped playing TTS audio")
+            
+            # Clear TTS audio queue
+            pygame.mixer.music.unload()
+            
+            # Find and delete TTS temp files
+            temp_dir = tempfile.gettempdir()
+            deleted_count = 0
+            
+            for filename in os.listdir(temp_dir):
+                if filename.startswith("luna_tts_") and filename.endswith(".mp3"):
+                    try:
+                        file_path = os.path.join(temp_dir, filename)
+                        os.remove(file_path)
+                        deleted_count += 1
+                        print(f"🗑️ Deleted TTS file: {filename}")
+                    except (PermissionError, FileNotFoundError):
+                        # File might be in use or already deleted
+                        pass
+                    except Exception as e:
+                        print(f"⚠️ Could not delete {filename}: {e}")
+            
+            if deleted_count > 0:
+                self.display_message("System", f"🗑️ Cleared {deleted_count} TTS audio files")
+            else:
+                self.display_message("System", "🗑️ No TTS audio files found to clear")
+                
+        except Exception as e:
+            print(f"❌ Error clearing TTS files: {e}")
+            self.display_message("System", f"❌ Error clearing audio files: {e}")
+    
+    def _schedule_tts_cleanup(self):
+        """Schedule periodic cleanup of TTS files"""
+        def cleanup_tts_files():
+            try:
+                temp_dir = tempfile.gettempdir()
+                deleted_count = 0
+                
+                for filename in os.listdir(temp_dir):
+                    if filename.startswith("luna_tts_") and filename.endswith(".mp3"):
+                        try:
+                            file_path = os.path.join(temp_dir, filename)
+                            # Only delete files older than 1 minute
+                            if os.path.getmtime(file_path) < time.time() - 60:
+                                os.remove(file_path)
+                                deleted_count += 1
+                        except (PermissionError, FileNotFoundError):
+                            pass
+                        except Exception:
+                            pass
+                
+                if deleted_count > 0:
+                    print(f"🧹 Auto-cleaned {deleted_count} old TTS files")
+                    
+            except Exception as e:
+                print(f"⚠️ Auto-cleanup error: {e}")
+            
+            # Schedule next cleanup in 5 minutes
+            self.root.after(300000, cleanup_tts_files)  # 5 minutes = 300000ms
+        
+        # Start the cleanup cycle
+        cleanup_tts_files()
     
     def update_status_display(self):
         """Update connection status display"""
