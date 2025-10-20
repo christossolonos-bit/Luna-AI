@@ -429,3 +429,30 @@ def recall_dna_memories(username: str, query: str, limit: int = 5) -> List[Dict]
         return _dna_memory_system.express_genes(username, query, limit)
     return []
 
+def recall_dna_memories_with_vector_reasoning(username: str, query: str, limit: int = 5) -> Dict:
+    """Recall memories with enhanced vector reasoning capabilities"""
+    if _dna_memory_system:
+        # Get basic memories
+        memories = _dna_memory_system.express_genes(username, query, limit)
+        
+        # Try to get vector reasoning if available
+        try:
+            from luna_vector_reasoning import get_vector_reasoning, reason_with_vectors
+            vector_engine = get_vector_reasoning()
+            if vector_engine:
+                reasoning_result = reason_with_vectors(query, username, _dna_memory_system)
+                return {
+                    "memories": memories,
+                    "vector_reasoning": reasoning_result,
+                    "enhanced": True
+                }
+        except ImportError:
+            pass
+        
+        return {
+            "memories": memories,
+            "vector_reasoning": None,
+            "enhanced": False
+        }
+    return {"memories": [], "vector_reasoning": None, "enhanced": False}
+

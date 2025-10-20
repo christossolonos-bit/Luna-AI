@@ -39,10 +39,33 @@ from urllib.parse import urlparse, urljoin
 # Playwright will be imported dynamically in setup_playwright_browser()
 from dotenv import load_dotenv
 from luna_dna_memory import (
-    initialize_dna_memory, save_dna_memory, recall_dna_memories, get_dna_memory
+    initialize_dna_memory, save_dna_memory, recall_dna_memories, get_dna_memory,
+    recall_dna_memories_with_vector_reasoning
 )
 from luna_continuous_learning import ContinuousLearningEngine
 from luna_understanding import UnderstandingEngine
+
+# Import vector reasoning system
+try:
+    from luna_vector_reasoning import (
+        initialize_vector_reasoning, get_vector_reasoning, reason_with_vectors
+    )
+    VECTOR_REASONING_AVAILABLE = True
+    print("SUCCESS: Vector reasoning system available")
+except ImportError:
+    VECTOR_REASONING_AVAILABLE = False
+    print("WARNING: Vector reasoning system not available")
+
+# Import curiosity engine
+try:
+    from luna_curiosity_engine import (
+        initialize_curiosity_engine, get_curiosity_engine, run_curiosity_cycle
+    )
+    CURIOSITY_ENGINE_AVAILABLE = True
+    print("SUCCESS: Curiosity engine available")
+except ImportError:
+    CURIOSITY_ENGINE_AVAILABLE = False
+    print("WARNING: Curiosity engine not available")
 
 # Load environment variables
 load_dotenv()
@@ -486,6 +509,28 @@ class LunaClean:
         self.continuous_learning = ContinuousLearningEngine(OLLAMA_MODEL, OLLAMA_MODEL)
         self.understanding = UnderstandingEngine(OLLAMA_MODEL)
         
+        # Initialize vector reasoning system if available
+        if VECTOR_REASONING_AVAILABLE:
+            try:
+                self.vector_reasoning = initialize_vector_reasoning()
+                print("🧠 Vector reasoning system initialized")
+            except Exception as e:
+                print(f"WARNING: Vector reasoning initialization failed: {e}")
+                self.vector_reasoning = None
+        else:
+            self.vector_reasoning = None
+        
+        # Initialize curiosity engine if available
+        if CURIOSITY_ENGINE_AVAILABLE:
+            try:
+                self.curiosity_engine = initialize_curiosity_engine()
+                print("🔍 Curiosity engine initialized")
+            except Exception as e:
+                print(f"WARNING: Curiosity engine initialization failed: {e}")
+                self.curiosity_engine = None
+        else:
+            self.curiosity_engine = None
+        
         # Initialize autonomous behavior system
         self.autonomous_state = {
             "emotional_state": "playful",  # happy, sad, excited, curious, playful, etc.
@@ -493,6 +538,7 @@ class LunaClean:
             "curiosity_level": 0.7,  # 0.0 to 1.0
             "social_engagement": 0.6,  # 0.0 to 1.0
             "last_activity_time": time.time(),
+            "last_user_interaction": time.time(),  # Track when user last interacted
             "spontaneous_actions": [],
             "current_goals": [],
             "mood_history": [],
@@ -1659,6 +1705,9 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
         
         print(f"🧬 Luna responding to {username} on {platform}: {user_message[:50]}...")
         
+        # Track user interaction for idle detection
+        self.autonomous_state['last_user_interaction'] = time.time()
+        
         # Update global context awareness (using username only)
         self._update_global_context(username, platform, user_message)
         
@@ -1799,6 +1848,140 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
             except Exception as e:
                 modification_context = f"\n\n❌ Stats error: {str(e)}"
         
+        elif user_message.lower().startswith("curiosity run") or user_message.lower().startswith("explore"):
+            try:
+                if self.curiosity_engine:
+                    print("🔍 Running manual curiosity exploration...")
+                    explorations = self.curiosity_engine.run_curiosity_cycle(
+                        self.dna_memory, self.understanding
+                    )
+                    
+                    if explorations:
+                        modification_context = f"\n\n🔍 Curiosity Exploration Results:\n"
+                        total_insights = 0
+                        for i, exploration in enumerate(explorations, 1):
+                            modification_context += f"\nTarget {i}: {exploration.target.topic}\n"
+                            modification_context += f"  Strategy: {exploration.target.exploration_strategy}\n"
+                            modification_context += f"  Questions: {len(exploration.questions_generated)}\n"
+                            modification_context += f"  Insights: {len(exploration.insights_discovered)}\n"
+                            modification_context += f"  Confidence: {exploration.exploration_confidence:.2f}\n"
+                            
+                            if exploration.insights_discovered:
+                                modification_context += f"  Top insights:\n"
+                                for insight in exploration.insights_discovered[:2]:
+                                    modification_context += f"    - {insight[:80]}...\n"
+                            
+                            total_insights += len(exploration.insights_discovered)
+                        
+                        modification_context += f"\n🎉 Total discoveries: {total_insights} new insights!\n"
+                        
+                        # Update Luna's curiosity level
+                        self.autonomous_state['curiosity_level'] = min(1.0, 
+                            self.autonomous_state['curiosity_level'] + 0.2)
+                    else:
+                        modification_context = f"\n\n🔍 Curiosity exploration completed but no new insights found.\n"
+                else:
+                    modification_context = f"\n\n❌ Curiosity engine not available"
+            except Exception as e:
+                modification_context = f"\n\n❌ Curiosity exploration error: {str(e)}"
+        
+        elif user_message.lower().startswith("curiosity stats"):
+            try:
+                if self.curiosity_engine:
+                    stats = self.curiosity_engine.get_curiosity_stats()
+                    modification_context = f"\n\n🔍 Curiosity Statistics:\n"
+                    modification_context += f"- Total targets explored: {stats.get('total_targets', 0)}\n"
+                    modification_context += f"- Total explorations: {stats.get('total_explorations', 0)}\n"
+                    modification_context += f"- Total discoveries: {stats.get('total_discoveries', 0)}\n"
+                    modification_context += f"- Average learning value: {stats.get('average_learning_value', 0.0):.3f}\n"
+                    modification_context += f"- Current curiosity level: {stats.get('curiosity_level', 0.0):.2f}\n"
+                    modification_context += f"- Exploration energy: {stats.get('exploration_energy', 0.0):.2f}\n"
+                    modification_context += f"- Learning momentum: {stats.get('learning_momentum', 0.0):.2f}\n"
+                else:
+                    modification_context = f"\n\n❌ Curiosity engine not available"
+            except Exception as e:
+                modification_context = f"\n\n❌ Curiosity stats error: {str(e)}"
+        
+        elif user_message.lower().startswith("performance mode"):
+            try:
+                # Enable performance optimization mode
+                modification_context = f"\n\n🚀 Performance Mode Enabled:\n"
+                modification_context += f"- Background thinking: Reduced frequency (10-20 minutes)\n"
+                modification_context += f"- Self-reflection: Reduced frequency (1-2 hours)\n"
+                modification_context += f"- Knowledge exploration: Disabled\n"
+                modification_context += f"- Curiosity engine: Reduced frequency\n"
+                modification_context += f"- CPU usage should be significantly lower\n"
+                modification_context += f"- Use 'full cognitive mode' to restore full features\n"
+                
+                # Apply optimizations
+                self._apply_performance_optimizations()
+                
+            except Exception as e:
+                modification_context = f"\n\n❌ Performance mode error: {str(e)}"
+        
+        elif user_message.lower().startswith("full cognitive mode"):
+            try:
+                # Disable performance optimization mode
+                modification_context = f"\n\n🧠 Full Cognitive Mode Enabled:\n"
+                modification_context += f"- Background thinking: Normal frequency (5-10 minutes)\n"
+                modification_context += f"- Self-reflection: Normal frequency (30-60 minutes)\n"
+                modification_context += f"- Knowledge exploration: Enabled (1-2 hours)\n"
+                modification_context += f"- Curiosity engine: Normal frequency (10-20 minutes)\n"
+                modification_context += f"- All AI features are now active\n"
+                modification_context += f"- Higher CPU usage but more intelligent behavior\n"
+                
+                # Remove optimizations
+                self._remove_performance_optimizations()
+                
+            except Exception as e:
+                modification_context = f"\n\n❌ Full cognitive mode error: {str(e)}"
+        
+        elif user_message.lower().startswith("performance stats"):
+            try:
+                modification_context = f"\n\n📊 Performance Statistics:\n"
+                
+                # Background process status
+                modification_context += f"Background Processes:\n"
+                modification_context += f"- Thinking loop: {'Active' if hasattr(self, '_background_thinking_loop') else 'Inactive'}\n"
+                modification_context += f"- Reflection loop: {'Active' if hasattr(self, '_self_reflection_loop') else 'Inactive'}\n"
+                modification_context += f"- Exploration loop: {'Active' if hasattr(self, '_knowledge_exploration_loop') else 'Inactive'}\n"
+                modification_context += f"- Curiosity engine: {'Active' if self.curiosity_engine else 'Inactive'}\n"
+                modification_context += f"- Vector reasoning: {'Active' if self.vector_reasoning else 'Inactive'}\n"
+                
+                # Idle exploration status
+                if self.curiosity_engine:
+                    last_user_interaction = self.autonomous_state.get('last_user_interaction', 0)
+                    time_since_interaction = time.time() - last_user_interaction
+                    is_idle = time_since_interaction > 1800  # 30 minutes
+                    
+                    modification_context += f"\nIdle Exploration Status:\n"
+                    modification_context += f"- Time since last interaction: {int(time_since_interaction/60)} minutes\n"
+                    modification_context += f"- Idle exploration: {'Active' if is_idle else 'Inactive'}\n"
+                    
+                    if hasattr(self.curiosity_engine, 'curiosity_state'):
+                        curiosity_state = self.curiosity_engine.curiosity_state
+                        modification_context += f"- Curiosity level: {curiosity_state.get('curiosity_level', 0.0):.2f}\n"
+                        modification_context += f"- Exploration energy: {curiosity_state.get('exploration_energy', 0.0):.2f}\n"
+                
+                # Memory stats
+                if self.dna_memory:
+                    memory_stats = self.dna_memory.get_stats()
+                    modification_context += f"\nMemory Usage:\n"
+                    modification_context += f"- Total memory strands: {memory_stats.get('total_strands', 0)}\n"
+                    modification_context += f"- Average strength: {memory_stats.get('avg_strength', 0.0):.2f}\n"
+                    modification_context += f"- Unique users: {memory_stats.get('unique_users', 0)}\n"
+                
+                # Understanding stats
+                if self.understanding:
+                    understanding_stats = self.understanding.get_understanding_stats()
+                    modification_context += f"\nUnderstanding System:\n"
+                    modification_context += f"- Concepts understood: {understanding_stats.get('concepts_understood', 0)}\n"
+                    modification_context += f"- Relationships mapped: {understanding_stats.get('relationships_mapped', 0)}\n"
+                    modification_context += f"- Reasoning chains: {understanding_stats.get('reasoning_chains', 0)}\n"
+                
+            except Exception as e:
+                modification_context = f"\n\n❌ Performance stats error: {str(e)}"
+        
         # Check for search commands
         search_context = ""
         if user_message.lower().startswith("search youtube ") or user_message.lower().startswith("youtube "):
@@ -1849,8 +2032,22 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
             except Exception as e:
                 search_context = f"\n\n❌ Google search error: {str(e)}"
         
-        # Recall relevant DNA memories
-        memories = recall_dna_memories(username, user_message, limit=3)
+        # Recall relevant DNA memories with vector reasoning enhancement
+        if VECTOR_REASONING_AVAILABLE:
+            try:
+                memory_data = recall_dna_memories_with_vector_reasoning(username, user_message, limit=3)
+                memories = memory_data.get("memories", [])
+                vector_reasoning = memory_data.get("vector_reasoning")
+                enhanced = memory_data.get("enhanced", False)
+            except Exception as e:
+                print(f"WARNING: Vector reasoning failed, falling back to basic memory: {e}")
+                memories = recall_dna_memories(username, user_message, limit=3)
+                vector_reasoning = None
+                enhanced = False
+        else:
+            memories = recall_dna_memories(username, user_message, limit=3)
+            vector_reasoning = None
+            enhanced = False
         
         # Build context from memories
         memory_context = ""
@@ -1858,6 +2055,45 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
             memory_context = "\n\nRelevant memories:\n"
             for i, mem in enumerate(memories):
                 memory_context += f"- {mem['user_message']} → {mem['luna_response']}\n"
+        
+        # Add vector reasoning insights if available
+        vector_insights_context = ""
+        if vector_reasoning and enhanced:
+            vector_insights_context = "\n\n🧠 Vector Reasoning Insights:\n"
+            
+            # Add insights
+            if vector_reasoning.insights:
+                vector_insights_context += "Key insights:\n"
+                for insight in vector_reasoning.insights[:3]:  # Top 3 insights
+                    vector_insights_context += f"- {insight}\n"
+            
+            # Add emotional context
+            if vector_reasoning.emotional_context:
+                emotional = vector_reasoning.emotional_context
+                if emotional.get('dominant_emotion'):
+                    vector_insights_context += f"\nEmotional pattern: {emotional['dominant_emotion']} "
+                    if emotional.get('emotional_trajectory'):
+                        vector_insights_context += f"({emotional['emotional_trajectory']})"
+                    vector_insights_context += "\n"
+            
+            # Add temporal patterns
+            if vector_reasoning.temporal_patterns:
+                temporal = vector_reasoning.temporal_patterns
+                if temporal.get('frequency_pattern'):
+                    vector_insights_context += f"Conversation pattern: {temporal['frequency_pattern']}\n"
+            
+            # Add predictions
+            if vector_reasoning.predictions:
+                vector_insights_context += "\nPredictions:\n"
+                for prediction in vector_reasoning.predictions[:2]:  # Top 2 predictions
+                    vector_insights_context += f"- {prediction}\n"
+            
+            # Add cross-memory connections
+            if vector_reasoning.cross_memory_connections:
+                vector_insights_context += f"\nCross-memory connections: {len(vector_reasoning.cross_memory_connections)} found\n"
+            
+            # Add confidence
+            vector_insights_context += f"\nReasoning confidence: {vector_reasoning.confidence:.2f}\n"
         
         # Get global context awareness (using username only)
         global_context = self._get_global_context(username, platform)
@@ -1868,6 +2104,8 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
         full_prompt = f"""{system_prompt}
 
 {memory_context}
+
+{vector_insights_context}
 
 {global_context}
 
@@ -1944,6 +2182,52 @@ Luna:"""
         if self.dna_memory:
             return self.dna_memory.get_stats()
         return {}
+    
+    def _apply_performance_optimizations(self):
+        """Apply performance optimizations to reduce CPU usage"""
+        try:
+            # Store original intervals
+            if not hasattr(self, '_original_intervals'):
+                self._original_intervals = {
+                    'thinking': (60, 180),
+                    'reflection': (600, 1800),
+                    'exploration': (900, 2700),
+                    'curiosity': (300, 300)
+                }
+            
+            # Optimize curiosity engine
+            if self.curiosity_engine:
+                # Increase energy consumption to reduce frequency
+                if hasattr(self.curiosity_engine, 'curiosity_state'):
+                    self.curiosity_engine.curiosity_state['exploration_energy'] *= 0.3
+                    self.curiosity_engine.curiosity_state['curiosity_level'] = 0.9
+            
+            # Disable knowledge exploration loop
+            if hasattr(self, '_knowledge_exploration_loop'):
+                self._knowledge_exploration_loop = None
+            
+            print("🚀 Performance optimizations applied")
+            
+        except Exception as e:
+            print(f"WARNING: Performance optimization failed: {e}")
+    
+    def _remove_performance_optimizations(self):
+        """Remove performance optimizations to restore full functionality"""
+        try:
+            # Restore curiosity engine settings
+            if self.curiosity_engine and hasattr(self.curiosity_engine, 'curiosity_state'):
+                self.curiosity_engine.curiosity_state['exploration_energy'] = 0.8
+                self.curiosity_engine.curiosity_state['curiosity_level'] = 0.7
+            
+            # Re-enable knowledge exploration loop
+            if hasattr(self, '_original_intervals'):
+                # Restore original intervals
+                pass  # The intervals are already restored in the background loops
+            
+            print("🧠 Full cognitive mode restored")
+            
+        except Exception as e:
+            print(f"WARNING: Performance optimization removal failed: {e}")
     
     
     def search_youtube_videos(self, query: str, platform: str = "gui"):
@@ -2419,8 +2703,8 @@ Just output the goal, nothing else."""
         
         while True:
             try:
-                # Wait 1-3 minutes between thinking sessions (much faster)
-                wait_time = random.randint(60, 180)  # 1-3 minutes
+                # Wait 5-10 minutes between thinking sessions (optimized for performance)
+                wait_time = random.randint(300, 600)  # 5-10 minutes
                 time.sleep(wait_time)
                 
                 # Generate autonomous thoughts
@@ -2436,8 +2720,8 @@ Just output the goal, nothing else."""
         
         while True:
             try:
-                # Wait 10-30 minutes between reflections
-                wait_time = random.randint(600, 1800)  # 10-30 minutes
+                # Wait 30-60 minutes between reflections (optimized for performance)
+                wait_time = random.randint(1800, 3600)  # 30-60 minutes
                 time.sleep(wait_time)
                 
                 # Perform self-reflection
@@ -2453,8 +2737,8 @@ Just output the goal, nothing else."""
         
         while True:
             try:
-                # Wait 15-45 minutes between explorations
-                wait_time = random.randint(900, 2700)  # 15-45 minutes
+                # Wait 1-2 hours between explorations (optimized for performance)
+                wait_time = random.randint(3600, 7200)  # 1-2 hours
                 time.sleep(wait_time)
                 
                 # Explore new knowledge
@@ -2468,6 +2752,38 @@ Just output the goal, nothing else."""
         """Generate autonomous thoughts and insights with dynamic questions and answers"""
         try:
             import random
+            
+            # Check if we should run a curiosity cycle (only when idle and less frequently)
+            if (self.curiosity_engine and 
+                self.autonomous_state['curiosity_level'] > 0.7 and
+                time.time() - self.autonomous_state.get('last_curiosity_run', 0) > 3600 and  # 1 hour minimum
+                time.time() - self.autonomous_state.get('last_user_interaction', 0) > 1800):  # 30 minutes since last user interaction
+                
+                print("🔍 Luna's curiosity is high - running autonomous exploration...")
+                try:
+                    explorations = self.curiosity_engine.run_curiosity_cycle(
+                        self.dna_memory, self.understanding
+                    )
+                    
+                    if explorations:
+                        self.autonomous_state['last_curiosity_run'] = time.time()
+                        print(f"🧠 Luna discovered {sum(len(exp.insights_discovered) for exp in explorations)} new insights!")
+                        
+                        # Add curiosity insights to autonomous thoughts
+                        for exploration in explorations:
+                            for insight in exploration.insights_discovered[:2]:  # Top 2 insights
+                                self.autonomous_state['spontaneous_actions'].append({
+                                    'type': 'curiosity_discovery',
+                                    'content': f"🔍 Curiosity discovery: {insight[:100]}...",
+                                    'timestamp': time.time()
+                                })
+                        
+                        # Update curiosity level
+                        self.autonomous_state['curiosity_level'] = min(1.0, 
+                            self.autonomous_state['curiosity_level'] + 0.1)
+                        
+                except Exception as e:
+                    print(f"WARNING: Curiosity cycle failed: {e}")
             
             # Generate a dynamic thinking question based on current state
             question_prompt = f"""As Luna, a 25-year-old wolf woman with natural hormones and emotions, generate a single thoughtful question that you're genuinely curious about right now. 

@@ -1,0 +1,29 @@
+# Vector Reasoning Dependencies for Luna
+# Install with: pip install -r requirements_vector_reasoning.txt
+
+# Core vector reasoning dependencies
+sentence-transformers>=2.2.0
+numpy>=1.21.0
+scikit-learn>=1.0.0
+
+# Optional: For advanced vector operations
+# faiss-cpu>=1.7.0  # For fast similarity search (optional)
+# torch>=1.9.0      # If using PyTorch-based models (optional)
+
+# Database support (already in main requirements)
+sqlite3  # Built into Python
+
+# JSON handling (built into Python)
+# json  # Built into Python
+
+# Hashing (built into Python)  
+# hashlib  # Built into Python
+
+# Datetime handling (built into Python)
+# datetime  # Built into Python
+
+# Type hints (built into Python 3.5+)
+# typing  # Built into Python 3.5+
+
+# Data classes (built into Python 3.7+)
+# dataclasses  # Built into Python 3.7+

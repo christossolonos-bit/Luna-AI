@@ -1123,15 +1123,100 @@ Understanding:"""
             
             conn.close()
             
+            # Try to get vector reasoning stats if available
+            vector_reasoning_stats = {}
+            try:
+                from luna_vector_reasoning import get_vector_reasoning
+                vector_engine = get_vector_reasoning()
+                if vector_engine:
+                    vector_reasoning_stats = vector_engine.get_reasoning_stats()
+            except ImportError:
+                pass
+            
             return {
                 "concepts_understood": concepts_count,
                 "relationships_mapped": relationships_count,
                 "reasoning_chains": reasoning_count,
-                "recent_concepts": [{"topic": row[0], "created": row[1]} for row in recent_concepts]
+                "recent_concepts": [{"topic": row[0], "created": row[1]} for row in recent_concepts],
+                "vector_reasoning": vector_reasoning_stats
             }
             
         except Exception as e:
             return {"error": str(e)}
+    
+    def reason_with_vector_enhancement(self, question: str, username: str = None) -> dict:
+        """Enhanced reasoning with vector capabilities"""
+        
+        # Get basic reasoning
+        basic_reasoning = self.reason_about(question)
+        
+        # Try to enhance with vector reasoning
+        try:
+            from luna_vector_reasoning import get_vector_reasoning, reason_with_vectors
+            from luna_dna_memory import get_dna_memory
+            
+            vector_engine = get_vector_reasoning()
+            dna_memory = get_dna_memory()
+            
+            if vector_engine and dna_memory and username:
+                vector_reasoning = reason_with_vectors(question, username, dna_memory, self)
+                
+                return {
+                    "basic_reasoning": basic_reasoning,
+                    "vector_reasoning": vector_reasoning,
+                    "enhanced": True,
+                    "insights": vector_reasoning.insights if vector_reasoning else [],
+                    "confidence": vector_reasoning.confidence if vector_reasoning else basic_reasoning.get('confidence', 0.5)
+                }
+            else:
+                return {
+                    "basic_reasoning": basic_reasoning,
+                    "vector_reasoning": None,
+                    "enhanced": False
+                }
+                
+        except ImportError:
+            return {
+                "basic_reasoning": basic_reasoning,
+                "vector_reasoning": None,
+                "enhanced": False
+            }
+    
+    def understand_with_vector_context(self, message: str, conversation_history: list, username: str = None) -> dict:
+        """Enhanced contextual understanding with vector reasoning"""
+        
+        # Get basic understanding
+        basic_understanding = self.understand_context(message, conversation_history)
+        
+        # Try to enhance with vector reasoning
+        try:
+            from luna_vector_reasoning import get_vector_reasoning, reason_with_vectors
+            from luna_dna_memory import get_dna_memory
+            
+            vector_engine = get_vector_reasoning()
+            dna_memory = get_dna_memory()
+            
+            if vector_engine and dna_memory and username:
+                # Use the message as a query for vector reasoning
+                vector_reasoning = reason_with_vectors(message, username, dna_memory, self)
+                
+                # Enhance understanding with vector insights
+                enhanced_understanding = basic_understanding.copy()
+                enhanced_understanding.update({
+                    "vector_insights": vector_reasoning.insights if vector_reasoning else [],
+                    "emotional_patterns": vector_reasoning.emotional_context if vector_reasoning else {},
+                    "temporal_patterns": vector_reasoning.temporal_patterns if vector_reasoning else {},
+                    "cross_memory_connections": vector_reasoning.cross_memory_connections if vector_reasoning else [],
+                    "predictions": vector_reasoning.predictions if vector_reasoning else [],
+                    "enhanced": True
+                })
+                
+                return enhanced_understanding
+            else:
+                return basic_understanding
+                
+        except ImportError:
+            return basic_understanding
 
 
 # Add import at top
