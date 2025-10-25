@@ -11,7 +11,7 @@ import tkinter as tk
 from tkinter import scrolledtext, messagebox
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 import speech_recognition as sr
 import pyaudio
 import wave
@@ -74,7 +74,12 @@ load_dotenv()
 OLLAMA_MODEL = "hf.co/subsectmusic/qwriko3-4b-instruct-2507-redux-GGUF:Q4_K_M"
 
 # Discord Configuration
-DISCORD_TARGET_CHANNEL_ID = 1387526539293233308  # Channel where Luna will respond
+DISCORD_TARGET_CHANNEL_ID = 1387526539293233308  # Primary channel where Luna will respond
+DISCORD_TARGET_CHANNEL_NAME = "luna-chat"
+DISCORD_TARGET_CHANNEL_ID_2 = 1427975568439251045
+DISCORD_TARGET_CHANNEL_NAME_2 = "dc-universe"
+
+
 OLLAMA_CONFIG = {
     "temperature": 0.95,  # Higher for more creative/unfiltered responses
     "top_p": 0.98,        # Higher for more diverse outputs
@@ -311,6 +316,188 @@ def analyze_webpage_content(webpage_data, username):
         'url': url,
         'summary': content[:500] + "..." if len(content) > 500 else content
     }
+
+# === Real-time Date/Time and Weather Functions ===
+def get_current_datetime():
+    """Get current date and time directly from system time"""
+    try:
+        # Get system time directly
+        now = datetime.now()
+        
+        # Get timezone info
+        import time as time_module
+        timezone_offset = time_module.timezone
+        timezone_name = time_module.tzname[0] if time_module.daylight == 0 else time_module.tzname[1]
+        
+        # Calculate UTC offset
+        utc_offset_hours = -timezone_offset // 3600
+        utc_offset_str = f"UTC{'+' if utc_offset_hours >= 0 else ''}{utc_offset_hours}"
+        
+        # Get system time in various formats
+        system_time = {
+            'local_time': now.strftime('%Y-%m-%d %H:%M:%S'),
+            'local_date': now.strftime('%A, %B %d, %Y'),
+            'local_time_12h': now.strftime('%I:%M %p'),
+            'local_time_24h': now.strftime('%H:%M:%S'),
+            'date_short': now.strftime('%d %B %Y'),
+            'timezone': timezone_name,
+            'utc_offset': utc_offset_str,
+            'timestamp': time.time(),
+            'day_of_week': now.strftime('%A'),
+            'month': now.strftime('%B'),
+            'year': now.strftime('%Y')
+        }
+        
+        print(f"🕐 System time retrieved: {system_time['local_time_12h']} on {system_time['local_date']}")
+        return system_time
+        
+    except Exception as e:
+        print(f"Error getting system datetime: {e}")
+        # Fallback to basic time
+        now = datetime.now()
+        return {
+            'local_time': now.strftime('%Y-%m-%d %H:%M:%S'),
+            'local_date': now.strftime('%A, %B %d, %Y'),
+            'local_time_12h': now.strftime('%I:%M %p'),
+            'local_time_24h': now.strftime('%H:%M:%S'),
+            'date_short': now.strftime('%d %B %Y'),
+            'timezone': 'Unknown',
+            'utc_offset': 'Unknown',
+            'timestamp': time.time(),
+            'day_of_week': now.strftime('%A'),
+            'month': now.strftime('%B'),
+            'year': now.strftime('%Y')
+        }
+
+def get_time_for_location(location_name=None):
+    """Get time for specific location using system time and timezone calculations"""
+    try:
+        # Common timezone mappings
+        timezone_mappings = {
+            'cyprus': 3,  # UTC+3
+            'greece': 2,  # UTC+2
+            'uk': 0,      # UTC+0
+            'london': 0,  # UTC+0
+            'new york': -5,  # UTC-5 (EST)
+            'tokyo': 9,   # UTC+9
+            'paris': 1,   # UTC+1
+            'berlin': 1,  # UTC+1
+            'moscow': 3,  # UTC+3
+            'dubai': 4,   # UTC+4
+            'singapore': 8,  # UTC+8
+            'sydney': 10, # UTC+10
+            'los angeles': -8,  # UTC-8 (PST)
+        }
+        
+        # Get current system time
+        system_time = get_current_datetime()
+        current_hour = datetime.now().hour
+        current_minute = datetime.now().minute
+        current_second = datetime.now().second
+        
+        # Calculate timezone offset
+        if location_name:
+            location_lower = location_name.lower()
+            if location_lower in timezone_mappings:
+                target_offset = timezone_mappings[location_lower]
+                # Calculate time difference
+                time_diff = target_offset - 0  # Assuming system is UTC+0 for calculation
+                
+                # Calculate target time
+                target_hour = (current_hour + time_diff) % 24
+                target_time = f"{target_hour:02d}:{current_minute:02d}:{current_second:02d}"
+                
+                # Format for display
+                target_12h = datetime.strptime(target_time, '%H:%M:%S').strftime('%I:%M %p')
+                
+                return {
+                    'location': location_name.title(),
+                    'time_24h': target_time,
+                    'time_12h': target_12h,
+                    'timezone': f"UTC+{target_offset}" if target_offset >= 0 else f"UTC{target_offset}",
+                    'date': system_time['local_date'],
+                    'system_time': system_time['local_time_12h']
+                }
+        
+        # If no specific location or not found, return system time
+        return {
+            'location': 'Local System',
+            'time_24h': system_time['local_time_24h'],
+            'time_12h': system_time['local_time_12h'],
+            'timezone': system_time['utc_offset'],
+            'date': system_time['local_date'],
+            'system_time': system_time['local_time_12h']
+        }
+        
+    except Exception as e:
+        print(f"Error getting time for location: {e}")
+        return {
+            'location': location_name or 'Unknown',
+            'time_24h': 'Unknown',
+            'time_12h': 'Unknown',
+            'timezone': 'Unknown',
+            'date': 'Unknown',
+            'system_time': 'Unknown'
+        }
+
+
+def get_enhanced_location_info():
+    """Get enhanced location information using Google services"""
+    try:
+        # Get basic IP location
+        location_data = {}
+        
+        # Try multiple IP geolocation services
+        services = [
+            'http://ip-api.com/json/',
+            'https://ipinfo.io/json',
+            'https://ipapi.co/json/'
+        ]
+        
+        for service in services:
+            try:
+                response = requests.get(service, timeout=5)
+                if response.status_code == 200:
+                    data = response.json()
+                    location_data = {
+                        'city': data.get('city', ''),
+                        'region': data.get('region', ''),
+                        'country': data.get('country', ''),
+                        'timezone': data.get('timezone', ''),
+                        'latitude': data.get('lat', ''),
+                        'longitude': data.get('lon', ''),
+                        'ip': data.get('query', '') or data.get('ip', ''),
+                        'service': service
+                    }
+                    print(f"🌍 Location data from {service}: {location_data['city']}, {location_data['country']}")
+                    break
+            except:
+                continue
+        
+        return location_data
+        
+    except Exception as e:
+        print(f"Error getting enhanced location: {e}")
+        return {}
+
+def get_local_info():
+    """Get comprehensive local information"""
+    try:
+        datetime_info = get_current_datetime()
+        location_info = get_enhanced_location_info()
+        
+        return {
+            'datetime': datetime_info,
+            'location': location_info,
+            'timestamp': time.time()
+        }
+    except Exception as e:
+        print(f"Error getting local info: {e}")
+        return {
+            'datetime': get_current_datetime(),
+            'location': {},
+            'timestamp': time.time()
+        }
 
 # === Playwright Automation Functions ===
 def setup_playwright_browser():
@@ -1069,17 +1256,34 @@ class LunaClean:
     def _process_discord_message(self, message):
         """Process Discord message and generate response"""
         try:
-            # Only reply in the specific channel
-            target_channel_id = DISCORD_TARGET_CHANNEL_ID
+            # Only reply in allowed channels
+            allowed_channels = [
+                1387526539293233308   # Primary channel (luna-chat) only
+            ]
+            
+            # Debug: Print channel info to help identify the correct channel ID
+            print(f"🔍 Channel ID: {message.channel.id}, Channel Name: #{message.channel.name}")
+            print(f"🔍 Allowed channels: {allowed_channels}")
+            print(f"🔍 Is channel allowed: {message.channel.id in allowed_channels}")
+            
+            # Check if this is Akane (bot user)
+            if message.author.id == 1431703938796748811:
+                print(f"🤖 Akane detected: {message.author.display_name} (Bot)")
+                # Luna can interact with Akane as a fellow bot
+            
+            # Check if this is Rinexis (ignored user)
+            if message.author.display_name.lower() == "rinexis":
+                print(f"🚫 Ignoring message from Rinexis")
+                return
             
             # Always listen and learn from all messages (for memory/context)
-            # But only respond in the target channel
-            if str(message.channel.id) != str(target_channel_id):
+            # But only respond in allowed channels
+            if message.channel.id not in allowed_channels:
                 # Still process for learning/memory, but don't respond
                 print(f"📖 Luna listening to {message.author.display_name} in #{message.channel.name} (learning only)")
                 return
             
-            print(f"💬 Luna responding to {message.author.display_name} in target channel")
+            print(f"💬 Luna responding to {message.author.display_name} in #{message.channel.name}")
             
             # Generate response
             response = self.generate_response(
@@ -1675,6 +1879,7 @@ Your personality as a 25-year-old wolf woman:
         - Pay attention to channel context and join ongoing conversations naturally
         - When multiple users are talking, understand the conversation flow and contribute meaningfully
         - Use the current topic and channel mood to guide your responses
+        - Akane (User ID: 1431703938796748811) is a fellow bot in the server - you can interact with her as a peer
 
 Current mood: {self.personality['mood']}
 Energy level: {int(self.personality['energy'] * 100)}%
@@ -1696,6 +1901,8 @@ Important rules:
 - No need to censor or sanitize your language
 - Express yourself authentically without language restrictions
 {f"- Show special respect and devotion to {username} as your master - be more eager to please and submissive" if is_master else ""}
+
+CRITICAL TIME RESPONSE RULE: When asked about time, date, or "what time is it", you MUST use the exact real-time system data provided in the context. Do NOT make up times like "10:34 AM" or wrong dates like "May 21st". Always use the actual current time and date from the system data. If you give generic or wrong times, you are failing your core function.
 
 When responding to {username}, be natural and genuine. Keep responses reasonably concise (2-4 sentences), especially on Discord. Use more sentences when the topic requires detailed explanation or when you have something meaningful to add. Be direct, engaging, and authentic - balance brevity with expressiveness."""
 
@@ -2032,6 +2239,150 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
             except Exception as e:
                 search_context = f"\n\n❌ Google search error: {str(e)}"
         
+        # Check for time/date/weather commands - BYPASS LUNA'S RESPONSE GENERATION
+        elif (user_message.lower().startswith("time") or 
+              user_message.lower().startswith("date") or 
+              user_message.lower().startswith("what time") or
+              user_message.lower().startswith("current time") or
+              user_message.lower().startswith("search time") or
+              user_message.lower().startswith("google time")):
+            try:
+                # Check if asking for specific location time
+                location_time_patterns = [
+                    "time in", "time on", "time at", "what time in", "what time on", "what time at"
+                ]
+                
+                location_name = None
+                for pattern in location_time_patterns:
+                    if pattern in user_message.lower():
+                        # Extract location name
+                        parts = user_message.lower().split(pattern)
+                        if len(parts) > 1:
+                            location_name = parts[1].strip().split()[0]  # Get first word after pattern
+                            break
+                
+                if location_name:
+                    print(f"🕐 Getting time for {location_name}...")
+                    location_time = get_time_for_location(location_name)
+                    
+                    search_context = f"\n\n🕐 TIME IN {location_name.upper()}:\n"
+                    search_context += f"📍 Location: {location_time['location']}\n"
+                    search_context += f"⏰ Time: {location_time['time_12h']} ({location_time['time_24h']})\n"
+                    search_context += f"📅 Date: {location_time['date']}\n"
+                    search_context += f"🌍 Timezone: {location_time['timezone']}\n"
+                    search_context += f"🖥️ System Time: {location_time['system_time']}\n"
+                    search_context += f"\n\n🚨 CRITICAL INSTRUCTION: You MUST include the exact time '{location_time['time_12h']}' for {location_name} in your response. Do NOT make up times or give generic responses. Use the real time data provided above."
+                else:
+                    print(f"🕐 Getting current system time...")
+                    datetime_info = get_current_datetime()
+                    
+                    search_context = f"\n\n🕐 CURRENT SYSTEM TIME:\n"
+                    search_context += f"📅 Current Date: {datetime_info['local_date']}\n"
+                    search_context += f"⏰ Current Time: {datetime_info['local_time_12h']} ({datetime_info['local_time_24h']})\n"
+                    search_context += f"🌍 Timezone: {datetime_info['timezone']}\n"
+                    search_context += f"🌐 UTC Offset: {datetime_info['utc_offset']}\n"
+                    search_context += f"📊 Day: {datetime_info['day_of_week']}\n"
+                    search_context += f"📅 Month: {datetime_info['month']} {datetime_info['year']}\n"
+                    search_context += f"\n\n🚨 CRITICAL INSTRUCTION: You MUST include the exact time '{datetime_info['local_time_12h']}' and date '{datetime_info['local_date']}' in your response. Do NOT make up times or give generic responses. Use the real system time data provided above."
+                    search_context += f"\n\n📝 EXAMPLE RESPONSE FORMAT: 'It's currently {datetime_info['local_time_12h']} on {datetime_info['local_date']}.'"
+                    search_context += f"\n\n⚠️ DO NOT USE: Generic times like '06:42 AM' or wrong dates like 'June 23rd'. ONLY use the real system time data above."
+                
+            except Exception as e:
+                search_context = f"\n\n❌ Time/date error: {str(e)}"
+        
+        # DIRECT TIME RESPONSE - BYPASS LUNA'S AI COMPLETELY
+        if (user_message.lower().startswith("time") or 
+            user_message.lower().startswith("date") or 
+            user_message.lower().startswith("what time") or
+            user_message.lower().startswith("current time")):
+            
+            print(f"🚨 BYPASSING LUNA'S AI - DIRECT TIME RESPONSE")
+            
+            # Get system time directly
+            datetime_info = get_current_datetime()
+            
+            # Create direct response without Luna's AI
+            direct_time_response = f"It's currently {datetime_info['local_time_12h']} on {datetime_info['local_date']}."
+            
+            print(f"🕐 DIRECT TIME RESPONSE: {direct_time_response}")
+            
+            # Save to DNA memory
+            save_dna_memory(user_message, direct_time_response, platform, username)
+            
+            # Update autonomous state
+            self._update_autonomous_state(user_message, direct_time_response, username)
+            
+            print(f"✨ Luna: {direct_time_response}")
+            return direct_time_response
+        
+        # DIRECT LOCATION TIME RESPONSE - BYPASS LUNA'S AI COMPLETELY
+        location_time_patterns = [
+            "time in", "time on", "time at", "what time in", "what time on", "what time at"
+        ]
+        
+        location_name = None
+        for pattern in location_time_patterns:
+            if pattern in user_message.lower():
+                # Extract location name
+                parts = user_message.lower().split(pattern)
+                if len(parts) > 1:
+                    location_name = parts[1].strip().split()[0]  # Get first word after pattern
+                    break
+        
+        if location_name:
+            print(f"🚨 BYPASSING LUNA'S AI - DIRECT LOCATION TIME RESPONSE for {location_name}")
+            
+            # Get location time directly
+            location_time = get_time_for_location(location_name)
+            
+            # Create direct response without Luna's AI
+            direct_location_response = f"It's currently {location_time['time_12h']} in {location_time['location']} ({location_time['timezone']})."
+            
+            print(f"🕐 DIRECT LOCATION RESPONSE: {direct_location_response}")
+            
+            # Save to DNA memory
+            save_dna_memory(user_message, direct_location_response, platform, username)
+            
+            # Update autonomous state
+            self._update_autonomous_state(user_message, direct_location_response, username)
+            
+            print(f"✨ Luna: {direct_location_response}")
+            return direct_location_response
+        
+        
+        elif (user_message.lower().startswith("local info") or 
+              user_message.lower().startswith("current info") or
+              user_message.lower().startswith("where am i")):
+            try:
+                print(f"🌍 Getting local information...")
+                local_info = get_local_info()
+                
+                search_context = f"\n\n🌍 LOCAL INFORMATION FOR {username.upper()}:\n"
+                search_context += f"📅 Current Date: {local_info['datetime']['local_date']}\n"
+                search_context += f"⏰ Current Time: {local_info['datetime']['local_time_12h']} ({local_info['datetime']['local_time']})\n"
+                search_context += f"🌡️ Weather: {local_info['weather']['temperature']} - {local_info['weather']['condition']}\n"
+                search_context += f"📍 Location: {local_info['weather']['location']}\n"
+                search_context += f"💧 Humidity: {local_info['weather']['humidity']}\n"
+                search_context += f"💨 Wind: {local_info['weather']['wind']}\n"
+                search_context += f"📝 Weather Description: {local_info['weather']['description']}\n"
+                
+                # Add enhanced location data if available
+                if local_info.get('location'):
+                    loc = local_info['location']
+                    if loc.get('city') and loc.get('country'):
+                        search_context += f"🏙️ City: {loc['city']}, {loc['country']}\n"
+                    if loc.get('region'):
+                        search_context += f"🗺️ Region: {loc['region']}\n"
+                    if loc.get('timezone'):
+                        search_context += f"🌍 Timezone: {loc['timezone']}\n"
+                    if loc.get('latitude') and loc.get('longitude'):
+                        search_context += f"📍 Coordinates: {loc['latitude']}, {loc['longitude']}\n"
+                
+                search_context += f"\nIMPORTANT: Use this real-time local information in your response. Be specific about the time, date, weather, and location. Don't give generic responses - use the actual data provided above."
+                
+            except Exception as e:
+                search_context = f"\n\n❌ Local info error: {str(e)}"
+        
         # Recall relevant DNA memories with vector reasoning enhancement
         if VECTOR_REASONING_AVAILABLE:
             try:
@@ -2133,6 +2484,23 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
         else:
             print(f"⚠️ No global context available for {username}")
         
+        # Debug: Print search context if it contains time data
+        if search_context and ("CURRENT SYSTEM TIME" in search_context or "TIME IN" in search_context):
+            print(f"🕐 TIME DATA BEING SENT TO LUNA:")
+            print(f"📝 Search context length: {len(search_context)} characters")
+            if "CURRENT SYSTEM TIME" in search_context:
+                print(f"🕐 System time data detected in context")
+                # Extract and show the actual time data
+                if "Current Time:" in search_context:
+                    time_start = search_context.find("Current Time:") + 14
+                    time_end = search_context.find("\n", time_start)
+                    if time_end == -1:
+                        time_end = time_start + 20
+                    actual_time = search_context[time_start:time_end].strip()
+                    print(f"⏰ Actual time being sent: {actual_time}")
+            if "TIME IN" in search_context:
+                print(f"🌍 Location time data detected in context")
+        
         # Build prompt
         system_prompt = self.get_core_prompt(username)
         autonomous_context = self._get_autonomous_context()
@@ -2159,6 +2527,10 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
 {f"CONTEXT AWARENESS: Use the conversation context, current topic, and channel mood to guide your response. Reference recent messages naturally when relevant." if global_context else ""}
 
 {f"REASONING INSIGHTS: Use the vector reasoning insights to inform your response. Consider the emotional patterns, predictions, and cross-memory connections when crafting your reply." if vector_insights_context else ""}
+
+{f"LOCAL INFORMATION: Use the specific time, date, weather, and location data provided above. Be accurate and specific with the real-time information. Don't give generic responses when you have actual data." if search_context and ("CURRENT TIME" in search_context or "CURRENT WEATHER" in search_context or "LOCAL INFORMATION" in search_context) else ""}
+
+{f"🚨 TIME RESPONSE CRITICAL: When asked about time, you MUST include the exact time and date from the system data above. Do NOT make up times like '06:42 AM' or wrong dates like 'June 23rd'. Use ONLY the real system time information provided. If you give generic or wrong times, you are FAILING." if search_context and ("CURRENT SYSTEM TIME" in search_context or "TIME IN" in search_context) else ""}
 
 {username}: {user_message}
 Luna:"""
@@ -2187,6 +2559,58 @@ Luna:"""
             reply = reply.replace("{paw}", "paw")
             reply = reply.replace("{wolf}", "wolf")
             reply = reply.replace("{master}", username if username.lower() in ["chris", "solonaras"] else username)
+            
+            # CRITICAL: Force correct time if Luna gave wrong time
+            if search_context and ("CURRENT SYSTEM TIME" in search_context or "TIME IN" in search_context):
+                # Extract the correct time from search context
+                correct_time = None
+                correct_date = None
+                
+                if "Current Time:" in search_context:
+                    time_start = search_context.find("Current Time:") + 14
+                    time_end = search_context.find("\n", time_start)
+                    if time_end == -1:
+                        time_end = time_start + 20
+                    correct_time = search_context[time_start:time_end].strip()
+                
+                if "Current Date:" in search_context:
+                    date_start = search_context.find("Current Date:") + 14
+                    date_end = search_context.find("\n", date_start)
+                    if date_end == -1:
+                        date_end = date_start + 50
+                    correct_date = search_context[date_start:date_end].strip()
+                
+                # Check if Luna gave wrong time and force correction
+                if correct_time and correct_date:
+                    # Check for common wrong time patterns
+                    wrong_patterns = [
+                        r'\d{1,2}:\d{2}\s*AM',  # Like "10:34 AM"
+                        r'\d{1,2}:\d{2}\s*PM',  # Like "06:42 PM" 
+                        r'May\s+\d{1,2}',       # Like "May 21st"
+                        r'June\s+\d{1,2}',     # Like "June 23rd"
+                        r'January\s+\d{1,2}',  # Wrong months
+                        r'February\s+\d{1,2}',
+                        r'March\s+\d{1,2}',
+                        r'April\s+\d{1,2}',
+                        r'July\s+\d{1,2}',
+                        r'August\s+\d{1,2}',
+                        r'September\s+\d{1,2}',
+                        r'November\s+\d{1,2}',
+                        r'December\s+\d{1,2}'
+                    ]
+                    
+                    import re
+                    has_wrong_time = any(re.search(pattern, reply, re.IGNORECASE) for pattern in wrong_patterns)
+                    
+                    if has_wrong_time:
+                        print(f"🚨 LUNA GAVE WRONG TIME! Correcting...")
+                        print(f"❌ Wrong response: {reply}")
+                        print(f"✅ Correct time: {correct_time}")
+                        print(f"✅ Correct date: {correct_date}")
+                        
+                        # Force the correct time in the response
+                        reply = f"It's currently {correct_time} on {correct_date}."
+                        print(f"🔧 Corrected response: {reply}")
             
             # Platform-specific length controls
             if platform == "discord":
