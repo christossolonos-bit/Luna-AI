@@ -2035,16 +2035,21 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
         # Recall relevant DNA memories with vector reasoning enhancement
         if VECTOR_REASONING_AVAILABLE:
             try:
+                print(f"🧠 Attempting vector reasoning for {username}...")
                 memory_data = recall_dna_memories_with_vector_reasoning(username, user_message, limit=3)
                 memories = memory_data.get("memories", [])
                 vector_reasoning = memory_data.get("vector_reasoning")
                 enhanced = memory_data.get("enhanced", False)
+                print(f"🧠 Vector reasoning result: {len(memories)} memories, enhanced: {enhanced}")
+                if vector_reasoning:
+                    print(f"🧠 Reasoning confidence: {vector_reasoning.confidence:.2f}")
             except Exception as e:
-                print(f"WARNING: Vector reasoning failed, falling back to basic memory: {e}")
+                print(f"❌ Vector reasoning error: {e}")
                 memories = recall_dna_memories(username, user_message, limit=3)
                 vector_reasoning = None
                 enhanced = False
         else:
+            print(f"⚠️ Vector reasoning not available (available: {VECTOR_REASONING_AVAILABLE})")
             memories = recall_dna_memories(username, user_message, limit=3)
             vector_reasoning = None
             enhanced = False
@@ -2059,6 +2064,7 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
         # Add vector reasoning insights if available
         vector_insights_context = ""
         if vector_reasoning and enhanced:
+            print(f"🧠 Vector reasoning insights available (confidence: {vector_reasoning.confidence:.2f})")
             vector_insights_context = "\n\n🧠 Vector Reasoning Insights:\n"
             
             # Add insights
@@ -2066,6 +2072,7 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
                 vector_insights_context += "Key insights:\n"
                 for insight in vector_reasoning.insights[:3]:  # Top 3 insights
                     vector_insights_context += f"- {insight}\n"
+                print(f"🔍 Vector insights: {vector_reasoning.insights[:2]}")  # Debug output
             
             # Add emotional context
             if vector_reasoning.emotional_context:
@@ -2075,28 +2082,56 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
                     if emotional.get('emotional_trajectory'):
                         vector_insights_context += f"({emotional['emotional_trajectory']})"
                     vector_insights_context += "\n"
+                    print(f"😊 Emotional context: {emotional['dominant_emotion']}")  # Debug output
             
             # Add temporal patterns
             if vector_reasoning.temporal_patterns:
                 temporal = vector_reasoning.temporal_patterns
                 if temporal.get('frequency_pattern'):
                     vector_insights_context += f"Conversation pattern: {temporal['frequency_pattern']}\n"
+                    print(f"📊 Temporal pattern: {temporal['frequency_pattern']}")  # Debug output
             
             # Add predictions
             if vector_reasoning.predictions:
                 vector_insights_context += "\nPredictions:\n"
                 for prediction in vector_reasoning.predictions[:2]:  # Top 2 predictions
                     vector_insights_context += f"- {prediction}\n"
+                print(f"🔮 Predictions: {vector_reasoning.predictions[:2]}")  # Debug output
             
             # Add cross-memory connections
             if vector_reasoning.cross_memory_connections:
                 vector_insights_context += f"\nCross-memory connections: {len(vector_reasoning.cross_memory_connections)} found\n"
+                print(f"🔗 Cross-memory connections: {len(vector_reasoning.cross_memory_connections)}")  # Debug output
             
             # Add confidence
             vector_insights_context += f"\nReasoning confidence: {vector_reasoning.confidence:.2f}\n"
+        else:
+            print("⚠️ Vector reasoning not enhanced or not available")
         
         # Get global context awareness (using username only)
         global_context = self._get_global_context(username, platform)
+        
+        # Debug context awareness
+        if global_context:
+            print(f"🌐 Global context available for {username}: {len(global_context)} characters")
+            # Show key context elements
+            if "Current topic:" in global_context:
+                topic_start = global_context.find("Current topic:") + 15
+                topic_end = global_context.find("\n", topic_start)
+                if topic_end == -1:
+                    topic_end = topic_start + 50
+                current_topic = global_context[topic_start:topic_end].strip()
+                print(f"💬 Current topic: {current_topic}")
+            
+            if "Channel mood:" in global_context:
+                mood_start = global_context.find("Channel mood:") + 14
+                mood_end = global_context.find("\n", mood_start)
+                if mood_end == -1:
+                    mood_end = mood_start + 20
+                channel_mood = global_context[mood_start:mood_end].strip()
+                print(f"😊 Channel mood: {channel_mood}")
+        else:
+            print(f"⚠️ No global context available for {username}")
         
         # Build prompt
         system_prompt = self.get_core_prompt(username)
@@ -2121,6 +2156,10 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
 
 {f"IMPORTANT: You are responding on Discord. Keep your response to 2-4 sentences maximum. Be reasonably concise but expressive." if platform == "discord" else ""}
 
+{f"CONTEXT AWARENESS: Use the conversation context, current topic, and channel mood to guide your response. Reference recent messages naturally when relevant." if global_context else ""}
+
+{f"REASONING INSIGHTS: Use the vector reasoning insights to inform your response. Consider the emotional patterns, predictions, and cross-memory connections when crafting your reply." if vector_insights_context else ""}
+
 {username}: {user_message}
 Luna:"""
         
@@ -2141,9 +2180,13 @@ Luna:"""
             reply = reply.replace("Luna:", "").strip()
             reply = reply.replace(f"{username}:", "").strip()
             
-            # Fix template placeholders
+            # Fix template placeholders - comprehensive replacement
             reply = reply.replace("{your name}", username)
             reply = reply.replace("{username}", username)
+            reply = reply.replace("{user}", username)
+            reply = reply.replace("{paw}", "paw")
+            reply = reply.replace("{wolf}", "wolf")
+            reply = reply.replace("{master}", username if username.lower() in ["chris", "solonaras"] else username)
             
             # Platform-specific length controls
             if platform == "discord":
