@@ -20,9 +20,89 @@ import sqlite3
 import json
 import time
 import hashlib
+import re
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple
 import random
+
+# Fallback for config/seed: optional known platform_user_id -> aliases (for migration)
+# Set via set_known_user_aliases() or from config
+_KNOWN_USER_ALIASES: Dict[str, List[str]] = {}
+
+
+def set_known_user_aliases(mapping: Dict[str, List[str]]):
+    """Seed known user aliases (e.g. from config). Key = platform_user_id like 'discord:123'."""
+    global _KNOWN_USER_ALIASES
+    _KNOWN_USER_ALIASES = dict(mapping)
+
+
+def seed_user_identity(platform_user_id: str, display_names: List[str], platform: str = "discord"):
+    """Seed user_identity_links for migration (e.g. discord:123 -> Chris, Solonaras)."""
+    if not _dna_memory_system or not platform_user_id:
+        return
+    for name in display_names:
+        if name:
+            _dna_memory_system.link_user_identity(platform_user_id, name, platform)
+
+
+def link_user_identity(platform: str, username: str, user_id: Optional[str] = None):
+    """Link display_name to platform user ID. Call when user sends a message."""
+    if not platform or not user_id:
+        return
+    platform_user_id = f"{platform}:{user_id}"
+    if _dna_memory_system:
+        _dna_memory_system.link_user_identity(platform_user_id, username, platform)
+
+
+def get_user_aliases(platform: str, username: str, user_id: Optional[str] = None) -> List[str]:
+    """
+    Get all display-name aliases for a user. Dynamic: uses platform_user_id to merge identities.
+    Returns [username] + any linked names (e.g. Chris + Solonaras for same Discord user).
+    """
+    platform_user_id = f"{platform}:{user_id}" if (platform and user_id) else None
+    if _dna_memory_system and platform_user_id:
+        aliases = _dna_memory_system.get_linked_aliases(platform_user_id)
+        if aliases:
+            return list(dict.fromkeys([username] + [a for a in aliases if a != username]))
+    # Fallback: known seed (e.g. from config)
+    if platform_user_id and platform_user_id in _KNOWN_USER_ALIASES:
+        return _KNOWN_USER_ALIASES[platform_user_id]
+    return [username]
+
+
+def get_all_known_display_names() -> List[str]:
+    """Get all display names we have data for (for dynamic mention extraction)."""
+    if not _dna_memory_system:
+        return []
+    cursor = _dna_memory_system.conn.cursor()
+    names = set()
+    cursor.execute("SELECT DISTINCT display_name FROM user_identity_links")
+    for row in cursor.fetchall():
+        if row[0]:
+            names.add(row[0])
+    cursor.execute("SELECT DISTINCT username FROM user_facts")
+    for row in cursor.fetchall():
+        if row[0]:
+            names.add(row[0])
+    return sorted(names, key=lambda x: x.lower())
+
+
+def get_aliases_for_display_name(display_name: str) -> List[str]:
+    """Get aliases for a mentioned user (e.g. 'Chris' in 'where is Chris from?'). Uses DB links."""
+    if not display_name or not _dna_memory_system:
+        return [display_name] if display_name else []
+    cursor = _dna_memory_system.conn.cursor()
+    cursor.execute('''
+        SELECT platform_user_id FROM user_identity_links
+        WHERE LOWER(display_name) = LOWER(?)
+        LIMIT 1
+    ''', (display_name.strip(),))
+    row = cursor.fetchone()
+    if row:
+        aliases = _dna_memory_system.get_linked_aliases(row[0])
+        if aliases:
+            return list(dict.fromkeys([display_name] + [a for a in aliases if a != display_name]))
+    return [display_name]
 
 
 class DNAMemoryStrand:
@@ -184,6 +264,46 @@ class LunaDNAMemorySystem:
             )
         ''')
         
+        # Permanent user facts (name, preferences, etc.) - survives restarts
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_facts (
+                fact_id TEXT PRIMARY KEY,
+                username TEXT NOT NULL,
+                fact_type TEXT NOT NULL,
+                fact_value TEXT NOT NULL,
+                timestamp REAL
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_user_facts_username ON user_facts(username)')
+
+        # Persistent user profiles (per-user, Discord + Twitch) - survives restarts
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_profiles (
+                username TEXT PRIMARY KEY,
+                platforms TEXT,
+                total_interactions INTEGER DEFAULT 0,
+                interests TEXT,
+                preferences TEXT,
+                topics_discussed TEXT,
+                emotional_patterns TEXT,
+                relationship_level TEXT,
+                profile_json TEXT,
+                last_updated REAL
+            )
+        ''')
+        
+        # Dynamic identity linking: platform_user_id (e.g. discord:123) -> display_names used
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_identity_links (
+                platform_user_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                platform TEXT NOT NULL,
+                first_seen REAL,
+                PRIMARY KEY (platform_user_id, display_name)
+            )
+        ''')
+        cursor.execute('CREATE INDEX IF NOT EXISTS idx_identity_platform ON user_identity_links(platform_user_id)')
+        
         self.conn.commit()
         print("[DNA] Luna DNA Memory System initialized")
     
@@ -239,10 +359,21 @@ class LunaDNAMemorySystem:
         
         self.conn.commit()
     
+    def _keyword_overlap_score(self, query: str, text: str) -> float:
+        """Score by word overlap - helps semantic recall when nucleotide matching fails."""
+        if not text:
+            return 0.0
+        q_words = set(w.lower() for w in query.split() if len(w) > 2)
+        t_words = set(w.lower() for w in text.split() if len(w) > 2)
+        if not q_words:
+            return 0.0
+        overlap = len(q_words & t_words) / len(q_words)
+        return overlap
+
     def express_genes(self, username: str, query: str, limit: int = 5) -> List[Dict]:
         """Express relevant genes (activate memories) based on query
         
-        Like gene expression in biology, only relevant memories activate
+        Uses nucleotide matching + keyword overlap fallback for better recall.
         """
         cursor = self.conn.cursor()
         
@@ -250,12 +381,12 @@ class LunaDNAMemorySystem:
         temp_strand = DNAMemoryStrand(query, "", "query", username)
         query_nucleotides = temp_strand.nucleotides
         
-        # Find matching strands (complementary base pairing)
+        # Find matching strands - also try common username aliases (e.g. Chris/solonaras)
         cursor.execute('''
             SELECT * FROM memory_strands 
             WHERE username = ?
-            ORDER BY strength DESC, last_accessed DESC
-            LIMIT 50
+            ORDER BY strength DESC, last_accessed DESC, timestamp DESC
+            LIMIT 100
         ''', (username,))
         
         all_strands = cursor.fetchall()
@@ -264,13 +395,20 @@ class LunaDNAMemorySystem:
         for strand in all_strands:
             strand_nucleotides = json.loads(strand[6])  # nucleotides column
             
-            # Calculate complementarity score
-            score = 0.0
+            # Nucleotide complementarity score
+            nucl_score = 0.0
             for key in ['A', 'T', 'G', 'C']:
                 if query_nucleotides[key] == strand_nucleotides[key]:
-                    score += 1.0
+                    nucl_score += 1.0
                 elif query_nucleotides[key] in strand_nucleotides[key]:
-                    score += 0.5
+                    nucl_score += 0.5
+            
+            # Keyword overlap fallback (semantic relevance)
+            kw_score = self._keyword_overlap_score(query, strand[2])  # user_message
+            kw_score += 0.5 * self._keyword_overlap_score(query, strand[3])  # luna_response
+            
+            # Combine: prefer nucleotide match, but keyword overlap helps when nucl is weak
+            score = nucl_score * 2.0 + kw_score  # nucl weighted higher when it matches
             
             # Bonus for strong strands (frequently accessed)
             score *= (1.0 + strand[7] * 0.1)  # strength column
@@ -280,6 +418,16 @@ class LunaDNAMemorySystem:
         # Sort by score and get top matches
         scored_strands.sort(reverse=True, key=lambda x: x[0])
         top_strands = scored_strands[:limit]
+        
+        # Fallback: if all scores are 0, return most recent memories (any relevance better than none)
+        if top_strands and top_strands[0][0] == 0:
+            cursor.execute('''
+                SELECT * FROM memory_strands 
+                WHERE username = ?
+                ORDER BY timestamp DESC
+                LIMIT ?
+            ''', (username, limit))
+            top_strands = [(0.1, row) for row in cursor.fetchall()]
         
         # Mark as expressed (replicate)
         results = []
@@ -374,7 +522,301 @@ class LunaDNAMemorySystem:
         deleted = cursor.rowcount
         self.conn.commit()
         return deleted
-    
+
+    def save_user_fact(self, username: str, fact_type: str, fact_value: str, multi_value: bool = False):
+        """Store a permanent fact. multi_value=True allows multiple (e.g. interests)."""
+        if not fact_value or len(fact_value.strip()) < 2:
+            return
+        key = f"{username}:{fact_type}:{fact_value}" if multi_value else f"{username}:{fact_type}"
+        fact_id = hashlib.md5(key.encode()).hexdigest()[:16]
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO user_facts (fact_id, username, fact_type, fact_value, timestamp)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (fact_id, username, fact_type, fact_value.strip()[:500], time.time()))
+        self.conn.commit()
+
+    def get_user_facts(self, username: str, usernames: List[str] = None) -> List[Dict]:
+        """Get all stored facts for user(s). usernames: aliases to merge (e.g. Chris, solonaras)."""
+        names = usernames or [username]
+        cursor = self.conn.cursor()
+        seen = set()
+        facts = []
+        for name in names:
+            cursor.execute('''
+                SELECT fact_type, fact_value FROM user_facts WHERE username = ?
+            ''', (name,))
+            for row in cursor.fetchall():
+                key = (row[0], row[1].lower())
+                if key not in seen:
+                    seen.add(key)
+                    facts.append({"fact_type": row[0], "fact_value": row[1]})
+        return facts
+
+    def save_user_profile(self, username: str, profile_data: Dict):
+        """Save/merge user profile (persistent, per-user)."""
+        cursor = self.conn.cursor()
+        cursor.execute('SELECT profile_json, total_interactions FROM user_profiles WHERE username = ?', (username,))
+        row = cursor.fetchone()
+        existing = json.loads(row[0]) if row and row[0] else {}
+        existing_interactions = row[1] if row else 0
+        # Convert sets to lists for merge
+        def to_list(x):
+            return list(x) if isinstance(x, (set, frozenset)) else (x if isinstance(x, list) else [])
+        # Merge
+        for k, v in profile_data.items():
+            if k == "interaction_history":
+                continue  # Don't persist full history
+            v = to_list(v) if k in ("interests", "topics_discussed", "platforms") else v
+            if k in ("interests", "topics_discussed"):
+                existing[k] = list(set(existing.get(k, [])) | set(v))[:50]
+            elif k in ("preferences", "emotional_patterns", "communication_style"):
+                d = existing.get(k, {})
+                if isinstance(v, dict):
+                    d.update(v)
+                existing[k] = d
+            elif k == "platforms":
+                existing[k] = list(set(existing.get(k, [])) | set(v))
+            elif k == "total_interactions":
+                existing[k] = max(existing.get(k, 0), v)
+            elif k not in ("last_seen",):
+                existing[k] = v
+        total = max(existing.get("total_interactions", 0), existing_interactions)
+        profile_json = json.dumps(existing)
+        platforms = json.dumps(existing.get("platforms", []))
+        interests = json.dumps(existing.get("interests", []))
+        preferences = json.dumps(existing.get("preferences", {}))
+        topics = json.dumps(existing.get("topics_discussed", []))
+        emotional = json.dumps(existing.get("emotional_patterns", {}))
+        cursor.execute('''
+            INSERT OR REPLACE INTO user_profiles
+            (username, platforms, total_interactions, interests, preferences, topics_discussed,
+             emotional_patterns, relationship_level, profile_json, last_updated)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (username, platforms, total, interests, preferences, topics,
+              emotional, existing.get("relationship_level", "new"), profile_json, time.time()))
+        self.conn.commit()
+
+    def link_user_identity(self, platform_user_id: str, display_name: str, platform: str):
+        """Link a display_name to a platform user ID (e.g. discord:123). Builds dynamic aliases."""
+        if not platform_user_id or not display_name:
+            return
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            INSERT OR IGNORE INTO user_identity_links (platform_user_id, display_name, platform, first_seen)
+            VALUES (?, ?, ?, ?)
+        ''', (platform_user_id, display_name.strip(), platform, time.time()))
+        self.conn.commit()
+
+    def get_linked_aliases(self, platform_user_id: str) -> List[str]:
+        """Get all display_names linked to this platform user ID."""
+        if not platform_user_id:
+            return []
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT display_name FROM user_identity_links WHERE platform_user_id = ?
+        ''', (platform_user_id,))
+        return [row[0] for row in cursor.fetchall()]
+
+    def get_recent_memories_for_user(self, username: str, usernames: List[str] = None, limit: int = 25) -> List[Dict]:
+        """Get recent conversation memories for user(s) - for profile context."""
+        names = list(dict.fromkeys(usernames or [username]))
+        cursor = self.conn.cursor()
+        placeholders = ",".join("?" * len(names))
+        cursor.execute(f'''
+            SELECT user_message, luna_response, timestamp FROM memory_strands
+            WHERE username IN ({placeholders})
+            ORDER BY timestamp DESC LIMIT ?
+        ''', (*names, limit))
+        seen = set()
+        results = []
+        for row in cursor.fetchall():
+            key = (row[0][:80], row[1][:80])
+            if key not in seen:
+                seen.add(key)
+                results.append({"user_message": row[0], "luna_response": row[1], "timestamp": row[2]})
+        return results[:limit]
+
+    def get_user_profile_analysis(self, username: str, usernames: List[str] = None) -> str:
+        """Aggregate ALL permanent memory for user into a single profile analysis for prompt injection.
+        Combines: user_facts, user_profiles, recent memories. Luna can recall any of this when asked."""
+        names = usernames or [username]
+        parts = []
+        # 1. User facts (name, location, interests, occupation, etc.)
+        facts = self.get_user_facts(username, usernames)
+        if facts:
+            by_type = {}
+            for f in facts:
+                t = f["fact_type"]
+                v = f["fact_value"]
+                if t not in by_type:
+                    by_type[t] = []
+                if v not in by_type[t]:
+                    by_type[t].append(v)
+            fact_lines = []
+            for t, vals in sorted(by_type.items()):
+                label = t.replace("_", " ").title()
+                fact_lines.append(f"  {label}: {', '.join(vals[:5])}")
+            if fact_lines:
+                parts.append("FACTS YOU KNOW:\n" + "\n".join(fact_lines))
+        # 2. User profile (interests, preferences, topics)
+        profile = self.get_user_profile(username, usernames)
+        if profile:
+            p_parts = []
+            if profile.get("interests"):
+                p_parts.append(f"  Interests: {', '.join(profile['interests'][:15])}")
+            if profile.get("topics_discussed"):
+                p_parts.append(f"  Topics discussed: {', '.join(profile['topics_discussed'][-15:])}")
+            if profile.get("preferences"):
+                prefs = list(profile["preferences"].items())[:10]
+                p_parts.append(f"  Preferences: {', '.join(f'{k}={v}' for k, v in prefs)}")
+            if profile.get("relationship_level") and profile["relationship_level"] != "new":
+                p_parts.append(f"  Relationship: {profile['relationship_level']}")
+            if profile.get("total_interactions", 0) > 0:
+                p_parts.append(f"  Total interactions: {profile['total_interactions']}")
+            if p_parts:
+                parts.append("PROFILE:\n" + "\n".join(p_parts))
+        # 3. Recent conversation highlights (what they've talked about)
+        memories = self.get_recent_memories_for_user(username, usernames, limit=15)
+        if memories:
+            conv_lines = []
+            for m in memories[:10]:
+                um = m["user_message"][:100] + ("..." if len(m["user_message"]) > 100 else "")
+                lr = m["luna_response"][:80] + ("..." if len(m["luna_response"]) > 80 else "")
+                conv_lines.append(f"  - They said: \"{um}\" → You replied: \"{lr}\"")
+            if conv_lines:
+                parts.append("PAST CONVERSATIONS (recall when asked about these topics):\n" + "\n".join(conv_lines))
+        if not parts:
+            return ""
+        return "\n\n".join(parts)
+
+    def get_profile_gaps(self, username: str, usernames: List[str] = None) -> List[str]:
+        """Return list of things we don't know about the user (for Luna to ask)."""
+        facts = self.get_user_facts(username, usernames)
+        profile = self.get_user_profile(username, usernames)
+        fact_types = {f["fact_type"] for f in facts}
+        gaps = []
+        if "name" not in fact_types:
+            gaps.append("name")
+        if "location" not in fact_types:
+            gaps.append("where they live/are from")
+        if "interest" not in fact_types and not (profile and profile.get("interests")):
+            gaps.append("interests/hobbies")
+        if "occupation" not in fact_types:
+            gaps.append("what they do (job/school)")
+        if not (profile and profile.get("preferences")):
+            gaps.append("preferences")
+        return gaps
+
+    def get_user_profile(self, username: str, usernames: List[str] = None) -> Optional[Dict]:
+        """Get persistent profile for user(s). Merges from aliases."""
+        names = usernames or [username]
+        cursor = self.conn.cursor()
+        merged = {}
+        for name in names:
+            cursor.execute('''
+                SELECT profile_json, platforms, total_interactions, interests, preferences,
+                       topics_discussed, emotional_patterns, relationship_level
+                FROM user_profiles WHERE username = ?
+            ''', (name,))
+            row = cursor.fetchone()
+            if row and row[0]:
+                p = json.loads(row[0])
+                p["platforms"] = json.loads(row[1]) if row[1] else []
+                p["total_interactions"] = row[2] or 0
+                p["interests"] = json.loads(row[3]) if row[3] else []
+                p["preferences"] = json.loads(row[4]) if row[4] else {}
+                p["topics_discussed"] = json.loads(row[5]) if row[5] else []
+                p["emotional_patterns"] = json.loads(row[6]) if row[6] else {}
+                p["relationship_level"] = row[7] or "new"
+                for k, v in p.items():
+                    if k not in merged or (isinstance(v, list) and len(v) > len(merged.get(k, []))):
+                        merged[k] = v
+                    elif isinstance(v, dict) and v:
+                        merged.setdefault(k, {}).update(v)
+        return merged if merged else None
+
+    def compile_profiles_from_history(self) -> Dict:
+        """
+        Scan all memory_strands (chat history) and extract/update profiles for every user.
+        Returns {processed: int, users_updated: int, facts_added: int}.
+        """
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT username, platform, user_message FROM memory_strands
+            ORDER BY timestamp ASC
+        ''')
+        rows = cursor.fetchall()
+        users_updated = set()
+        facts_added = 0
+        for username, platform, user_message in rows:
+            if not username or not user_message:
+                continue
+            extracted = _extract_facts_from_message(user_message)
+            for fact_type, fact_value in extracted:
+                multi = fact_type in ("interest",)
+                self.save_user_fact(username, fact_type, fact_value, multi_value=multi)
+                facts_added += 1
+            interests = [v for t, v in extracted if t == "interest"]
+            prefs = {f"preference_{i}": v for i, (t, v) in enumerate(extracted) if t == "preference"}
+            if interests or prefs:
+                prof = self.get_user_profile(username) or {}
+                if interests:
+                    prof["interests"] = list(set(prof.get("interests", [])) | set(interests))[:30]
+                    self.save_user_profile(username, {"interests": prof["interests"]})
+                if prefs:
+                    prof["preferences"] = {**prof.get("preferences", {}), **prefs}
+                    self.save_user_profile(username, {"preferences": prof["preferences"]})
+            words = [w for w in user_message.lower().split() if len(w) > 3][:20]
+            if words:
+                prof = self.get_user_profile(username) or {}
+                topics = list(set(prof.get("topics_discussed", [])) | set(words))[:50]
+                self.save_user_profile(username, {"topics_discussed": topics})
+            users_updated.add(username)
+        return {"processed": len(rows), "users_updated": len(users_updated), "facts_added": facts_added}
+
+    def get_all_known_profiles(self) -> List[Dict]:
+        """Return list of all users Luna has profile/fact data for."""
+        cursor = self.conn.cursor()
+        usernames = set()
+        cursor.execute("SELECT DISTINCT username FROM user_facts")
+        for row in cursor.fetchall():
+            if row[0]:
+                usernames.add(row[0])
+        cursor.execute("SELECT DISTINCT username FROM user_profiles")
+        for row in cursor.fetchall():
+            if row[0]:
+                usernames.add(row[0])
+        cursor.execute("SELECT DISTINCT username FROM memory_strands")
+        for row in cursor.fetchall():
+            if row[0]:
+                usernames.add(row[0])
+        result = []
+        for uname in sorted(usernames, key=lambda x: x.lower()):
+            facts = self.get_user_facts(uname)
+            profile = self.get_user_profile(uname)
+            fact_count = len(facts)
+            interactions = profile.get("total_interactions", 0) if profile else 0
+            if not interactions:
+                cursor.execute("SELECT COUNT(*) FROM memory_strands WHERE username = ?", (uname,))
+                interactions = cursor.fetchone()[0] or 0
+            summary_parts = []
+            if facts:
+                by_type = {}
+                for f in facts:
+                    t, v = f["fact_type"], f["fact_value"]
+                    by_type.setdefault(t, []).append(v)
+                for t in ["name", "location", "interest"]:
+                    if t in by_type:
+                        summary_parts.append(f"{t}: {', '.join(by_type[t][:3])}")
+            result.append({
+                "username": uname,
+                "fact_count": fact_count,
+                "interactions": interactions,
+                "summary": "; ".join(summary_parts) if summary_parts else "—",
+            })
+        return result
+
     def get_stats(self) -> Dict:
         """Get DNA memory system statistics"""
         cursor = self.conn.cursor()
@@ -416,31 +858,165 @@ def get_dna_memory():
     """Get the DNA memory system instance"""
     return _dna_memory_system
 
+def _extract_facts_from_message(message: str) -> List[Tuple[str, str]]:
+    """Extract permanent facts from user message. Returns [(fact_type, fact_value), ...]"""
+    msg = message.strip()
+    facts = []
+    seen = set()
+    def add(ftype: str, val: str):
+        v = val.strip()[:50]
+        if len(v) > 1 and v.lower() not in ('a', 'the', 'an', 'it', 'i') and (ftype, v) not in seen:
+            seen.add((ftype, v))
+            facts.append((ftype, v))
+    # Name: "my name is X", "I'm X", "I am X", "call me X", "I'm called X"
+    # Skip "I'm from X" / "I'm in X" - those are location phrases, not names
+    for m in re.finditer(r'(?:my name is|i\'?m called?|call me|i am|i\'?m)\s+([a-zA-Z][a-zA-Z0-9_\s\-]{1,20})', msg, re.I):
+        val = m.group(1).strip()
+        if val.lower().startswith(("from ", "in ")):
+            continue  # "I'm from Cyprus" -> location, not name
+        add("name", val)
+    m = re.search(r'(?:my\s+)?name\s+is\s+([a-zA-Z][a-zA-Z0-9_\s\-]{1,20})', msg, re.I)
+    if m:
+        add("name", m.group(1))
+    # Location: "I live in X", "I'm from X"
+    for m in re.finditer(r'(?:i live in|i\'?m from|i\'?m in)\s+([a-zA-Z][a-zA-Z0-9_\s\-,]{1,40})', msg, re.I):
+        add("location", m.group(1))
+    # Favorite: "favorite X is Y", "my favorite X is Y"
+    m = re.search(r'(?:my|favorite)\s+(\w+)\s+is\s+([a-zA-Z][a-zA-Z0-9_\s\-]{1,30})', msg, re.I)
+    if m:
+        add(f"favorite_{m.group(1)}", m.group(2))
+    # Interests: "I like X", "I love X", "I'm into X", "I enjoy X"
+    for m in re.finditer(r'(?:i like|i love|i\'?m into|i enjoy|i\'?m interested in)\s+([a-zA-Z][a-zA-Z0-9_\s\-]{1,30})', msg, re.I):
+        add("interest", m.group(1))
+    # Occupation: "I'm a X", "I work as X"
+    for m in re.finditer(r'(?:i\'?m a|i work as|i am a)\s+([a-zA-Z][a-zA-Z0-9_\s\-]{1,30})', msg, re.I):
+        add("occupation", m.group(1))
+    # Age: "I'm X years old"
+    m = re.search(r'i\'?m\s+(\d{1,3})\s*(?:years?\s*old)?', msg, re.I)
+    if m and 1 <= int(m.group(1)) <= 120:
+        add("age", m.group(1))
+    # Preference: "I prefer X", "I'd rather X"
+    m = re.search(r'i (?:prefer|would rather|like to)\s+([a-zA-Z][a-zA-Z0-9_\s\-]{1,40})', msg, re.I)
+    if m:
+        add("preference", m.group(1))
+    # Short answer to "What's your name?" - e.g. "John" or "John Smith" (2-25 chars, name-like)
+    if re.match(r'^[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?$', msg) and 2 <= len(msg) <= 25:
+        skip = {'hey', 'hi', 'yes', 'no', 'ok', 'okay', 'thanks', 'hello', 'bye', 'cool', 'nice'}
+        if msg.lower() not in skip:
+            add("name", msg)
+    # Short answer to "What do you like?" - e.g. "anime", "gaming" (single word 4-25 chars)
+    if re.match(r'^[a-zA-Z][a-zA-Z0-9_\-]{3,24}$', msg) and " " not in msg:
+        skip = {'hey', 'hi', 'yes', 'no', 'ok', 'okay', 'thanks', 'hello', 'bye', 'cool', 'nice', 'stuff', 'things'}
+        if msg.lower() not in skip:
+            add("interest", msg)
+    return facts
+
+
 def save_dna_memory(user_message: str, luna_response: str, 
-                    platform: str, username: str):
-    """Save a new memory strand"""
+                    platform: str, username: str, user_id: Optional[str] = None):
+    """Save a new memory strand and extract/store any permanent facts."""
     if _dna_memory_system:
         strand = DNAMemoryStrand(user_message, luna_response, platform, username)
         _dna_memory_system.store_memory_strand(strand)
+        # Extract and save permanent facts
+        extracted = _extract_facts_from_message(user_message)
+        for fact_type, fact_value in extracted:
+            multi = fact_type in ("interest",)
+            _dna_memory_system.save_user_fact(username, fact_type, fact_value, multi_value=multi)
+        # Update profile with extracted interests and preferences (merge from aliases)
+        profile_usernames = get_user_aliases(platform, username, user_id)
+        prof = _dna_memory_system.get_user_profile(username, usernames=profile_usernames) or {}
+        interests = [v for t, v in extracted if t == "interest"]
+        prefs = {f"preference_{i}": v for i, (t, v) in enumerate(extracted) if t == "preference"}
+        if interests or prefs:
+            if interests:
+                prof["interests"] = list(set(prof.get("interests", [])) | set(interests))[:30]
+                _dna_memory_system.save_user_profile(username, {"interests": prof["interests"]})
+            if prefs:
+                prof["preferences"] = {**prof.get("preferences", {}), **prefs}
+                _dna_memory_system.save_user_profile(username, {"preferences": prof["preferences"]})
 
-def recall_dna_memories(username: str, query: str, limit: int = 5) -> List[Dict]:
-    """Recall relevant memories by expressing genes"""
+
+def get_user_facts(username: str, usernames: List[str] = None) -> List[Dict]:
+    """Get permanent facts for user. usernames: aliases to merge."""
     if _dna_memory_system:
-        return _dna_memory_system.express_genes(username, query, limit)
+        return _dna_memory_system.get_user_facts(username, usernames)
     return []
 
-def recall_dna_memories_with_vector_reasoning(username: str, query: str, limit: int = 5) -> Dict:
+
+def save_user_profile(username: str, profile_data: Dict):
+    """Save user profile (persistent, per-user)."""
+    if _dna_memory_system:
+        _dna_memory_system.save_user_profile(username, profile_data)
+
+
+def get_user_profile(username: str, usernames: List[str] = None) -> Optional[Dict]:
+    """Get persistent profile for user. usernames: aliases to merge."""
+    if _dna_memory_system:
+        return _dna_memory_system.get_user_profile(username, usernames)
+    return None
+
+
+def compile_profiles_from_history() -> Dict:
+    """Admin: scan all chat history and extract/update profiles for every user."""
+    if _dna_memory_system:
+        return _dna_memory_system.compile_profiles_from_history()
+    return {"processed": 0, "users_updated": 0, "facts_added": 0}
+
+
+def get_all_known_profiles() -> List[Dict]:
+    """Admin: return list of all users Luna has profile/fact data for."""
+    if _dna_memory_system:
+        return _dna_memory_system.get_all_known_profiles()
+    return []
+
+
+def get_user_profile_analysis(username: str, usernames: List[str] = None) -> str:
+    """Get full profile analysis (facts + profile + memories) for prompt injection."""
+    if _dna_memory_system:
+        return _dna_memory_system.get_user_profile_analysis(username, usernames)
+    return ""
+
+
+def get_profile_gaps(username: str, usernames: List[str] = None) -> List[str]:
+    """Get list of profile gaps (what Luna doesn't know - for asking questions)."""
+    if _dna_memory_system:
+        return _dna_memory_system.get_profile_gaps(username, usernames)
+    return []
+
+def recall_dna_memories(username: str, query: str, limit: int = 5,
+                       usernames: List[str] = None) -> List[Dict]:
+    """Recall relevant memories by expressing genes.
+    usernames: optional list of aliases (e.g. ['Chris', 'solonaras']) to merge memories from.
+    """
+    if not _dna_memory_system:
+        return []
+    names = usernames or [username]
+    seen = set()
+    merged = []
+    for name in names:
+        for mem in _dna_memory_system.express_genes(name, query, limit=limit):
+            key = (mem['user_message'][:50], mem['luna_response'][:50])
+            if key not in seen:
+                seen.add(key)
+                merged.append(mem)
+    # Sort by match_score desc, keep limit
+    merged.sort(key=lambda m: m.get('match_score', 0), reverse=True)
+    return merged[:limit]
+
+def recall_dna_memories_with_vector_reasoning(username: str, query: str, limit: int = 5,
+                                             usernames: List[str] = None) -> Dict:
     """Recall memories with enhanced vector reasoning capabilities"""
     if _dna_memory_system:
-        # Get basic memories
-        memories = _dna_memory_system.express_genes(username, query, limit)
+        # Get basic memories (with optional username aliases)
+        memories = recall_dna_memories(username, query, limit, usernames=usernames)
         
         # Try to get vector reasoning if available
         try:
             from luna_vector_reasoning import get_vector_reasoning, reason_with_vectors
             vector_engine = get_vector_reasoning()
             if vector_engine:
-                reasoning_result = reason_with_vectors(query, username, _dna_memory_system)
+                reasoning_result = reason_with_vectors(query, username, _dna_memory_system, usernames=usernames)
                 return {
                     "memories": memories,
                     "vector_reasoning": reasoning_result,

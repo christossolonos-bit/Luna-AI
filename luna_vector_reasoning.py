@@ -19,7 +19,7 @@ import sqlite3
 import json
 import time
 from datetime import datetime
-from typing import List, Dict, Optional, Tuple, Any
+from typing import List, Dict, Optional, Tuple, Any, Union
 from dataclasses import dataclass
 import hashlib
 
@@ -184,8 +184,9 @@ class VectorReasoningEngine:
         return hashlib.md5(query.encode()).hexdigest()[:12]
     
     def reason_across_memories(self, query: str, username: str, 
-                             dna_memory_system=None, understanding_engine=None) -> ReasoningResult:
-        """Main vector reasoning function"""
+                             dna_memory_system=None, understanding_engine=None,
+                             usernames: List[str] = None) -> ReasoningResult:
+        """Main vector reasoning function. usernames: aliases to merge (e.g. Chris, solonaras)."""
         
         # Generate query embedding
         query_embedding = self._generate_embedding(query)
@@ -196,8 +197,8 @@ class VectorReasoningEngine:
         if cached_result:
             return cached_result
         
-        # Step 1: Semantic memory retrieval
-        semantic_memories = self._retrieve_semantic_memories(query, username, dna_memory_system)
+        # Step 1: Semantic memory retrieval (merge across aliases)
+        semantic_memories = self._retrieve_semantic_memories(query, username, dna_memory_system, usernames=usernames)
         
         # Step 2: Temporal pattern analysis
         temporal_patterns = self._analyze_temporal_patterns(semantic_memories, username)
@@ -246,17 +247,25 @@ class VectorReasoningEngine:
         
         return result
     
-    def _retrieve_semantic_memories(self, query: str, username: str, dna_memory_system) -> List[Dict]:
-        """Retrieve semantically relevant memories"""
+    def _retrieve_semantic_memories(self, query: str, username: str, dna_memory_system,
+                                   usernames: List[str] = None) -> List[Dict]:
+        """Retrieve semantically relevant memories. Merges across usernames (aliases) if provided."""
         if not dna_memory_system:
             return []
         
         try:
-            # Use DNA memory system to get relevant memories
-            memories = dna_memory_system.express_genes(username, query, limit=10)
+            names = list(dict.fromkeys(usernames or [username]))
+            seen = set()
+            memories = []
+            for name in names:
+                for mem in dna_memory_system.express_genes(name, query, limit=10):
+                    key = (mem.get('user_message', '')[:50], mem.get('luna_response', '')[:50])
+                    if key not in seen:
+                        seen.add(key)
+                        memories.append(mem)
             
             # Enhance with vector similarity if embeddings available
-            if self.embeddings_enabled:
+            if self.embeddings_enabled and memories:
                 query_embedding = self._generate_embedding(query)
                 enhanced_memories = []
                 
@@ -274,7 +283,7 @@ class VectorReasoningEngine:
                 enhanced_memories.sort(key=lambda x: x.get('vector_similarity', 0), reverse=True)
                 return enhanced_memories[:8]  # Top 8 most similar
             
-            return memories
+            return memories[:10]  # Cap when no embeddings
             
         except Exception as e:
             print(f"ERROR: Failed to retrieve semantic memories: {e}")
@@ -798,11 +807,12 @@ def get_vector_reasoning():
     """Get the vector reasoning engine instance"""
     return _vector_reasoning_engine
 
-def reason_with_vectors(query: str, username: str, dna_memory_system=None, understanding_engine=None) -> ReasoningResult:
-    """Main function for vector reasoning"""
+def reason_with_vectors(query: str, username: str, dna_memory_system=None, understanding_engine=None,
+                       usernames: List[str] = None) -> ReasoningResult:
+    """Main function for vector reasoning. usernames: aliases to merge (e.g. Chris, Solonaras)."""
     if _vector_reasoning_engine:
         return _vector_reasoning_engine.reason_across_memories(
-            query, username, dna_memory_system, understanding_engine
+            query, username, dna_memory_system, understanding_engine, usernames=usernames
         )
     return None
 

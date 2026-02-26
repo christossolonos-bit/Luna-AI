@@ -40,8 +40,12 @@ from urllib.parse import urlparse, urljoin
 from dotenv import load_dotenv
 from luna_dna_memory import (
     initialize_dna_memory, save_dna_memory, recall_dna_memories, get_dna_memory,
-    recall_dna_memories_with_vector_reasoning
+    recall_dna_memories_with_vector_reasoning, get_user_facts,
+    save_user_profile, get_user_profile, get_user_aliases, link_user_identity,
+    set_known_user_aliases, seed_user_identity,
+    compile_profiles_from_history, get_all_known_profiles,
 )
+from luna_memory_search import search_and_inject_memories
 from luna_continuous_learning import ContinuousLearningEngine
 from luna_understanding import UnderstandingEngine
 
@@ -80,8 +84,14 @@ DISCORD_TARGET_CHANNEL_ID_2 = 1427975568439251045
 DISCORD_TARGET_CHANNEL_NAME_2 = "dc-universe"
 # Discord VC: Luna joins Chris's VC if he's in one, else Fusion AI default
 CHRIS_DISCORD_USER_ID = 1414944231222411378  # Chris's Discord user ID
+# VC idle: after this many seconds of silence, Luna asks a curious question (training to learn more)
+VC_IDLE_CURIOUS_INTERVAL = 120  # 2 minutes
 FUSION_AI_GUILD_ID = 1387520068367159368  # Fusion AI server ID
 FUSION_AI_DEFAULT_VC_ID = 1387526220882771999  # Fusion AI default voice channel when Chris isn't in VC
+# Profile command triggers (user says these to see their/others' bio)
+PROFILE_COMMANDS = ("profile", "my profile", "my bio", "!profile", "show my profile", "show profile")
+# Admin commands: Discord user IDs who can run admin compile/list profiles
+ADMIN_USER_IDS = {int(x) for x in [CHRIS_DISCORD_USER_ID] if x}  # Add more IDs as needed
 
 
 OLLAMA_CONFIG = {
@@ -347,6 +357,15 @@ def extract_urls_from_text(text):
     url_pattern = r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
     urls = re.findall(url_pattern, text)
     return urls
+
+
+def extract_youtube_url(text: str) -> str:
+    """Extract first YouTube URL from text. Returns empty string if none."""
+    urls = extract_urls_from_text(text)
+    for url in urls:
+        if "youtube.com" in url or "youtu.be" in url:
+            return url
+    return ""
 
 def analyze_webpage_content(webpage_data, username):
     """Analyze webpage content and generate Luna's thoughts about it"""
@@ -720,7 +739,16 @@ class LunaClean:
         
         # Initialize DNA memory
         self.dna_memory = initialize_dna_memory()
-        
+        # Seed dynamic identity for primary user (Chris / streamer) - backward compat
+        chris_id = CHRIS_DISCORD_USER_ID or os.getenv("CHRIS_DISCORD_USER_ID")
+        if chris_id:
+            pid = f"discord:{chris_id}"
+            set_known_user_aliases({pid: ["Chris", "chris", "Solonaras", "solonaras"]})
+            seed_user_identity(pid, ["Chris", "chris", "Solonaras", "solonaras"], "discord")
+        if self.dna_memory:
+            for uname in get_user_aliases("discord", "Chris", str(chris_id) if chris_id else None):
+                self.dna_memory.save_user_fact(uname, "name", "Chris")
+
         # Initialize global context awareness with user profiles and channel context
         self.global_context = {
             "cross_platform_users": {},  # Track users across platforms
@@ -850,7 +878,12 @@ class LunaClean:
         )
         if self.fusion_ai_default_vc_id == 0:
             self.fusion_ai_default_vc_id = None
-        
+
+        # VC idle curious: when silent for a while, Luna asks questions to learn
+        self.vc_last_spoke_at = time.time()  # avoid asking before first speak
+        self.vc_last_asked_gap = None  # skip this gap next time if still unanswered
+        self.vc_curious_timer = None
+
         # Store config for hot reload
         self.ollama_config = OLLAMA_CONFIG
         
@@ -871,6 +904,9 @@ class LunaClean:
         # Remind about Twitch→Discord VC config if needed
         if PLATFORM_CONFIG.get("twitch", {}).get("enabled") and not (self.chris_discord_user_id or CHRIS_DISCORD_USER_ID):
             print("💡 Tip: Set CHRIS_DISCORD_USER_ID (in .env or config) so Luna can join your voice channel when replying to Twitch chat")
+
+        # VC idle curious timer: when silent in VC, Luna asks questions to learn
+        self._start_vc_curious_timer()
         
         print("✨ Luna is ready!")
     
@@ -1476,11 +1512,116 @@ class LunaClean:
             
             print(f"💬 Luna responding to {message.author.display_name} in #{message.channel.name}")
             
-            # Generate response
+            msg_lower = message.content.strip().lower()
+            author_id = message.author.id
+            
+            # Admin commands (admin compile profiles, admin list profiles)
+            if author_id in ADMIN_USER_IDS:
+                if msg_lower in ("admin compile profiles", "admin compile", "!admin compile profiles"):
+                    try:
+                        result = compile_profiles_from_history()
+                        reply = f"✅ **Profile compile complete**\nProcessed {result['processed']} messages, updated {result['users_updated']} users, added {result['facts_added']} facts."
+                    except Exception as e:
+                        reply = f"❌ Compile failed: {e}"
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(
+                            message.channel.send(reply),
+                            self.discord_client.loop
+                        )
+                        future.result(timeout=10)
+                    except Exception as pe:
+                        print(f"⚠️ Admin reply error: {pe}")
+                    return
+                if msg_lower in ("admin list profiles", "admin profiles", "admin list", "!admin profiles"):
+                    try:
+                        profiles = get_all_known_profiles()
+                        if not profiles:
+                            reply = "📋 No profiles yet. Chat with Luna to build a profile, or run `admin compile profiles`."
+                        else:
+                            lines = [f"**{p['username']}** — {p['interactions']} chats, {p['fact_count']} facts | {p['summary'][:80]}" for p in profiles[:25]]
+                            reply = "📋 **Known profiles** (" + str(len(profiles)) + " total):\n" + "\n".join(lines)
+                            if len(profiles) > 25:
+                                reply += f"\n*...and {len(profiles) - 25} more*"
+                    except Exception as e:
+                        reply = f"❌ List failed: {e}"
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(
+                            message.channel.send(reply[:2000]),
+                            self.discord_client.loop
+                        )
+                        future.result(timeout=10)
+                    except Exception as pe:
+                        print(f"⚠️ Admin reply error: {pe}")
+                    return
+            
+            # !play - play YouTube link in Discord VC
+            if (msg_lower.startswith("!play ") or msg_lower.startswith("play ")) and self.discord_client and self.audio_available:
+                yt_url = extract_youtube_url(message.content)
+                if yt_url:
+                    def _play_yt():
+                        try:
+                            loop = self.discord_client.loop
+                            future = asyncio.run_coroutine_threadsafe(
+                                self._discord_play_youtube_in_vc(message, yt_url),
+                                loop
+                            )
+                            future.result(timeout=120)
+                        except Exception as e:
+                            print(f"⚠️ !play error: {e}")
+                            try:
+                                err_msg = f"❌ Couldn't play that: {e}"[:500]
+                                asyncio.run_coroutine_threadsafe(
+                                    message.channel.send(err_msg),
+                                    self.discord_client.loop
+                                ).result(timeout=5)
+                            except Exception:
+                                pass
+                    threading.Thread(target=_play_yt, daemon=True).start()
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            message.channel.send("🎵 Loading..."),
+                            self.discord_client.loop
+                        ).result(timeout=5)
+                    except Exception:
+                        pass
+                    return
+                else:
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            message.channel.send("❌ Give me a YouTube link! Example: `!play https://youtube.com/watch?v=xxx`"),
+                            self.discord_client.loop
+                        ).result(timeout=5)
+                    except Exception:
+                        pass
+                    return
+            
+            # Profile command: show user's bio as a Discord embed
+            if any(msg_lower == cmd or msg_lower.startswith(cmd + " ") for cmd in PROFILE_COMMANDS):
+                target_user = message.author
+                target_name = message.author.display_name
+                target_id = str(message.author.id)
+                if message.mentions:
+                    target_user = message.mentions[0]
+                    target_name = target_user.display_name
+                    target_id = str(target_user.id)
+                embed = self._build_profile_embed(target_name, user_id=target_id, platform="discord", target_display_name=target_name)
+                try:
+                    future = asyncio.run_coroutine_threadsafe(
+                        message.channel.send(embed=embed),
+                        self.discord_client.loop
+                    )
+                    future.result(timeout=10)
+                    print(f"📋 Luna sent profile embed for {target_name}")
+                except Exception as pe:
+                    print(f"⚠️ Profile embed error: {pe}")
+                return
+            
+            # Generate response (pass user_id for dynamic profile/alias linking)
             response = self.generate_response(
                 message.content, 
                 message.author.display_name, 
-                "discord"
+                "discord",
+                user_id=str(message.author.id)
             )
             
             # Send response only in target channel
@@ -1529,6 +1670,74 @@ class LunaClean:
                 
         except Exception as e:
             print(f"Discord message processing error: {e}")
+    
+    def _build_profile_embed(self, username: str, user_id: str = None, platform: str = "discord",
+                            target_display_name: str = None) -> "discord.Embed":
+        """Build a Discord embed showing a user's profile (personal bio from Luna's memory)."""
+        display_name = target_display_name or username
+        aliases = get_user_aliases(platform, username, user_id)
+        facts = get_user_facts(username, usernames=aliases)
+        profile = get_user_profile(username, usernames=aliases)
+        memories = self.dna_memory.get_recent_memories_for_user(username, usernames=aliases, limit=5) if self.dna_memory else []
+        
+        embed = discord.Embed(
+            title=f"📋 {display_name}'s Profile",
+            description="*What Luna knows from your conversations~*",
+            color=0xE91E63,  # Pink
+            timestamp=datetime.now(timezone.utc)
+        )
+        embed.set_author(name="Luna", icon_url="https://cdn.discordapp.com/embed/avatars/0.png")
+        embed.set_footer(text="Learned from our chats together 💕")
+        
+        # Facts block
+        if facts:
+            by_type = {}
+            for f in facts:
+                t, v = f["fact_type"], f["fact_value"]
+                if t not in by_type:
+                    by_type[t] = []
+                if v not in by_type[t]:
+                    by_type[t].append(v)
+            fact_lines = []
+            for t, vals in sorted(by_type.items()):
+                label = t.replace("_", " ").title()
+                fact_lines.append(f"**{label}:** {', '.join(vals[:5])}")
+            if fact_lines:
+                embed.add_field(name="📌 Facts", value="\n".join(fact_lines[:8]), inline=False)
+        
+        # Interests & preferences
+        if profile:
+            parts = []
+            if profile.get("interests"):
+                parts.append(f"**Interests:** {', '.join(profile['interests'][:10])}")
+            if profile.get("preferences"):
+                prefs = list(profile["preferences"].items())[:5]
+                parts.append(f"**Preferences:** {', '.join(f'{k}={v}' for k, v in prefs)}")
+            if profile.get("topics_discussed"):
+                topics = profile["topics_discussed"][-8:]
+                parts.append(f"**Topics:** {', '.join(topics)}")
+            if profile.get("total_interactions", 0) > 0:
+                parts.append(f"**Interactions with Luna:** {profile['total_interactions']}")
+            if profile.get("relationship_level") and profile["relationship_level"] != "new":
+                parts.append(f"**Relationship:** {profile['relationship_level']}")
+            if parts:
+                embed.add_field(name="💫 About", value="\n".join(parts), inline=False)
+        
+        # Recent conversation highlights
+        if memories:
+            lines = []
+            for m in memories[:3]:
+                um = m["user_message"][:60] + ("..." if len(m["user_message"]) > 60 else "")
+                lines.append(f"• \"{um}\"")
+            val = "\n".join(lines)
+            if len(val) > 1024:
+                val = val[:1020] + "..."
+            embed.add_field(name="💬 Recent", value=val or "—", inline=False)
+        
+        if not facts and not profile and not memories:
+            embed.add_field(name="✨", value="*I don't know much about them yet! Chat with me to build a profile~*", inline=False)
+        
+        return embed
     
     async def _discord_find_vc_to_join(self, message) -> "discord.VoiceChannel | None":
         """Find VC to join: Chris's VC if he's in one (any server), else Fusion AI default."""
@@ -1582,10 +1791,27 @@ class LunaClean:
         await self._discord_speak_in_vc(vc, text)
 
     async def _discord_speak_in_vc(self, vc: "discord.VoiceChannel", text: str):
-        """Join given VC, generate TTS audio (Lux or Edge), play it, then disconnect."""
+        """Join given VC, generate TTS audio, play it. STAY connected (don't disconnect)."""
         if not self.discord_client or not vc:
             return
         try:
+            voice_client = None
+            # Check if already in this VC
+            for vc_client in self.discord_client.voice_clients:
+                if vc_client.is_connected() and vc_client.channel and vc_client.channel.id == vc.id:
+                    voice_client = vc_client
+                    break
+            # If in a different VC, disconnect and reconnect to target
+            if not voice_client:
+                for vc_client in self.discord_client.voice_clients:
+                    if vc_client.is_connected():
+                        try:
+                            await vc_client.disconnect()
+                        except Exception:
+                            pass
+                        break
+                voice_client = await vc.connect()
+                print(f"🎤 Luna joined VC #{vc.name} (staying connected)")
             # Generate audio (Lux TTS or Edge TTS)
             import uuid
             temp_base = os.path.join(tempfile.gettempdir(), f"luna_discord_vc_{uuid.uuid4().hex[:8]}")
@@ -1593,15 +1819,11 @@ class LunaClean:
             if not audio_path or not os.path.exists(audio_path):
                 return
             try:
-                # Join and play
-                voice_client = await vc.connect()
-                try:
-                    source = discord.FFmpegPCMAudio(audio_path)
-                    voice_client.play(source, after=lambda e: None)
-                    while voice_client.is_playing():
-                        await asyncio.sleep(0.1)
-                finally:
-                    await voice_client.disconnect()
+                source = discord.FFmpegPCMAudio(audio_path)
+                voice_client.play(source, after=lambda e: None)
+                while voice_client.is_playing():
+                    await asyncio.sleep(0.1)
+                # Do NOT disconnect - Luna stays in VC
             finally:
                 for p in [audio_path, temp_base + ".mp3", temp_base + ".wav"]:
                     if p and os.path.exists(p):
@@ -1609,10 +1831,153 @@ class LunaClean:
                             os.remove(p)
                         except Exception:
                             pass
+            self.vc_last_spoke_at = time.time()
             print("✅ Luna spoke in Discord VC")
         except Exception as e:
-            print(f"⚠️ Discord VC error: {e}")
-    
+            err_msg = str(e).strip() or f"{type(e).__name__}"
+            print(f"⚠️ Discord VC error: {err_msg}")
+            if not str(e).strip():
+                import traceback
+                traceback.print_exc()
+
+    async def _discord_play_youtube_in_vc(self, message, yt_url: str):
+        """Join VC and play audio from a YouTube URL. Requires yt-dlp (pip install yt-dlp) and FFmpeg."""
+        import uuid
+        try:
+            import yt_dlp
+        except ImportError:
+            raise RuntimeError("yt-dlp not installed. Run: pip install yt-dlp")
+        vc = await self._discord_find_vc_to_join(message)
+        if not vc:
+            raise RuntimeError("Couldn't find a voice channel to join")
+        voice_client = None
+        for vc_client in self.discord_client.voice_clients:
+            if vc_client.is_connected() and vc_client.channel and vc_client.channel.id == vc.id:
+                voice_client = vc_client
+                break
+        if not voice_client:
+            for vc_client in self.discord_client.voice_clients:
+                if vc_client.is_connected():
+                    try:
+                        await vc_client.disconnect()
+                    except Exception:
+                        pass
+                    break
+            voice_client = await vc.connect()
+            print(f"🎤 Luna joined VC #{vc.name} for !play")
+        out_dir = tempfile.gettempdir()
+        base_name = f"luna_yt_{uuid.uuid4().hex[:8]}"
+        out_tmpl = os.path.join(out_dir, base_name + ".%(ext)s")
+        ydl_opts = {
+            "format": "bestaudio/best",
+            "outtmpl": out_tmpl,
+            "postprocessors": [{"key": "FFmpegExtractAudio", "preferredcodec": "mp3"}],
+            "quiet": True,
+        }
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                ydl.download([yt_url])
+            downloaded = os.path.join(out_dir, base_name + ".mp3")
+            if not os.path.exists(downloaded):
+                raise RuntimeError("Download failed")
+            source = discord.FFmpegPCMAudio(downloaded)
+            voice_client.play(source, after=lambda e: None)
+            while voice_client.is_playing():
+                await asyncio.sleep(0.2)
+            self.vc_last_spoke_at = time.time()
+            print("✅ Luna finished playing YouTube in VC")
+        finally:
+            for ext in [".mp3", ".webm", ".m4a"]:
+                p = os.path.join(out_dir, base_name + ext)
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except Exception:
+                        pass
+
+    def _generate_curious_question(self) -> str:
+        """Generate a curious question Luna can ask when idle in VC - for learning/training.
+        Skips the last-asked gap if still unanswered (asks a different question instead)."""
+        try:
+            from luna_dna_memory import get_profile_gaps
+            chris_id = getattr(self, "chris_discord_user_id", None) or CHRIS_DISCORD_USER_ID
+            aliases = get_user_aliases("discord", "Chris", str(chris_id) if chris_id else None)
+            gaps = get_profile_gaps("Chris", usernames=aliases)
+            if gaps:
+                # Skip last-asked gap if still unanswered (pick a different one)
+                last = getattr(self, "vc_last_asked_gap", None)
+                gap_to_ask = None
+                for g in gaps:
+                    if g != last:
+                        gap_to_ask = g
+                        break
+                if gap_to_ask is None:
+                    gap_to_ask = gaps[0]  # only one gap left, ask it again
+                self.vc_last_asked_gap = gap_to_ask
+                questions = {
+                    "name": "Hey, what's your name? I want to remember you~",
+                    "where they live/are from": "Where are you from? I'm curious~",
+                    "interests/hobbies": "What do you like to do for fun? Tell me~",
+                    "what they do (job/school)": "What do you do? Work, school? I'd love to know~",
+                    "preferences": "What's something you really prefer? I'm learning about everyone~",
+                }
+                return questions.get(gap_to_ask, f"I'm curious—{gap_to_ask.replace('_', ' ')}?")
+            # General curiosity - use LLM for variety
+            import ollama
+            prompt = """You are Luna, a curious wolf girl in a voice channel. She's been silent for a bit and wants to ask ONE short, friendly question to learn something. It could be about: anime, games, music, life, opinions, favorites. Output ONLY the question, 1-2 sentences max. Natural and conversational."""
+            r = ollama.chat(model=OLLAMA_MODEL, messages=[{"role": "user", "content": prompt}], options={"num_predict": 80})
+            q = (r.get("message", {}) or {}).get("content", "").strip()
+            return q[:200] if q else "What's on your mind right now?~"
+        except Exception as e:
+            return "What's something interesting you've been thinking about?~"
+
+    def _vc_idle_curious_tick(self):
+        """When Luna is in VC and silent for a while, ask a curious question."""
+        interval = getattr(self, '_vc_idle_interval', None) or VC_IDLE_CURIOUS_INTERVAL
+        while True:
+            time.sleep(30)
+            if not self.discord_client or not self.platform_status.get("discord"):
+                continue
+            vc_clients = getattr(self.discord_client, 'voice_clients', [])
+            voice_client = next((vc for vc in vc_clients if vc.is_connected()), None)
+            if not voice_client or not voice_client.channel:
+                continue
+            # Only ask if there are other users in the VC (not just Luna)
+            members = list(voice_client.channel.members) if hasattr(voice_client.channel, 'members') else []
+            if len(members) <= 1:
+                continue
+            elapsed = time.time() - self.vc_last_spoke_at
+            if elapsed >= interval:
+                question = self._generate_curious_question()
+                if question:
+                    self.vc_last_spoke_at = time.time()
+                    def _ask():
+                        try:
+                            loop = self.discord_client.loop
+                            future = asyncio.run_coroutine_threadsafe(
+                                self._discord_speak_in_vc_smart(None, question),
+                                loop
+                            )
+                            future.result(timeout=90)
+                            # Also post to Discord text so users can respond
+                            ch = self.discord_client.get_channel(DISCORD_TARGET_CHANNEL_ID)
+                            if ch:
+                                asyncio.run_coroutine_threadsafe(
+                                    ch.send(f"💭 *Luna asks:* {question}"),
+                                    loop
+                                ).result(timeout=10)
+                        except Exception as e:
+                            print(f"⚠️ VC curious question error: {e}")
+                    threading.Thread(target=_ask, daemon=True).start()
+                    print(f"💭 Luna asked curious question (idle {int(elapsed)}s)")
+
+    def _start_vc_curious_timer(self):
+        """Start the VC idle curious timer (asks questions when silent)."""
+        if self.vc_curious_timer and self.vc_curious_timer.is_alive():
+            return
+        self.vc_curious_timer = threading.Thread(target=self._vc_idle_curious_tick, daemon=True)
+        self.vc_curious_timer.start()
+
     def _update_global_context(self, username: str, platform: str, user_message: str):
         """Update global context awareness with cross-platform information"""
         try:
@@ -1698,6 +2063,22 @@ class LunaClean:
             # Keep only last 100 interactions in history
             if len(profile["interaction_history"]) > 100:
                 profile["interaction_history"] = profile["interaction_history"][-100:]
+
+            # Persist profile to DB (separate per-user, Discord + Twitch)
+            try:
+                to_save = {
+                    "platforms": profile.get("platforms", set()),
+                    "total_interactions": profile["total_interactions"],
+                    "interests": profile.get("interests", set()),
+                    "topics_discussed": profile.get("topics_discussed", set()),
+                    "preferences": profile.get("preferences", {}),
+                    "emotional_patterns": profile.get("emotional_patterns", {}),
+                    "communication_style": profile.get("communication_style", {}),
+                    "relationship_level": profile["relationship_level"],
+                }
+                save_user_profile(username, to_save)
+            except Exception as pe:
+                pass  # Don't fail on profile save
             
             # Extract topics from message
             words = user_message.lower().split()
@@ -1869,12 +2250,27 @@ class LunaClean:
         except Exception as e:
             print(f"Error analyzing channel conversation: {e}")
     
-    def _get_global_context(self, username: str, platform: str) -> str:
-        """Get global context information for the user and platform"""
+    def _get_global_context(self, username: str, platform: str, usernames: list = None) -> str:
+        """Get global context information for the user and platform (persistent + in-memory)"""
         try:
             context_parts = []
-            
-            # Get enhanced user profile by username
+            profile_usernames = usernames
+
+            # Load persistent profile from DB (per-user, survives restarts)
+            db_profile = get_user_profile(username, usernames=profile_usernames)
+            if db_profile and (db_profile.get("interests") or db_profile.get("topics_discussed") or db_profile.get("preferences")):
+                context_parts.append(f"📋 {username}'s learned profile:")
+                if db_profile.get("interests"):
+                    context_parts.append(f"  Interests: {', '.join(db_profile['interests'][:10])}")
+                if db_profile.get("topics_discussed"):
+                    context_parts.append(f"  Topics: {', '.join(db_profile['topics_discussed'][-10:])}")
+                if db_profile.get("preferences"):
+                    prefs = list(db_profile["preferences"].items())[:5]
+                    context_parts.append(f"  Preferences: {', '.join(f'{k}={v}' for k, v in prefs)}")
+                if db_profile.get("relationship_level") and db_profile.get("relationship_level") != "new":
+                    context_parts.append(f"  Relationship: {db_profile['relationship_level']}")
+
+            # Get enhanced user profile by username (in-memory, merges with DB)
             if username in self.global_context["user_profiles"]:
                 profile = self.global_context["user_profiles"][username]
                 
@@ -2103,7 +2499,8 @@ class LunaClean:
                 )
                 future.result(timeout=90)
             except Exception as e:
-                print(f"⚠️ Twitch→Discord VC error: {e}")
+                err_msg = str(e).strip() or f"{type(e).__name__}"
+                print(f"⚠️ Twitch→Discord VC error: {err_msg}")
         threading.Thread(target=_do, daemon=True).start()
 
     def _twitch_post_to_discord(self, response: str, username: str = "", context: str = ""):
@@ -2390,6 +2787,10 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
                 twitch_username_instruction = "IMPORTANT: This user has an inappropriate username that violates Twitch TOS. When addressing them, say 'I can't say your username' instead of using their name."
         
         print(f"🧬 Luna responding to {username} on {platform}: {user_message[:50]}...")
+        
+        # Link identity for dynamic profile (same person, different display names)
+        link_user_identity(platform, username, user_id)
+        memory_usernames = get_user_aliases(platform, username, user_id)
         
         # Track user interaction for idle detection
         self.autonomous_state['last_user_interaction'] = time.time()
@@ -2786,7 +3187,7 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
             print(f"🕐 DIRECT TIME RESPONSE: {direct_time_response}")
             
             # Save to DNA memory
-            save_dna_memory(user_message, direct_time_response, platform, username)
+            save_dna_memory(user_message, direct_time_response, platform, username, user_id=user_id)
             
             # Update autonomous state
             self._update_autonomous_state(user_message, direct_time_response, username)
@@ -2820,7 +3221,7 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
             print(f"🕐 DIRECT LOCATION RESPONSE: {direct_location_response}")
             
             # Save to DNA memory
-            save_dna_memory(user_message, direct_location_response, platform, username)
+            save_dna_memory(user_message, direct_location_response, platform, username, user_id=user_id)
             
             # Update autonomous state
             self._update_autonomous_state(user_message, direct_location_response, username)
@@ -2862,11 +3263,13 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
             except Exception as e:
                 search_context = f"\n\n❌ Local info error: {str(e)}"
         
-        # Recall relevant DNA memories with vector reasoning enhancement
+        # Recall relevant DNA memories (dynamic aliases from platform_user_id)
         if VECTOR_REASONING_AVAILABLE:
             try:
                 print(f"🧠 Attempting vector reasoning for {username}...")
-                memory_data = recall_dna_memories_with_vector_reasoning(username, user_message, limit=3)
+                memory_data = recall_dna_memories_with_vector_reasoning(
+                    username, user_message, limit=5, usernames=memory_usernames
+                )
                 memories = memory_data.get("memories", [])
                 vector_reasoning = memory_data.get("vector_reasoning")
                 enhanced = memory_data.get("enhanced", False)
@@ -2875,21 +3278,23 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
                     print(f"🧠 Reasoning confidence: {vector_reasoning.confidence:.2f}")
             except Exception as e:
                 print(f"❌ Vector reasoning error: {e}")
-                memories = recall_dna_memories(username, user_message, limit=3)
+                memories = recall_dna_memories(username, user_message, limit=5, usernames=memory_usernames)
                 vector_reasoning = None
                 enhanced = False
         else:
             print(f"⚠️ Vector reasoning not available (available: {VECTOR_REASONING_AVAILABLE})")
-            memories = recall_dna_memories(username, user_message, limit=3)
+            memories = recall_dna_memories(username, user_message, limit=5, usernames=memory_usernames)
             vector_reasoning = None
             enhanced = False
-        
-        # Build context from memories
-        memory_context = ""
-        if memories:
-            memory_context = "\n\nRelevant memories:\n"
-            for i, mem in enumerate(memories):
-                memory_context += f"- {mem['user_message']} → {mem['luna_response']}\n"
+
+        # Memory search bot: search permanent storage, inject Luna self + user profile + memories + gaps
+        memory_search_block = search_and_inject_memories(
+            username=username,
+            user_message=user_message,
+            platform=platform,
+            usernames=memory_usernames,
+            memories=memories,
+        )
         
         # Add vector reasoning insights if available
         vector_insights_context = ""
@@ -2938,8 +3343,8 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
         else:
             print("⚠️ Vector reasoning not enhanced or not available")
         
-        # Get global context awareness (using username only)
-        global_context = self._get_global_context(username, platform)
+        # Get global context awareness (dynamic aliases for profile merge)
+        global_context = self._get_global_context(username, platform, usernames=memory_usernames)
         
         # Debug context awareness
         if global_context:
@@ -2985,7 +3390,7 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
         autonomous_context = self._get_autonomous_context()
         full_prompt = f"""{system_prompt}
 
-{memory_context}
+{memory_search_block}
 
 {vector_insights_context}
 
@@ -3008,6 +3413,8 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
 {twitch_username_instruction or ""}
 
 {f"CONTEXT AWARENESS: Use the conversation context, current topic, and channel mood to guide your response. Reference recent messages naturally when relevant." if global_context else ""}
+
+MEMORY: Use the block above - your self-knowledge, what you know about {username}, and relevant memories. Recall and reference this when asked. Stay consistent with your past statements.
 
 {f"REASONING INSIGHTS: Use the vector reasoning insights to inform your response. Consider the emotional patterns, predictions, and cross-memory connections when crafting your reply." if vector_insights_context else ""}
 
@@ -3111,7 +3518,7 @@ Luna:"""
                     reply = reply[:600].rsplit(' ', 1)[0] + '...'
             
             # Save to DNA memory
-            save_dna_memory(user_message, reply, platform, username)
+            save_dna_memory(user_message, reply, platform, username, user_id=user_id)
             
             # Update autonomous state based on interaction
             self._update_autonomous_state(user_message, reply, username)
