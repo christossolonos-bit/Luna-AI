@@ -16,6 +16,9 @@ twitch_config.json
 audio_device_config.json
 voice_transcriber_config.json
 
+# Browser automation session data (X/Twitter login)
+.x_browser_data/
+
 # Authentication files
 *.pem
 *.key

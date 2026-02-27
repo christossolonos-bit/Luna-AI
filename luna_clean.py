@@ -1645,6 +1645,26 @@ class LunaClean:
                     except Exception as pe:
                         print(f"⚠️ Admin reply error: {pe}")
                     return
+                if msg_lower in ("!share song", "share song"):
+                    def _run_share():
+                        try:
+                            from share_song_to_x import get_random_video_from_channel, post_to_x
+                            r = get_random_video_from_channel()
+                            if r:
+                                post_to_x(r[0], r[1], interactive=False)
+                        except ImportError:
+                            print("⚠️ !share song: pip install playwright && playwright install chromium")
+                        except Exception as ex:
+                            print(f"⚠️ !share song: {ex}")
+                    threading.Thread(target=_run_share, daemon=True).start()
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            message.channel.send("🎵 Sharing a random song to X... Browser opening."),
+                            self.discord_client.loop
+                        ).result(timeout=5)
+                    except Exception:
+                        pass
+                    return
                 if msg_lower in ("admin list profiles", "admin profiles", "admin list", "!admin profiles"):
                     try:
                         profiles = get_all_known_profiles()
