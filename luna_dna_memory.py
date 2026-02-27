@@ -739,20 +739,29 @@ class LunaDNAMemorySystem:
     def compile_profiles_from_history(self) -> Dict:
         """
         Scan all memory_strands (chat history) and extract/update profiles for every user.
+        Also extracts name from Luna's response when user asked about their name.
         Returns {processed: int, users_updated: int, facts_added: int}.
         """
         cursor = self.conn.cursor()
         cursor.execute('''
-            SELECT username, platform, user_message FROM memory_strands
+            SELECT username, platform, user_message, luna_response FROM memory_strands
             ORDER BY timestamp ASC
         ''')
         rows = cursor.fetchall()
         users_updated = set()
         facts_added = 0
-        for username, platform, user_message in rows:
+        for row in rows:
+            username = row[0] if len(row) > 0 else None
+            platform = row[1] if len(row) > 1 else None
+            user_message = row[2] if len(row) > 2 else None
+            luna_response = row[3] if len(row) > 3 else None
             if not username or not user_message:
                 continue
             extracted = _extract_facts_from_message(user_message)
+            # When user asked about their name and Luna confirmed it, extract from Luna's response
+            luna_name = _extract_name_from_luna_response(user_message, luna_response or "")
+            if luna_name:
+                extracted.append(("name", luna_name))
             for fact_type, fact_value in extracted:
                 multi = fact_type in ("interest",)
                 self.save_user_fact(username, fact_type, fact_value, multi_value=multi)
@@ -858,6 +867,37 @@ def get_dna_memory():
     """Get the DNA memory system instance"""
     return _dna_memory_system
 
+def _is_name_question(message: str) -> bool:
+    """Check if user is asking about their name."""
+    m = message.strip().lower()
+    return any(
+        p in m for p in
+        ("what is my name", "what's my name", "whats my name", "my name?", "tell me my name", "remember my name")
+    )
+
+
+def _extract_name_from_luna_response(user_message: str, luna_response: str) -> Optional[str]:
+    """
+    When user asked about their name and Luna confirmed it, extract the name from Luna's response.
+    E.g. "Your name is Chris!" or "You're Chris" or "You're called Chris"
+    """
+    if not _is_name_question(user_message) or not luna_response or len(luna_response) < 2:
+        return None
+    resp = luna_response.strip()
+    # "Your name is X" / "Your name's X" / "You're X" / "You're called X" / "It's X"
+    for pat in [
+        r"(?:your name is|your name\'?s|you\'?re called|you are)\s+([A-Z][a-zA-Z0-9_\s\-]{1,25})",
+        r"(?:it\'?s|that\'?s)\s+([A-Z][a-zA-Z0-9_\s\-]{1,25})\s*(?:!|\.|$)",
+        r"^([A-Z][a-z]+)\s*[!.]?\s*$",  # "Chris!" as short reply
+    ]:
+        m = re.search(pat, resp, re.I)
+        if m:
+            name = m.group(1).strip()
+            if len(name) >= 2 and name.lower() not in ("i", "you", "it", "the", "a"):
+                return name
+    return None
+
+
 def _extract_facts_from_message(message: str) -> List[Tuple[str, str]]:
     """Extract permanent facts from user message. Returns [(fact_type, fact_value), ...]"""
     msg = message.strip()
@@ -868,7 +908,7 @@ def _extract_facts_from_message(message: str) -> List[Tuple[str, str]]:
         if len(v) > 1 and v.lower() not in ('a', 'the', 'an', 'it', 'i') and (ftype, v) not in seen:
             seen.add((ftype, v))
             facts.append((ftype, v))
-    # Name: "my name is X", "I'm X", "I am X", "call me X", "I'm called X"
+    # Name: "my name is X", "I'm X", "I am X", "call me X", "I'm called X", "I go by X", etc.
     # Skip "I'm from X" / "I'm in X" - those are location phrases, not names
     for m in re.finditer(r'(?:my name is|i\'?m called?|call me|i am|i\'?m)\s+([a-zA-Z][a-zA-Z0-9_\s\-]{1,20})', msg, re.I):
         val = m.group(1).strip()
@@ -877,6 +917,8 @@ def _extract_facts_from_message(message: str) -> List[Tuple[str, str]]:
         add("name", val)
     m = re.search(r'(?:my\s+)?name\s+is\s+([a-zA-Z][a-zA-Z0-9_\s\-]{1,20})', msg, re.I)
     if m:
+        add("name", m.group(1))
+    for m in re.finditer(r'(?:i go by|people call me|you can call me|just call me)\s+([a-zA-Z][a-zA-Z0-9_\s\-]{1,20})', msg, re.I):
         add("name", m.group(1))
     # Location: "I live in X", "I'm from X"
     for m in re.finditer(r'(?:i live in|i\'?m from|i\'?m in)\s+([a-zA-Z][a-zA-Z0-9_\s\-,]{1,40})', msg, re.I):
@@ -912,14 +954,41 @@ def _extract_facts_from_message(message: str) -> List[Tuple[str, str]]:
     return facts
 
 
+def save_facts_from_message(
+    user_message: str,
+    platform: str,
+    username: str,
+    user_id: Optional[str] = None,
+) -> int:
+    """
+    Extract and save facts from a message WITHOUT creating a memory strand.
+    Use for high-volume chat (Twitch) where we want to learn names/interests
+    without storing every message. Returns number of facts saved.
+    """
+    if not _dna_memory_system or not user_message or not username:
+        return 0
+    extracted = _extract_facts_from_message(user_message)
+    if not extracted:
+        return 0
+    link_user_identity(platform, username, user_id)
+    for fact_type, fact_value in extracted:
+        multi = fact_type in ("interest",)
+        _dna_memory_system.save_user_fact(username, fact_type, fact_value, multi_value=multi)
+    return len(extracted)
+
+
 def save_dna_memory(user_message: str, luna_response: str, 
                     platform: str, username: str, user_id: Optional[str] = None):
     """Save a new memory strand and extract/store any permanent facts."""
     if _dna_memory_system:
         strand = DNAMemoryStrand(user_message, luna_response, platform, username)
         _dna_memory_system.store_memory_strand(strand)
-        # Extract and save permanent facts
+        # Extract and save permanent facts from user message
         extracted = _extract_facts_from_message(user_message)
+        # When user asked about their name and Luna confirmed it, extract from Luna's response
+        luna_name = _extract_name_from_luna_response(user_message, luna_response)
+        if luna_name:
+            extracted.append(("name", luna_name))
         for fact_type, fact_value in extracted:
             multi = fact_type in ("interest",)
             _dna_memory_system.save_user_fact(username, fact_type, fact_value, multi_value=multi)

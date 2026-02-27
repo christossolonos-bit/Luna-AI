@@ -64,6 +64,7 @@ def search_and_inject_memories(
     platform: str,
     usernames: Optional[list] = None,
     memories: Optional[list] = None,
+    user_id: Optional[str] = None,
 ) -> str:
     """
     Search all permanent storage and return a single block to inject into the prompt.
@@ -78,6 +79,7 @@ def search_and_inject_memories(
             recall_dna_memories,
             get_user_facts,
             get_user_profile,
+            _is_name_question,
         )
     except ImportError:
         return LUNA_SELF_KNOWLEDGE
@@ -95,6 +97,15 @@ def search_and_inject_memories(
     # Current speaker's facts
     curr_facts = get_user_facts(username, usernames=profile_usernames)
     curr_profile = get_user_profile(username, usernames=profile_usernames)
+    # Fallback: when user asks "what is my name?" and we have no name, inject creator's name if known
+    try:
+        from luna_clean import CHRIS_DISCORD_USER_ID
+        if user_id and str(user_id) == str(CHRIS_DISCORD_USER_ID):
+            has_name = any(f.get("fact_type") == "name" for f in curr_facts)
+            if not has_name and _is_name_question(user_message):
+                curr_facts = curr_facts + [{"fact_type": "name", "fact_value": "Chris"}]
+    except ImportError:
+        pass
     curr_explicit = _format_user_facts_explicit(username, curr_facts, curr_profile or {})
     if curr_explicit:
         facts_block.append(curr_explicit)

@@ -11,7 +11,7 @@ scikit-learn>=1.0.0
 # torch>=1.9.0      # If using PyTorch-based models (optional)
 
 # Database support (already in main requirements)
-sqlite3  # Built into Python
+# sqlite3 is built into Python - do not pip install
 
 # JSON handling (built into Python)
 # json  # Built into Python

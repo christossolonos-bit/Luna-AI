@@ -1,10 +1,19 @@
 """
-🌸 Luna - Clean DNA-Based AI Assistant
-========================================
+Luna - Clean DNA-Based AI Assistant (HIM+JEPA)
+==============================================
 
-A streamlined version of Luna using DNA-inspired memory encoding.
-Optimized for 8GB RAM / 6GB VRAM systems.
+A streamlined version of Luna using DNA-inspired memory encoding
+and the combined HIM+JEPA brain. Optimized for 8GB RAM / 6GB VRAM systems.
 """
+import sys
+
+# Fix Windows console Unicode (cp1252 can't encode emoji)
+if sys.platform == "win32":
+    import io
+    enc = getattr(sys.stdout, "encoding", None) or ""
+    if enc and "cp1252" in enc.lower():
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 import ollama
 import tkinter as tk
@@ -30,7 +39,6 @@ import threading
 import time
 import re
 import importlib
-import sys
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -39,7 +47,8 @@ from urllib.parse import urlparse, urljoin
 # Playwright will be imported dynamically in setup_playwright_browser()
 from dotenv import load_dotenv
 from luna_dna_memory import (
-    initialize_dna_memory, save_dna_memory, recall_dna_memories, get_dna_memory,
+    initialize_dna_memory, save_dna_memory, save_facts_from_message,
+    recall_dna_memories, get_dna_memory,
     recall_dna_memories_with_vector_reasoning, get_user_facts,
     save_user_profile, get_user_profile, get_user_aliases, link_user_identity,
     set_known_user_aliases, seed_user_identity,
@@ -71,6 +80,19 @@ except ImportError:
     CURIOSITY_ENGINE_AVAILABLE = False
     print("WARNING: Curiosity engine not available")
 
+# Import HIM+JEPA brain (combined brain, Luna as operator)
+try:
+    from luna_brain import turn as brain_turn, store_turn as brain_store_turn, is_jepa_available
+    LUNA_BRAIN_AVAILABLE = True
+    if is_jepa_available():
+        print("SUCCESS: Luna Brain (HIM+JEPA) available with JEPA")
+    else:
+        print("SUCCESS: Luna Brain (HIM+JEPA) available (JEPA optional)")
+except ImportError as e:
+    LUNA_BRAIN_AVAILABLE = False
+    brain_turn = brain_store_turn = is_jepa_available = None  # type: ignore
+    print("WARNING: Luna Brain not available:", e)
+
 # Load environment variables
 load_dotenv()
 
@@ -97,7 +119,7 @@ ADMIN_USER_IDS = {int(x) for x in [CHRIS_DISCORD_USER_ID] if x}  # Add more IDs 
 OLLAMA_CONFIG = {
     "temperature": 0.95,  # Higher for more creative/unfiltered responses
     "top_p": 0.98,        # Higher for more diverse outputs
-    "num_ctx": 512,       # Reduced for 8GB RAM
+    "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "4096")),  # Context window (4096 for memory; override via .env if OOM)
     # "num_predict": removed - no token limit for Luna's responses
     "num_gpu": 1,         # Use GPU
     "stop": ["User:", "Chris:", "\n\n\n"],
@@ -905,8 +927,7 @@ class LunaClean:
         if PLATFORM_CONFIG.get("twitch", {}).get("enabled") and not (self.chris_discord_user_id or CHRIS_DISCORD_USER_ID):
             print("💡 Tip: Set CHRIS_DISCORD_USER_ID (in .env or config) so Luna can join your voice channel when replying to Twitch chat")
 
-        # VC idle curious timer: when silent in VC, Luna asks questions to learn
-        self._start_vc_curious_timer()
+        # VC idle curious timer: disabled (was 2-min questions when silent in VC)
         
         print("✨ Luna is ready!")
     
@@ -1503,6 +1524,22 @@ class LunaClean:
                 print(f"🚫 Ignoring message from Rinexis")
                 return
             
+            # Save facts and update channel context for ALL messages (Discord + any channel)
+            # So Luna learns names/interests from everyone, even when she doesn't reply
+            content = (message.content or "").strip()
+            if content:
+                try:
+                    save_facts_from_message(content, "discord", message.author.display_name, str(message.author.id))
+                except Exception:
+                    pass
+                try:
+                    self._update_global_context(
+                        message.author.display_name, "discord", content,
+                        channel_id=str(message.channel.id),
+                    )
+                except Exception:
+                    pass
+            
             # Always listen and learn from all messages (for memory/context)
             # But only respond in allowed channels
             if message.channel.id not in allowed_channels:
@@ -1616,12 +1653,40 @@ class LunaClean:
                     print(f"⚠️ Profile embed error: {pe}")
                 return
             
-            # Generate response (pass user_id for dynamic profile/alias linking)
+            # Only reply when message is directed at Luna: reply to her message, or name in content
+            directed_at_luna = False
+            # Option 2: User replied to Luna's message
+            if message.reference and message.reference.message_id and self.discord_client and self.discord_client.user:
+                try:
+                    loop = self.discord_client.loop
+                    future = asyncio.run_coroutine_threadsafe(
+                        message.channel.fetch_message(message.reference.message_id),
+                        loop
+                    )
+                    ref_msg = future.result(timeout=5)
+                    if ref_msg and ref_msg.author.id == self.discord_client.user.id:
+                        directed_at_luna = True
+                        print(f"📎 User replied to Luna's message")
+                except Exception:
+                    pass
+            # Option 3: Luna's name in message content
+            if not directed_at_luna and content:
+                bot_name = (self.discord_client.user.name if self.discord_client and self.discord_client.user else "luna").lower()
+                content_lower = content.lower()
+                if "luna" in content_lower or bot_name in content_lower:
+                    directed_at_luna = True
+                    print(f"📝 Luna's name in message")
+            if not directed_at_luna:
+                print(f"👂 Message not directed at Luna (no reply to her, no name) - listening only")
+                return
+            
+            # Generate response (pass user_id and channel_id for dynamic profile and brain)
             response = self.generate_response(
                 message.content, 
                 message.author.display_name, 
                 "discord",
-                user_id=str(message.author.id)
+                user_id=str(message.author.id),
+                channel_id=str(message.channel.id),
             )
             
             # Send response only in target channel
@@ -1978,8 +2043,9 @@ class LunaClean:
         self.vc_curious_timer = threading.Thread(target=self._vc_idle_curious_tick, daemon=True)
         self.vc_curious_timer.start()
 
-    def _update_global_context(self, username: str, platform: str, user_message: str):
-        """Update global context awareness with cross-platform information"""
+    def _update_global_context(self, username: str, platform: str, user_message: str, channel_id: str = None):
+        """Update global context awareness with cross-platform information.
+        channel_id: for Discord, use per-channel key so Luna tracks luna-chat separately."""
         try:
             # Track user across platforms
             if username not in self.global_context["cross_platform_users"]:
@@ -2120,7 +2186,8 @@ class LunaClean:
                 self.global_context["context_memory"] = self.global_context["context_memory"][-50:]
             
             # Track channel-wide conversations with per-user message tracking
-            channel_key = f"{platform}_channel"
+            # Per-channel for Discord (luna-chat vs dc-universe etc.)
+            channel_key = f"{platform}_{channel_id}" if (platform == "discord" and channel_id) else f"{platform}_channel"
             if channel_key not in self.global_context["channel_conversations"]:
                 self.global_context["channel_conversations"][channel_key] = {
                     "recent_messages": [],
@@ -2250,8 +2317,9 @@ class LunaClean:
         except Exception as e:
             print(f"Error analyzing channel conversation: {e}")
     
-    def _get_global_context(self, username: str, platform: str, usernames: list = None) -> str:
-        """Get global context information for the user and platform (persistent + in-memory)"""
+    def _get_global_context(self, username: str, platform: str, usernames: list = None, channel_id: str = None) -> str:
+        """Get global context information for the user and platform (persistent + in-memory).
+        channel_id: for Discord, use per-channel key to show who's active in that channel."""
         try:
             context_parts = []
             profile_usernames = usernames
@@ -2318,8 +2386,11 @@ class LunaClean:
                 if recent_topics:
                     context_parts.append(f"💭 Recent topics with {username}: {', '.join(recent_topics)}")
             
-            # Get channel conversation context
-            channel_key = f"{platform}_channel"
+            # Get channel conversation context (per-channel for Discord)
+            channel_key = f"{platform}_{channel_id}" if (platform == "discord" and channel_id) else f"{platform}_channel"
+            # Fallback to generic discord_channel if per-channel not yet populated
+            if channel_key not in self.global_context["channel_conversations"] and platform == "discord":
+                channel_key = "discord_channel"
             if channel_key in self.global_context["channel_conversations"]:
                 channel_data = self.global_context["channel_conversations"][channel_key]
                 
@@ -2621,6 +2692,13 @@ Luna's comment:"""
                         self.twitch_ws.send(f"PRIVMSG #{self.twitch_channel} :{response}")
                     self._twitch_post_to_discord(response, username=username)
                     self._twitch_speak_in_discord_vc(response)
+                # Link Twitch user identity for profile merging (subs, raids, etc.)
+                twitch_user_id = tags.get("user-id")
+                if twitch_user_id and username:
+                    try:
+                        link_user_identity("twitch", username, twitch_user_id)
+                    except Exception:
+                        pass
                 return
 
             # Handle PRIVMSG - chat or bits (cheers)
@@ -2670,6 +2748,12 @@ Luna's comment:"""
                     # Regular chat - buffer for batch summary (every 30s), don't reply to each message
                     with self.twitch_chat_buffer_lock:
                         self.twitch_chat_buffer.append({"username": username, "message": chat_message})
+                    # Extract and save facts (name, location, interests) for all users - no full strand
+                    twitch_user_id = tags.get("user-id")
+                    try:
+                        save_facts_from_message(chat_message, "twitch", username, twitch_user_id)
+                    except Exception:
+                        pass
 
         except Exception as e:
             print(f"Twitch message processing error: {e}")
@@ -2775,8 +2859,9 @@ When responding to {username}, be natural and genuine. Keep responses reasonably
 FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they said), use quotation marks like "how have you been" - NOT asterisks. Use /slashes/ for emphasis like /this/ - asterisks are for actions only (e.g. *wagging tail*), not for emphasis."""
 
     def generate_response(self, user_message: str, username: str = "Chris", 
-                         platform: str = "gui", user_id: str = None, discord_user = None) -> str:
-        """Generate Luna's response using DNA memory, global context, and web crawling"""
+                         platform: str = "gui", user_id: str = None, discord_user = None,
+                         channel_id: str = None) -> str:
+        """Generate Luna's response using DNA memory, HIM+JEPA brain, global context, and web crawling"""
         
         # Twitch: use username for replies, but check TOS compliance
         prompt_username = username
@@ -2796,7 +2881,7 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
         self.autonomous_state['last_user_interaction'] = time.time()
         
         # Update global context awareness (using username only)
-        self._update_global_context(username, platform, user_message)
+        self._update_global_context(username, platform, user_message, channel_id=channel_id)
         
         # Check for URLs in the message
         urls = extract_urls_from_text(user_message)
@@ -3294,6 +3379,7 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
             platform=platform,
             usernames=memory_usernames,
             memories=memories,
+            user_id=user_id,
         )
         
         # Add vector reasoning insights if available
@@ -3344,7 +3430,7 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
             print("⚠️ Vector reasoning not enhanced or not available")
         
         # Get global context awareness (dynamic aliases for profile merge)
-        global_context = self._get_global_context(username, platform, usernames=memory_usernames)
+        global_context = self._get_global_context(username, platform, usernames=memory_usernames, channel_id=channel_id)
         
         # Debug context awareness
         if global_context:
@@ -3367,6 +3453,22 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
                 print(f"😊 Channel mood: {channel_mood}")
         else:
             print(f"⚠️ No global context available for {username}")
+        
+        # HIM+JEPA brain: retrieve context and internal state for prompt
+        brain_context = ""
+        brain_internal_state = ""
+        if LUNA_BRAIN_AVAILABLE and brain_turn is not None:
+            try:
+                brain_context, brain_internal_state = brain_turn(
+                    user_message,
+                    user_id=user_id,
+                    channel_id=channel_id,
+                    platform=platform,
+                )
+                if brain_context or brain_internal_state:
+                    print("🧠 Brain context/internal state added to prompt")
+            except Exception as e:
+                print(f"⚠️ Brain turn error: {e}")
         
         # Debug: Print search context if it contains time data
         if search_context and ("CURRENT SYSTEM TIME" in search_context or "TIME IN" in search_context):
@@ -3391,6 +3493,10 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
         full_prompt = f"""{system_prompt}
 
 {memory_search_block}
+
+{brain_context}
+
+{brain_internal_state}
 
 {vector_insights_context}
 
@@ -3519,6 +3625,13 @@ Luna:"""
             
             # Save to DNA memory
             save_dna_memory(user_message, reply, platform, username, user_id=user_id)
+            
+            # Store turn in HIM+JEPA brain
+            if LUNA_BRAIN_AVAILABLE and brain_store_turn is not None:
+                try:
+                    brain_store_turn(user_message, reply, user_id=user_id, channel_id=channel_id)
+                except Exception as e:
+                    print(f"⚠️ Brain store_turn error: {e}")
             
             # Update autonomous state based on interaction
             self._update_autonomous_state(user_message, reply, username)
@@ -5016,14 +5129,17 @@ Unique Users: {stats.get('unique_users', 0)}"""
 
 def main():
     """Main entry point"""
-    print("""
-╔═══════════════════════════════════════╗
-║   🌸 Luna - DNA Memory System 🧬     ║
-║                                       ║
-║   Memories encoded like DNA strands   ║
-║   Learning through genetic evolution  ║
-╚═══════════════════════════════════════╝
-    """)
+    try:
+        print("""
++=======================================+
+|   Luna - DNA Memory System (HIM+JEPA)  |
+|                                        |
+|   Memories encoded like DNA strands   |
+|   Learning through genetic evolution   |
++=======================================+
+        """)
+    except UnicodeEncodeError:
+        print("\nLuna - DNA Memory System (HIM+JEPA)\n")
     
     # Start GUI
     gui = LunaGUI()
