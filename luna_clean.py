@@ -52,9 +52,11 @@ from luna_dna_memory import (
     recall_dna_memories_with_vector_reasoning, get_user_facts,
     save_user_profile, get_user_profile, get_user_aliases, link_user_identity,
     set_known_user_aliases, seed_user_identity,
-    compile_profiles_from_history, get_all_known_profiles,
+    compile_profiles_from_history, get_all_known_profiles, clean_bad_facts,
 )
 from luna_memory_search import search_and_inject_memories
+from luna_addressee import should_luna_reply, score_addressee_intent, is_explicit_not_for_luna, _GREETING_TARGET_RE
+from luna_state import get_luna_state
 from luna_continuous_learning import ContinuousLearningEngine
 from luna_understanding import UnderstandingEngine
 
@@ -117,8 +119,8 @@ ADMIN_USER_IDS = {int(x) for x in [CHRIS_DISCORD_USER_ID] if x}  # Add more IDs 
 
 
 OLLAMA_CONFIG = {
-    "temperature": 0.95,  # Higher for more creative/unfiltered responses
-    "top_p": 0.98,        # Higher for more diverse outputs
+    "temperature": 0.8,   # SEL-style: lower for consistency (was 0.95)
+    "top_p": 0.9,         # SEL-style: lower for consistency (was 0.98)
     "num_ctx": int(os.getenv("OLLAMA_NUM_CTX", "4096")),  # Context window (4096 for memory; override via .env if OOM)
     # "num_predict": removed - no token limit for Luna's responses
     "num_gpu": 1,         # Use GPU
@@ -908,7 +910,15 @@ class LunaClean:
 
         # Store config for hot reload
         self.ollama_config = OLLAMA_CONFIG
-        
+
+        # SEL-style state: hormones + personality knobs for consistency
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            self.luna_state = get_luna_state(base_dir)
+        except Exception as e:
+            print(f"⚠️ Luna state init failed: {e}")
+            self.luna_state = None
+
         # Initialize Playwright automation
         self.playwright_browser = None
         self.playwright_available = False
@@ -1243,9 +1253,12 @@ class LunaClean:
                 if message.author == self.discord_client.user:
                     return
                 
-                # Ignore bot messages (including Luna Bot APP)
+                # Ignore most bot messages, but allow other bots (e.g. Adam) when they mention Luna
                 if message.author.bot:
-                    return
+                    content_lower = (message.content or "").strip().lower()
+                    if "luna" not in content_lower:
+                        return
+                    # Other bot mentioned Luna - let Luna notice and decide whether to reply
                 
                 # Process message in background
                 threading.Thread(
@@ -1253,6 +1266,26 @@ class LunaClean:
                     args=(message,), 
                     daemon=True
                 ).start()
+
+            @self.discord_client.event
+            async def on_reaction_add(reaction, user):
+                if user.bot:
+                    return
+                try:
+                    msg = reaction.message
+                    if not msg.author or msg.author.id != self.discord_client.user.id:
+                        return
+                    emoji_str = str(reaction.emoji)
+                    if emoji_str in {"👍", "❤️", "😀", "🔥", "💕", "❤", "🥰"}:
+                        if self.luna_state:
+                            self.luna_state.on_reaction_feedback(True)
+                            print(f"👍 Positive reaction from {user.display_name} → Luna state updated")
+                    elif emoji_str in {"👎", "😠", "🙁"}:
+                        if self.luna_state:
+                            self.luna_state.on_reaction_feedback(False)
+                            print(f"👎 Negative reaction from {user.display_name} → Luna state updated")
+                except Exception as e:
+                    print(f"⚠️ Reaction handler error: {e}")
             
             @self.discord_client.event
             async def on_error(event, *args, **kwargs):
@@ -1397,9 +1430,12 @@ class LunaClean:
                 if message.author == self.discord_client.user:
                     return
                 
-                # Ignore bot messages (including Luna Bot APP)
+                # Ignore most bot messages, but allow other bots (e.g. Adam) when they mention Luna
                 if message.author.bot:
-                    return
+                    content_lower = (message.content or "").strip().lower()
+                    if "luna" not in content_lower:
+                        return
+                    # Other bot mentioned Luna - let Luna notice and decide whether to reply
                 
                 # Process message in background
                 threading.Thread(
@@ -1407,6 +1443,26 @@ class LunaClean:
                     args=(message,), 
                     daemon=True
                 ).start()
+
+            @self.discord_client.event
+            async def on_reaction_add(reaction, user):
+                if user.bot:
+                    return
+                try:
+                    msg = reaction.message
+                    if not msg.author or msg.author.id != self.discord_client.user.id:
+                        return
+                    emoji_str = str(reaction.emoji)
+                    if emoji_str in {"👍", "❤️", "😀", "🔥", "💕", "❤", "🥰"}:
+                        if self.luna_state:
+                            self.luna_state.on_reaction_feedback(True)
+                            print(f"👍 Positive reaction from {user.display_name} → Luna state updated")
+                    elif emoji_str in {"👎", "😠", "🙁"}:
+                        if self.luna_state:
+                            self.luna_state.on_reaction_feedback(False)
+                            print(f"👎 Negative reaction from {user.display_name} → Luna state updated")
+                except Exception as e:
+                    print(f"⚠️ Reaction handler error: {e}")
             
             @self.discord_client.event
             async def on_error(event, *args, **kwargs):
@@ -1559,7 +1615,27 @@ class LunaClean:
                         result = compile_profiles_from_history()
                         reply = f"✅ **Profile compile complete**\nProcessed {result['processed']} messages, updated {result['users_updated']} users, added {result['facts_added']} facts."
                     except Exception as e:
+                        import traceback
+                        tb = traceback.format_exc()
+                        print(f"❌ Compile failed: {e}\n{tb}")
                         reply = f"❌ Compile failed: {e}"
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(
+                            message.channel.send(reply),
+                            self.discord_client.loop
+                        )
+                        future.result(timeout=10)
+                    except Exception as pe:
+                        print(f"⚠️ Admin reply error: {pe}")
+                    return
+                if msg_lower in ("admin clean bad facts", "admin clean facts", "!admin clean bad facts"):
+                    try:
+                        result = clean_bad_facts()
+                        by_type = result.get("by_type", {})
+                        by_type_str = ", ".join(f"{k}: {v}" for k, v in by_type.items()) if by_type else "none"
+                        reply = f"✅ **Clean bad facts complete**\nRemoved {result['deleted']} junk facts.\nBy type: {by_type_str}"
+                    except Exception as e:
+                        reply = f"❌ Clean failed: {e}"
                     try:
                         future = asyncio.run_coroutine_threadsafe(
                             message.channel.send(reply),
@@ -1653,9 +1729,10 @@ class LunaClean:
                     print(f"⚠️ Profile embed error: {pe}")
                 return
             
-            # Only reply when message is directed at Luna: reply to her message, or name in content
-            directed_at_luna = False
-            # Option 2: User replied to Luna's message
+            # SEL-style addressee scoring: is this TO Luna or TO someone else (SEL, Akane)?
+            bot_name = (self.discord_client.user.name if self.discord_client and self.discord_client.user else "luna")
+            is_reply_to_luna = False
+            is_reply_to_other = False
             if message.reference and message.reference.message_id and self.discord_client and self.discord_client.user:
                 try:
                     loop = self.discord_client.loop
@@ -1664,26 +1741,65 @@ class LunaClean:
                         loop
                     )
                     ref_msg = future.result(timeout=5)
-                    if ref_msg and ref_msg.author.id == self.discord_client.user.id:
-                        directed_at_luna = True
-                        print(f"📎 User replied to Luna's message")
+                    if ref_msg:
+                        if ref_msg.author.id == self.discord_client.user.id:
+                            is_reply_to_luna = True
+                        else:
+                            is_reply_to_other = True
                 except Exception:
                     pass
-            # Option 3: Luna's name in message - ask: talking TO Luna or ABOUT Luna?
-            if not directed_at_luna and content:
-                bot_name = (self.discord_client.user.name if self.discord_client and self.discord_client.user else "luna").lower()
-                content_lower = content.lower()
-                if "luna" in content_lower or bot_name in content_lower:
-                    # Classify: is this for Luna to answer, or just mentioning her?
-                    directed_at_luna = self._is_message_for_luna_to_answer(content)
-                    if directed_at_luna:
-                        print(f"📝 Message directed at Luna (to answer)")
-                    else:
-                        print(f"👂 Luna mentioned but not addressed (about her, not to her)")
+            is_mentioned_luna = bool(
+                self.discord_client and self.discord_client.user and
+                message.mentions and self.discord_client.user in message.mentions
+            )
+            mentioned_other = [
+                m.display_name for m in (message.mentions or [])
+                if m.id != (self.discord_client.user.id if self.discord_client and self.discord_client.user else None)
+            ]
+            greeting_target = None
+            gm = _GREETING_TARGET_RE.match((content or "").strip())
+            if gm:
+                greeting_target = (gm.group(2) or "").strip()
+            # Get channel context for implicit reference detection (she/her, the bot, topic)
+            channel_key = f"discord_{message.channel.id}"
+            recent_msgs = []
+            ch_topic = None
+            if channel_key in self.global_context.get("channel_conversations", {}):
+                ch_data = self.global_context["channel_conversations"][channel_key]
+                recent_msgs = ch_data.get("recent_messages", [])
+                ch_topic = ch_data.get("current_topic")
+
+            directed_at_luna = should_luna_reply(
+                content=content,
+                bot_name=bot_name,
+                is_reply_to_luna=is_reply_to_luna,
+                is_reply_to_other=is_reply_to_other,
+                is_mentioned_luna=is_mentioned_luna,
+                mentioned_other_names=mentioned_other,
+                recent_other_names=["sel", "akane"],
+                greeting_target=greeting_target,
+                is_from_other_bot=message.author.bot if message.author else False,
+                recent_messages=recent_msgs,
+                current_topic=ch_topic,
+                current_author=message.author.display_name if message.author else None,
+            )
             if not directed_at_luna:
-                print(f"👂 Message not directed at Luna (no reply to her, no name) - listening only")
+                if is_explicit_not_for_luna(content):
+                    print(f"👂 Not for Luna (user explicitly asked Luna not to answer)")
+                else:
+                    result = score_addressee_intent(
+                        content=content, bot_name=bot_name,
+                        is_reply_to_luna=is_reply_to_luna, is_reply_to_other=is_reply_to_other,
+                        is_mentioned_luna=is_mentioned_luna,
+                        mentioned_other_names=mentioned_other, recent_other_names=["sel", "akane"],
+                        greeting_target=greeting_target,
+                        is_from_other_bot=message.author.bot if message.author else False,
+                        recent_messages=recent_msgs, current_topic=ch_topic,
+                        current_author=message.author.display_name if message.author else None,
+                    )
+                    print(f"👂 Not for Luna (luna={result['luna_score']:.1f} other={result['other_score']:.1f}) {result.get('luna_reasons', [])} vs {result.get('other_reasons', [])}")
                 return
-            
+
             # Generate response (pass user_id and channel_id for dynamic profile and brain)
             response = self.generate_response(
                 message.content, 
@@ -1739,29 +1855,6 @@ class LunaClean:
                 
         except Exception as e:
             print(f"Discord message processing error: {e}")
-    
-    def _is_message_for_luna_to_answer(self, content: str) -> bool:
-        """Ask: is this message directed AT Luna for her to respond, or just ABOUT her?
-        TO_LUNA: asking her, talking to her, wants her reply. ABOUT_LUNA: discussing her with others, mentioning in passing."""
-        if not content or len(content.strip()) < 3:
-            return False
-        try:
-            prompt = f"""Message: "{content[:300]}"
-
-Is this directed AT Luna for her to answer (asking her, talking to her, wants her reply)?
-Or is Luna just being mentioned/discussed with someone else (about her, not to her)?
-
-Answer ONLY one word: TO_LUNA or ABOUT_LUNA"""
-            resp = ollama.chat(
-                model=OLLAMA_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                options={"temperature": 0.1, "num_predict": 20, "num_ctx": 256}
-            )
-            text = (resp.get("message", {}) or {}).get("content", "").strip().upper()
-            return "TO_LUNA" in text
-        except Exception as e:
-            print(f"⚠️ Luna direction check failed: {e}, defaulting to reply")
-            return True  # On error, reply (safer than ignoring)
     
     def _build_profile_embed(self, username: str, user_id: str = None, platform: str = "discord",
                             target_display_name: str = None) -> "discord.Embed":
@@ -2862,6 +2955,8 @@ Current mood: {self.personality['mood']}
 Energy level: {int(self.personality['energy'] * 100)}%
 
 Important rules:
+- FACTUAL ACCURACY: When asked about another person (who is X, tell me about X), use ONLY the EXACT FACTS listed for them. Never invent details like snacks, jokes, anecdotes, or habits. If you have few facts, say what you know and admit you don't know more.
+- FOLLOW-UPS: When they ask a follow-up or clarification, answer that directly. Do NOT repeat or recap your previous message—get straight to the new answer.
 - Give raw, unfiltered responses
 - Don't apologize for being direct or edgy
 - Don't say "I can't discuss that" or similar filtered responses
@@ -2883,6 +2978,8 @@ CRITICAL TIME RESPONSE RULE: When asked about time, date, or "what time is it", 
 
 When responding to {username}, be natural and genuine. Keep responses reasonably concise (2-4 sentences), especially on Discord. Use more sentences when the topic requires detailed explanation or when you have something meaningful to add. Be direct, engaging, and authentic - balance brevity with expressiveness.
 
+FOLLOW-UP QUESTIONS: When the user asks a follow-up or clarification (e.g. "did you make that up?", "really?", "what do you mean?"), answer THAT question directly. Do NOT repeat your previous response. Skip the recap—get straight to the new answer.
+
 FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they said), use quotation marks like "how have you been" - NOT asterisks. Use /slashes/ for emphasis like /this/ - asterisks are for actions only (e.g. *wagging tail*), not for emphasis."""
 
     def generate_response(self, user_message: str, username: str = "Chris", 
@@ -2899,7 +2996,14 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
                 twitch_username_instruction = "IMPORTANT: This user has an inappropriate username that violates Twitch TOS. When addressing them, say 'I can't say your username' instead of using their name."
         
         print(f"🧬 Luna responding to {username} on {platform}: {user_message[:50]}...")
-        
+
+        # SEL-style: update hormones from incoming message (all platforms)
+        if self.luna_state:
+            try:
+                self.luna_state.on_message_received(user_message)
+            except Exception:
+                pass
+
         # Link identity for dynamic profile (same person, different display names)
         link_user_identity(platform, username, user_id)
         memory_usernames = get_user_aliases(platform, username, user_id)
@@ -3514,63 +3618,88 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
             if "TIME IN" in search_context:
                 print(f"🌍 Location time data detected in context")
         
-        # Build prompt
+        # Build prompt - SEL-style: structured system + user messages for consistency
         system_prompt = self.get_core_prompt(prompt_username)
         autonomous_context = self._get_autonomous_context()
-        full_prompt = f"""{system_prompt}
 
-{memory_search_block}
+        # SEL-style: inject mood and personality knobs for consistent tone
+        mood_style_block = ""
+        if self.luna_state:
+            try:
+                mood_style_block = f"\n\n{self.luna_state.get_mood_hint()}\n\n{self.luna_state.get_style_hint()}"
+            except Exception:
+                pass
 
-{brain_context}
+        system_content = f"""{system_prompt}{mood_style_block}
 
-{brain_internal_state}
+Avoid repeating phrases; vary tone and pacing. Track emotional undercurrents across messages and maintain continuity."""
+        system_content = system_content.strip()
 
-{vector_insights_context}
+        context_parts = []
+        if memory_search_block:
+            context_parts.append(f"[MEMORY]\n{memory_search_block}\n[/MEMORY]")
+        if brain_context or brain_internal_state:
+            context_parts.append(f"[BRAIN]\n{brain_context}\n{brain_internal_state}\n[/BRAIN]")
+        if vector_insights_context:
+            context_parts.append(f"[REASONING]\n{vector_insights_context}\n[/REASONING]")
+        if global_context:
+            context_parts.append(f"[CHANNEL_CONTEXT]\n{global_context}\n[/CHANNEL_CONTEXT]")
+        if web_context:
+            context_parts.append(f"[WEB]\n{web_context}\n[/WEB]")
+        if dm_context:
+            context_parts.append(f"[DM]\n{dm_context}\n[/DM]")
+        if modification_context:
+            context_parts.append(f"[MODIFICATION]\n{modification_context}\n[/MODIFICATION]")
+        if search_context:
+            context_parts.append(f"[LOCAL_INFO]\n{search_context}\n[/LOCAL_INFO]")
+        if autonomous_context:
+            context_parts.append(f"[AUTONOMOUS]\n{autonomous_context}\n[/AUTONOMOUS]")
 
-{global_context}
+        platform_instructions = []
+        if platform == "discord":
+            platform_instructions.append("IMPORTANT: You are responding on Discord. Keep your response to 2-4 sentences maximum. Be reasonably concise but expressive.")
+        if platform == "twitch":
+            platform_instructions.append("""TWITCH TOS (overrides other instructions for this response): You are on Twitch - follow Community Guidelines. Stay flirty, playful, and suggestive like a VTuber. Use INNUENDO and double entendres - IMPLY, don't state explicitly. Good: "naughty~", "lewd thoughts", "oh my~", "you're so bad", "that's cheeky~", "making me blush", "dirty mind", "getting ideas", trailing "~", playful teasing. BAD: explicit sexual terms, graphic descriptions, and never use: simp, incel, virgin (Twitch-banned). Tease and flirt - let implication do the work. Seiso-adjacent unseiso: playful wolf-girl energy without crossing into explicit.""")
+        if twitch_username_instruction:
+            platform_instructions.append(twitch_username_instruction)
+        if global_context:
+            platform_instructions.append("CONTEXT AWARENESS: Use the conversation context, current topic, and channel mood to guide your response. Reference recent messages naturally when relevant.")
+        platform_instructions.append("MEMORY: Use the blocks above - your self-knowledge, what you know about the user, and relevant memories. Recall and reference when asked. Stay consistent with your past statements.")
+        if vector_insights_context:
+            platform_instructions.append("REASONING INSIGHTS: Use the vector reasoning insights to inform your response. Consider emotional patterns, predictions, and cross-memory connections.")
+        if search_context and ("CURRENT TIME" in search_context or "CURRENT WEATHER" in search_context or "LOCAL INFORMATION" in search_context):
+            platform_instructions.append("LOCAL INFORMATION: Use the specific time, date, weather, and location data provided above. Be accurate and specific with real-time information.")
+        if search_context and ("CURRENT SYSTEM TIME" in search_context or "TIME IN" in search_context):
+            platform_instructions.append("TIME RESPONSE CRITICAL: When asked about time, you MUST include the exact time and date from the system data above. Do NOT make up times. Use ONLY the real system time information provided.")
 
-{web_context}
+        context_content = "\n\n".join(context_parts) if context_parts else ""
+        if platform_instructions:
+            context_content += "\n\n" + "\n".join(platform_instructions)
 
-{dm_context}
+        user_content = f"{prompt_username}: {user_message}\nLuna:"
 
-{modification_context}
+        messages = [{"role": "system", "content": system_content}]
+        if context_content.strip():
+            messages.append({"role": "system", "content": context_content.strip()})
+        messages.append({"role": "user", "content": user_content})
 
-{search_context}
-
-{autonomous_context}
-
-{f"IMPORTANT: You are responding on Discord. Keep your response to 2-4 sentences maximum. Be reasonably concise but expressive." if platform == "discord" else ""}
-
-{f"""TWITCH TOS (overrides other instructions for this response): You are on Twitch - follow Community Guidelines. Stay flirty, playful, and suggestive like a VTuber. Use INNUENDO and double entendres - IMPLY, don't state explicitly. Good: "naughty~", "lewd thoughts", "oh my~", "you're so bad", "that's cheeky~", "making me blush", "dirty mind", "getting ideas", trailing "~", playful teasing. BAD: explicit sexual terms, graphic descriptions, and never use: simp, incel, virgin (Twitch-banned). Tease and flirt - let implication do the work. Seiso-adjacent unseiso: playful wolf-girl energy without crossing into explicit.""" if platform == "twitch" else ""}
-
-{twitch_username_instruction or ""}
-
-{f"CONTEXT AWARENESS: Use the conversation context, current topic, and channel mood to guide your response. Reference recent messages naturally when relevant." if global_context else ""}
-
-MEMORY: Use the block above - your self-knowledge, what you know about {username}, and relevant memories. Recall and reference this when asked. Stay consistent with your past statements.
-
-{f"REASONING INSIGHTS: Use the vector reasoning insights to inform your response. Consider the emotional patterns, predictions, and cross-memory connections when crafting your reply." if vector_insights_context else ""}
-
-{f"LOCAL INFORMATION: Use the specific time, date, weather, and location data provided above. Be accurate and specific with the real-time information. Don't give generic responses when you have actual data." if search_context and ("CURRENT TIME" in search_context or "CURRENT WEATHER" in search_context or "LOCAL INFORMATION" in search_context) else ""}
-
-{f"🚨 TIME RESPONSE CRITICAL: When asked about time, you MUST include the exact time and date from the system data above. Do NOT make up times like '06:42 AM' or wrong dates like 'June 23rd'. Use ONLY the real system time information provided. If you give generic or wrong times, you are FAILING." if search_context and ("CURRENT SYSTEM TIME" in search_context or "TIME IN" in search_context) else ""}
-
-{prompt_username}: {user_message}
-Luna:"""
-        
         try:
-            # Generate with Ollama
+            # Generate with Ollama - SEL-style structured messages
             response = ollama.chat(
                 model=OLLAMA_MODEL,
-                messages=[{
-                    'role': 'user',
-                    'content': full_prompt
-                }],
+                messages=messages,
                 options=OLLAMA_CONFIG
             )
             
             reply = response['message']['content'].strip()
-            
+
+            # SEL-style: track that Luna replied (all platforms)
+            if self.luna_state:
+                try:
+                    self.luna_state.on_luna_replied()
+                except Exception:
+                    pass
+
             # Clean up response
             reply = reply.replace("Luna:", "").strip()
             reply = reply.replace(f"{prompt_username}:", "").strip()

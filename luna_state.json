@@ -1,0 +1,25 @@
+{
+  "hormones": {
+    "dopamine": -0.2427324348175245,
+    "serotonin": -0.011865852975356445,
+    "cortisol": 0.01744464881401757,
+    "oxytocin": 0.07062334309685062,
+    "melatonin": -0.024908905674217743,
+    "novelty": -0.1064148389951884
+  },
+  "global_state": {
+    "teasing_level": 0.4,
+    "emoji_rate": 0.35,
+    "preferred_length": "medium",
+    "vulnerability_level": 0.4,
+    "confidence": 0.608,
+    "playfulness": 0.624,
+    "verbosity": 0.484,
+    "empathy": 0.616,
+    "randomness": 0.376,
+    "total_messages_sent": 12,
+    "positive_reactions_count": 4,
+    "negative_reactions_count": 4,
+    "last_updated": 1772193227.8579957
+  }
+}

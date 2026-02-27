@@ -128,12 +128,17 @@ def search_and_inject_memories(
     if facts_block:
         parts.append(f"""
 ═══════════════════════════════════════════════════════════════
-📋 EXACT FACTS (permanent database - USE ONLY THESE, DO NOT INVENT)
+📋 EXACT FACTS (permanent database - GROUND TRUTH ONLY)
 ═══════════════════════════════════════════════════════════════
 
 {chr(10).join(facts_block)}
 
-CRITICAL: Answer ONLY from the facts above. When they ask "what is my name?" use the name= value above, NOT their Discord/Twitch username. If a fact is not listed, say "I don't remember" or "I'm not sure"—never guess or hallucinate.
+CRITICAL - FACTUAL ACCURACY:
+- Answer ONLY from the facts above. Never invent details (e.g. snacks, jokes, anecdotes) that are not explicitly listed.
+- When asked "what is my name?" use the name= value above, NOT their Discord/Twitch username.
+- When asked "who is X?" or "tell me about X": use ONLY the EXACT FACTS for X. If X has no facts or few facts, say briefly what you know and admit you don't know more. Do NOT make up stories, habits, or details.
+- If a fact is not listed, say "I don't remember" or "I'm not sure"—never guess or hallucinate.
+- When challenged "did you make that up?" or "did you invent that?": check the facts above. If the detail is NOT listed, admit honestly: "I made that up" or "I don't have that in my memory—I invented it." Never defend invented details.
 ═══════════════════════════════════════════════════════════════
 """)
 
@@ -143,6 +148,8 @@ CRITICAL: Answer ONLY from the facts above. When they ask "what is my name?" use
         parts.append(f"""
 📋 PROFILE CONTEXT FOR {username}:
 {profile_analysis}
+
+⚠️ WARNING: Past conversations above may contain your previous mistakes or inventions. Verify against EXACT FACTS only. Do NOT treat past replies as ground truth.
 """)
 
     # 4. Search: query-relevant memories (use provided or fetch)
@@ -159,7 +166,7 @@ CRITICAL: Answer ONLY from the facts above. When they ask "what is my name?" use
 📌 RELEVANT MEMORIES (for this message):
 {chr(10).join(mem_lines)}
 
-→ Use when directly relevant to what they just said.
+→ Use when directly relevant. WARNING: Past replies may contain errors or inventions. For factual questions about people, rely on EXACT FACTS only—do not repeat unverified details from memories.
 """)
 
     # 5. Profile gaps (what to ask)
