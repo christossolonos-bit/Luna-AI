@@ -1669,13 +1669,17 @@ class LunaClean:
                         print(f"📎 User replied to Luna's message")
                 except Exception:
                     pass
-            # Option 3: Luna's name in message content
+            # Option 3: Luna's name in message - ask: talking TO Luna or ABOUT Luna?
             if not directed_at_luna and content:
                 bot_name = (self.discord_client.user.name if self.discord_client and self.discord_client.user else "luna").lower()
                 content_lower = content.lower()
                 if "luna" in content_lower or bot_name in content_lower:
-                    directed_at_luna = True
-                    print(f"📝 Luna's name in message")
+                    # Classify: is this for Luna to answer, or just mentioning her?
+                    directed_at_luna = self._is_message_for_luna_to_answer(content)
+                    if directed_at_luna:
+                        print(f"📝 Message directed at Luna (to answer)")
+                    else:
+                        print(f"👂 Luna mentioned but not addressed (about her, not to her)")
             if not directed_at_luna:
                 print(f"👂 Message not directed at Luna (no reply to her, no name) - listening only")
                 return
@@ -1735,6 +1739,29 @@ class LunaClean:
                 
         except Exception as e:
             print(f"Discord message processing error: {e}")
+    
+    def _is_message_for_luna_to_answer(self, content: str) -> bool:
+        """Ask: is this message directed AT Luna for her to respond, or just ABOUT her?
+        TO_LUNA: asking her, talking to her, wants her reply. ABOUT_LUNA: discussing her with others, mentioning in passing."""
+        if not content or len(content.strip()) < 3:
+            return False
+        try:
+            prompt = f"""Message: "{content[:300]}"
+
+Is this directed AT Luna for her to answer (asking her, talking to her, wants her reply)?
+Or is Luna just being mentioned/discussed with someone else (about her, not to her)?
+
+Answer ONLY one word: TO_LUNA or ABOUT_LUNA"""
+            resp = ollama.chat(
+                model=OLLAMA_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                options={"temperature": 0.1, "num_predict": 20, "num_ctx": 256}
+            )
+            text = (resp.get("message", {}) or {}).get("content", "").strip().upper()
+            return "TO_LUNA" in text
+        except Exception as e:
+            print(f"⚠️ Luna direction check failed: {e}, defaulting to reply")
+            return True  # On error, reply (safer than ignoring)
     
     def _build_profile_embed(self, username: str, user_id: str = None, platform: str = "discord",
                             target_display_name: str = None) -> "discord.Embed":
