@@ -592,11 +592,14 @@
     "The scent of a human can carry emotional or environmental cues (e.g., fear, warmth, or familiarity) that mimic natural stimuli like prey or pack members.",
     "Lupine species exhibit non-violent dominance resolution through vocal signaling and scent marking rather than physical confrontation.",
     "Mating season dominance is often mediated by territorial displays and resource control rather than direct aggression.",
-    "Female lupines play a significant role in regulating male interactions through social cues and mate selection."
+    "Female lupines play a significant role in regulating male interactions through social cues and mate selection.",
+    "Human emotions can trigger physical movements without conscious awareness, such as micro-twitches or shifts in posture.",
+    "Emotional states like excitement or anxiety are often mirrored in subtle changes in breathing rate and muscle tension.",
+    "The body's autonomic nervous system plays a key role in translating emotions into physical responses, even when the individual isn't actively thinking about it."
   ],
   "concepts": {},
   "user_preferences": {
-    "user": "prefers non-violent, socially nuanced explanations over dramatic or aggressive descriptions of animal behavior"
+    "user": "prefers concrete, observable examples over abstract theories when discussing emotional expression"
   },
   "learned_patterns": [
     "User consistently seeks clarification on abstract concepts using concrete analogies.",
@@ -1154,6 +1157,9 @@
     "Tends to ask follow-up questions about mechanisms (e.g., 'how', 'why', 'what happens next') indicating curiosity about causality.",
     "Prefers structured explanations with clear cause-effect chains, suggesting a preference for logical progression over poetic or abstract descriptions.",
     "User consistently seeks ecological accuracy without anthropomorphizing animals.",
-    "Tends to ask follow-up questions about behavioral mechanisms and social dynamics."
+    "Tends to ask follow-up questions about behavioral mechanisms and social dynamics.",
+    "User frequently uses analogies involving animals or machines to explain emotional-body connections",
+    "Tends to ask follow-up questions about real-world applications or observable behaviors",
+    "Repeats key phrases like 'without thinking about it' to emphasize subconscious processes"
   ]
 }

@@ -1,33 +1,89 @@
-# Luna Waifu — Luna + HIM + JEPA
+# Luna — AI Wolf Companion
 
-One agent: **Luna** (personality + LLM) + **HIM** (memory) + **JEPA** (understanding). Run everything from this folder; all tokens and config live here.
+Luna is an AI companion with personality, memory, and multi-platform support. She runs locally with Ollama and connects to Discord and Twitch.
 
-## Run the agent
-
-From this folder:
+## Run
 
 ```bash
 cd "D:\Luna Waifu"
 python run_agent.py
 ```
 
-Or:
+Starts: GUI + Discord + Twitch.
 
-```bash
-python luna_clean.py
-```
+---
 
-Starts: GUI + Discord + Twitch. Luna uses the HIM+JEPA brain (`luna_brain`) for memory and understanding.
+## Platforms
 
-## Config (this folder)
+| Platform | What Luna does |
+|----------|----------------|
+| **Discord** | Responds in `#luna-chat`, joins voice channels, plays YouTube in VC |
+| **Twitch** | Batches chat every 30s → summarizes and posts to Discord; responds to subs, raids, bits, donations |
+| **GUI** | Local chat with voice input (mic) and TTS output |
 
-- **Discord:** `DISCORD_TOKEN` in `.env`, or `discord_token.txt`, or `discord_config.json`
-- **Twitch:** `twitch_config.json` or env: `TWITCH_ACCESS_TOKEN`, `TWITCH_CLIENT_ID`, `TWITCH_CHANNEL`, `TWITCH_USERNAME`
-- **Ollama:** model and options in `luna_clean.py` / env
+---
 
-Channel IDs and other Luna settings are in `luna_clean.py`.
+## Discord Commands
+
+| Command | Description |
+|---------|-------------|
+| `!play https://youtube.com/watch?v=...` | Play a YouTube video in Discord VC |
+| `profile` / `!profile` | Show your profile (facts, interests, interactions) |
+| `profile @user` | Show another user's profile |
+| `!share song` | Share a random song from your YouTube channel to X *(admin)* |
+| `!create song [description]` | Create a song on Suno with the given description *(admin)* |
+
+### Admin Commands *(restricted to `ADMIN_USER_IDS`)*
+
+| Command | Description |
+|---------|-------------|
+| `admin compile profiles` | Scan chat history and build/update user profiles |
+| `admin clean bad facts` | Remove junk facts (filler interests, bad types) |
+| `admin list profiles` | List all known users and their profile summaries |
+
+---
+
+## Browser Abilities
+
+Luna can automate a browser (via Playwright) to create and share music:
+
+| Command | What it does |
+|---------|---------------|
+| **`!create song [description]`** | Opens Suno, enters your description, and clicks Create. First run: click Login to sign in; session is saved. |
+| **`!share song`** | Picks a random video from your YouTube channel, opens X (Twitter), and posts it. First run: log in to X; session is saved. |
+
+**Requires:** `pip install playwright && playwright install chromium`
+
+---
+
+## Search (in chat)
+
+- **`youtube [query]`** or **`search youtube [query]`** — Search YouTube, Luna uses results in her reply
+- **`google [query]`** or **`search google [query]`** — Search Google, Luna uses results in her reply
+
+---
+
+## Memory & Profiles
+
+- **DNA Memory** — Stores conversations, extracts facts (name, location, interests)
+- **User profiles** — Persist across restarts; Luna recalls what she knows about you
+- **Reactions** — 👍 / 👎 on Luna's messages adjust her personality state
+
+---
+
+## Config
+
+| Item | Location |
+|------|----------|
+| Discord token | `.env` (`DISCORD_TOKEN`) or `discord_token.txt` |
+| Twitch | `.env` or `twitch_config.json`: `TWITCH_ACCESS_TOKEN`, `TWITCH_CLIENT_ID`, `TWITCH_CHANNEL`, `TWITCH_USERNAME` |
+| Ollama model | `luna_clean.py` / `OLLAMA_MODEL` in env |
+| Channel IDs | `luna_clean.py` |
+
+---
 
 ## Optional
 
-- **JEPA:** If `D:\New AI Child` exists and is on the path, `luna_brain` uses it for understanding.
-- **Grumpychat:** The `d:\grumpychat` folder has a music bot (`bot.py`) and optional launchers; the main agent runs from here.
+- **Lux TTS** — `pip install LuxTTS-mlx` for voice cloning in Discord VC (otherwise Edge TTS)
+- **Playwright** — `pip install playwright && playwright install chromium` for `!share song` and `!create song`
+- **JEPA** — If `D:\New AI Child` exists, Luna Brain uses it for understanding

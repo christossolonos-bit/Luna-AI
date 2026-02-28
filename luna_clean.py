@@ -1665,6 +1665,35 @@ class LunaClean:
                     except Exception:
                         pass
                     return
+                if msg_lower.startswith("!create song") or msg_lower.startswith("create song"):
+                    idx = msg_lower.find("create song")
+                    desc = message.content[idx + len("create song"):].strip()
+                    if not desc or len(desc) < 3:
+                        try:
+                            asyncio.run_coroutine_threadsafe(
+                                message.channel.send("❌ Give me a description! Example: `!create song upbeat pop song about summer`"),
+                                self.discord_client.loop
+                            ).result(timeout=5)
+                        except Exception:
+                            pass
+                        return
+                    def _run_create():
+                        try:
+                            from create_song_suno import create_song_on_suno
+                            create_song_on_suno(desc, interactive=False)
+                        except ImportError:
+                            print("⚠️ !create song: pip install playwright && playwright install chromium")
+                        except Exception as ex:
+                            print(f"⚠️ !create song: {ex}")
+                    threading.Thread(target=_run_create, daemon=True).start()
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            message.channel.send(f"🎵 Creating song on Suno: **{desc[:80]}{'...' if len(desc) > 80 else ''}**\nBrowser opening..."),
+                            self.discord_client.loop
+                        ).result(timeout=5)
+                    except Exception:
+                        pass
+                    return
                 if msg_lower in ("admin list profiles", "admin profiles", "admin list", "!admin profiles"):
                     try:
                         profiles = get_all_known_profiles()

@@ -101,12 +101,29 @@ def post_to_x(video_url: str, title: str, interactive: bool = True) -> bool:
                 continue
 
         if not clicked:
-            print("⚠️ Could not find Post button. Are you logged in? Log in at x.com and run again.")
+            print("⚠️ Could not find Post button. Log in to X in the browser — waiting up to 2 minutes...")
             if interactive:
                 input("Press Enter after logging in, or Ctrl+C to exit...")
                 return post_to_x(video_url, title, interactive=True)  # Retry
-            context.close()
-            return False
+            # Non-interactive: wait and retry every 5s for up to 2 minutes so user can log in
+            for attempt in range(24):  # 24 * 5s = 120s
+                page.wait_for_timeout(5000)
+                for sel in compose_selectors:
+                    try:
+                        btn = page.locator(sel).first
+                        if btn.is_visible(timeout=1000):
+                            btn.click()
+                            clicked = True
+                            break
+                    except Exception:
+                        continue
+                if clicked:
+                    break
+                print(f"   Still waiting... ({attempt * 5}s)")
+            if not clicked:
+                print("❌ Timed out. Log in to X first, then run !share song again.")
+                context.close()
+                return False
 
         page.wait_for_timeout(2000)
 
