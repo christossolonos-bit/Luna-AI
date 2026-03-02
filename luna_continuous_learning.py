@@ -45,7 +45,9 @@ class ContinuousLearningEngine:
     def record_interaction(self, user_message: str, luna_response: str, 
                           username: str, feedback: str = None):
         """Record an interaction for learning"""
-        
+        # Skip recording repetitive "Oh? X checking in..." outputs to avoid reinforcing the pattern
+        if self._is_repetitive_output(luna_response):
+            return
         # Store in JSONL format for potential fine-tuning
         interaction = {
             "timestamp": datetime.now().isoformat(),
@@ -57,7 +59,48 @@ class ContinuousLearningEngine:
         
         with open(self.learning_data_file, 'a') as f:
             f.write(json.dumps(interaction) + '\n')
-    
+
+    def _is_repetitive_output(self, output: str) -> bool:
+        """True if output starts with the repetitive 'Oh? X checking in' pattern."""
+        import re
+        if not output or len(output) < 10:
+            return False
+        first_100 = output[:100].strip()
+        patterns = [
+            r'^Ohh?\??\s*[,]?\s*\S+\s+checking\s+(in|up)\s+on\s+me',
+            r'^Oh\?\s+\S+\s+checking\s+in\s+on\s+me',
+            r'^Ohhh\?\s+\S+\s+checking\s+up\s+on\s+me',
+            r'^Oh\s+\S+\s+checking\s+(in|up)\s+on\s+me',  # "Oh Chris checking..."
+        ]
+        return any(re.search(p, first_100, re.I) for p in patterns)
+
+
+def sanitize_repetitive_luna_opening(text: str) -> str:
+    """Replace 'Oh? X checking in/up on me' openings in recalled memories so we don't reinforce the pattern."""
+    import re
+    if not text or len(text) < 15:
+        return text
+    # Match: Oh?/Oh,/Oh X checking in/up on me ... (through first sentence end)
+    pat = re.compile(
+        r'^Ohh?\??\s*[,]?\s*\S+\s+checking\s+(in|up)\s+on\s+me[^.]*?[.?!]?\s*',
+        re.I
+    )
+    result = pat.sub('[You replied] ', text).strip()
+    return result if result else text
+
+
+def strip_repetitive_opening_from_reply(text: str) -> str:
+    """Remove 'Oh? X checking in/up on me' from start of generated reply (post-gen safety)."""
+    import re
+    if not text or len(text) < 15:
+        return text
+    pat = re.compile(
+        r'^Ohh?\??\s*[,]?\s*\S+\s+checking\s+(in|up)\s+on\s+me[^.]*?[.?!]?\s*',
+        re.I
+    )
+    result = pat.sub('', text).strip()
+    return result if result else text
+
     def extract_knowledge(self, conversation: str) -> dict:
         """Extract learnable knowledge from conversation"""
         

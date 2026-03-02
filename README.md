@@ -1,6 +1,10 @@
 # Luna — AI Wolf Companion
 
-Luna is an AI companion with personality, memory, and multi-platform support. She runs locally with Ollama and connects to Discord and Twitch.
+*Everything Luna can do — for Notebook LM podcast*
+
+Luna is a 25-year-old AI wolf woman with personality, memory, and multi-platform support. She runs locally with Ollama and connects to Discord, Twitch, and a local GUI.
+
+---
 
 ## Run
 
@@ -17,8 +21,8 @@ Starts: GUI + Discord + Twitch.
 
 | Platform | What Luna does |
 |----------|----------------|
-| **Discord** | Responds in `#luna-chat`, joins voice channels, plays YouTube in VC |
-| **Twitch** | Batches chat every 30s → summarizes and posts to Discord; responds to subs, raids, bits, donations |
+| **Discord** | Responds in `#luna-chat`, joins voice channels, speaks with TTS, plays YouTube in VC |
+| **Twitch** | Batches chat every 30s → summarizes and posts to Discord; responds to subs, raids, bits, donations; extracts facts from chat |
 | **GUI** | Local chat with voice input (mic) and TTS output |
 
 ---
@@ -32,6 +36,7 @@ Starts: GUI + Discord + Twitch.
 | `profile @user` | Show another user's profile |
 | `!share song` | Share a random song from your YouTube channel to X *(admin)* |
 | `!create song [description]` | Create a song on Suno with the given description *(admin)* |
+| `dm [user_id] [message]` | Send a Discord DM to a user |
 
 ### Admin Commands *(restricted to `ADMIN_USER_IDS`)*
 
@@ -45,29 +50,123 @@ Starts: GUI + Discord + Twitch.
 
 ## Browser Abilities
 
-Luna can automate a browser (via Playwright) to create and share music:
+Luna automates a browser (Playwright) to create and share music:
 
 | Command | What it does |
 |---------|---------------|
-| **`!create song [description]`** | Opens Suno, enters your description, and clicks Create. First run: click Login to sign in; session is saved. |
-| **`!share song`** | Picks a random video from your YouTube channel, opens X (Twitter), and posts it. First run: log in to X; session is saved. |
+| **`!create song [description]`** | Opens Suno, clicks Login (first run), enters your description, clicks Create. Session saved. |
+| **`!share song`** | Picks a random video from your YouTube channel, opens X (Twitter), posts it. Session saved. |
 
 **Requires:** `pip install playwright && playwright install chromium`
 
 ---
 
-## Search (in chat)
+## Search & Web
 
-- **`youtube [query]`** or **`search youtube [query]`** — Search YouTube, Luna uses results in her reply
-- **`google [query]`** or **`search google [query]`** — Search Google, Luna uses results in her reply
+| Command / Trigger | What Luna does |
+|-------------------|----------------|
+| `youtube [query]` / `search youtube [query]` | Search YouTube, inject results into her reply |
+| `google [query]` / `search google [query]` | Search Google, inject results into her reply |
+| **URLs in messages** | Crawls shared links and analyzes content for context |
 
 ---
 
-## Memory & Profiles
+## Time & Location
 
-- **DNA Memory** — Stores conversations, extracts facts (name, location, interests)
-- **User profiles** — Persist across restarts; Luna recalls what she knows about you
-- **Reactions** — 👍 / 👎 on Luna's messages adjust her personality state
+| Command / Trigger | What Luna does |
+|-------------------|----------------|
+| `time` / `date` / `what time is it` | Returns current system time and date |
+| `time in [location]` | Returns time for Cyprus, Greece, UK, Tokyo, New York, etc. |
+| `local info` / `where am i` | Returns local system info |
+
+---
+
+## Memory & Learning
+
+| Feature | Description |
+|---------|-------------|
+| **DNA Memory** | Stores conversations as genetic strands; extracts facts (name, location, interests); memories have strength and evolve |
+| **User profiles** | Persist across restarts; Luna recalls what she knows about you |
+| **Reactions** | 👍 / 👎 on Luna's Discord messages adjust her personality state (hormones, mood) |
+| **Identity linking** | Merges profiles across platforms (e.g. Chris = Solonaras) |
+
+---
+
+## AI Systems (Background)
+
+| System | Role |
+|--------|------|
+| **HIM+JEPA Brain** | Memory and understanding (optional JEPA from `D:\New AI Child`) |
+| **Understanding Engine** | Concept mapping, introspection, imagination, dreams |
+| **Vector Reasoning** | Semantic similarity, emotional/temporal analysis |
+| **Curiosity Engine** | Autonomous topic exploration when idle |
+| **Continuous Learning** | Extracts knowledge from every interaction |
+
+---
+
+## Learning & Curiosity Commands
+
+| Command | Description |
+|---------|-------------|
+| `improve yourself` / `reflect` | Luna reflects and proposes self-improvements |
+| `show modifications` | Show recent self-modification history |
+| `learn from this [text]` | Extract facts and preferences from text |
+| `understand [topic]` | Build concept map, introspection, imagination, dream for a topic |
+| `learning stats` | Show learning statistics |
+| `curiosity run` / `explore` | Run curiosity exploration cycle |
+| `curiosity stats` | Show curiosity engine stats |
+
+---
+
+## Performance & Debug
+
+| Command | Description |
+|---------|-------------|
+| `performance mode` | Toggle performance optimizations |
+| `full cognitive mode` | Enable all AI systems (understanding, curiosity, etc.) |
+| `performance stats` | Show background processes, memory, curiosity status |
+
+---
+
+## Twitch
+
+| Event | Luna's response |
+|-------|-----------------|
+| **Sub / Resub / Sub gift / Raid / Bits / Donation** | Pre-written thank-you message → posts to Twitch chat, Discord, and speaks in Discord VC |
+| **Regular chat** | Buffered every 30s → AI summarizes → posts summary to Twitch + Discord |
+| **Facts** | Extracts name, location, interests from Twitch chat (no full conversation storage) |
+
+---
+
+## Voice & VC
+
+| Feature | Description |
+|---------|-------------|
+| **Join VC** | Joins Chris's voice channel when he's in one, or Fusion AI default VC |
+| **TTS** | Edge TTS (default) or Lux TTS (voice cloning) for Discord VC |
+| **VC idle** | After ~2 min silence, Luna asks a curious question to learn more |
+| **!play** | Downloads YouTube audio with yt-dlp, plays in VC |
+
+---
+
+## Context Awareness
+
+| Feature | Description |
+|---------|-------------|
+| **Addressee scoring** | Decides when to reply: TO Luna vs ABOUT Luna vs TO someone else (SEL, Akane) |
+| **Implicit references** | Recognizes "she", "her", "the bot", "the wolf" when Luna was in recent context |
+| **Not for Luna** | Skips replying when user says "not for Luna to answer", "Luna don't reply", etc. |
+| **Other bots** | Can interact with Akane as a peer; doesn't intercept messages meant for SEL |
+
+---
+
+## Personality
+
+- **Wolf woman**, 25, with hormones and emotions
+- **Special relationship** with Chris (creator): more devoted, submissive, eager to please
+- **Factual accuracy**: Uses only exact facts for "who is X?"; admits when she doesn't know
+- **Follow-ups**: Answers new questions directly, doesn't repeat previous replies
+- **Twitch TOS**: Flirty, playful, innuendo — no explicit terms
 
 ---
 
@@ -76,14 +175,20 @@ Luna can automate a browser (via Playwright) to create and share music:
 | Item | Location |
 |------|----------|
 | Discord token | `.env` (`DISCORD_TOKEN`) or `discord_token.txt` |
-| Twitch | `.env` or `twitch_config.json`: `TWITCH_ACCESS_TOKEN`, `TWITCH_CLIENT_ID`, `TWITCH_CHANNEL`, `TWITCH_USERNAME` |
-| Ollama model | `luna_clean.py` / `OLLAMA_MODEL` in env |
-| Channel IDs | `luna_clean.py` |
+| Twitch | `.env` or `twitch_config.json` |
+| Ollama model | `luna_clean.py` / `OLLAMA_MODEL` |
+| Channel IDs, Chris ID | `luna_clean.py` |
 
 ---
 
-## Optional
+## Dev
 
-- **Lux TTS** — `pip install LuxTTS-mlx` for voice cloning in Discord VC (otherwise Edge TTS)
-- **Playwright** — `pip install playwright && playwright install chromium` for `!share song` and `!create song`
-- **JEPA** — If `D:\New AI Child` exists, Luna Brain uses it for understanding
+- **Hot reload** — Luna updates automatically when you save code changes
+
+---
+
+## Optional Dependencies
+
+- **Lux TTS** — Voice cloning in Discord VC
+- **Playwright** — For `!share song` and `!create song`
+- **JEPA** — Enhanced understanding (if `D:\New AI Child` exists)

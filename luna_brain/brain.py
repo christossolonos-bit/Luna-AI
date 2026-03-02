@@ -73,3 +73,34 @@ def store_turn(
 def is_jepa_available() -> bool:
     """Whether JEPA (New AI Child) is available."""
     return jepa_available()
+
+
+def save_brain(path: str) -> bool:
+    """Save brain store to JSON file. Returns True if saved."""
+    try:
+        import json
+        store = _get_store()
+        data = store.export_state()
+        if not data.get("turns"):
+            return False
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=0, ensure_ascii=False)
+        return True
+    except Exception:
+        return False
+
+
+def load_brain(path: str) -> bool:
+    """Load brain store from JSON file. Returns True if loaded."""
+    import os
+    import json
+    if not os.path.exists(path):
+        return False
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        store = _get_store()
+        n = store.import_state(data)
+        return n > 0
+    except Exception:
+        return False

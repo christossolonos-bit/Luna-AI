@@ -691,10 +691,15 @@ class LunaDNAMemorySystem:
         # 3. Recent conversation highlights (what they've talked about)
         memories = self.get_recent_memories_for_user(username, usernames, limit=15)
         if memories:
+            try:
+                from luna_continuous_learning import sanitize_repetitive_luna_opening
+            except ImportError:
+                def sanitize_repetitive_luna_opening(x): return x
             conv_lines = []
             for m in memories[:10]:
                 um = m["user_message"][:100] + ("..." if len(m["user_message"]) > 100 else "")
-                lr = m["luna_response"][:80] + ("..." if len(m["luna_response"]) > 80 else "")
+                lr_raw = m["luna_response"][:80] + ("..." if len(m["luna_response"]) > 80 else "")
+                lr = sanitize_repetitive_luna_opening(lr_raw)
                 conv_lines.append(f"  - They said: \"{um}\" → You replied: \"{lr}\"")
             if conv_lines:
                 parts.append("PAST CONVERSATIONS (recall when asked about these topics):\n" + "\n".join(conv_lines))

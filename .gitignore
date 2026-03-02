@@ -20,6 +20,9 @@ voice_transcriber_config.json
 .x_browser_data/
 .suno_browser_data/
 
+# Luna brain persistence (restored on startup)
+.luna_brain_persist.json
+
 # Authentication files
 *.pem
 *.key

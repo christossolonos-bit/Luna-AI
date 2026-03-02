@@ -39,6 +39,8 @@ import threading
 import time
 import re
 import importlib
+import atexit
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -47,14 +49,29 @@ from urllib.parse import urlparse, urljoin
 # Playwright will be imported dynamically in setup_playwright_browser()
 from dotenv import load_dotenv
 from luna_dna_memory import (
-    initialize_dna_memory, save_dna_memory, save_facts_from_message,
+    initialize_dna_memory, save_dna_memory, save_facts_from_message, link_user_identity,
     recall_dna_memories, get_dna_memory,
     recall_dna_memories_with_vector_reasoning, get_user_facts,
-    save_user_profile, get_user_profile, get_user_aliases, link_user_identity,
+    save_user_profile, get_user_profile, get_user_aliases,
     set_known_user_aliases, seed_user_identity,
     compile_profiles_from_history, get_all_known_profiles, clean_bad_facts,
 )
 from luna_memory_search import search_and_inject_memories
+try:
+    from luna_agents import run_extract, run_store, run_recall, run_organize, persist_save, persist_load, AgentLogger
+    LUNA_AGENTS_AVAILABLE = True
+except ImportError as _e:
+    LUNA_AGENTS_AVAILABLE = False
+    run_extract = run_store = run_recall = run_organize = persist_save = persist_load = AgentLogger = None  # type: ignore
+
+
+def _persist_save_on_exit():
+    """Save brain to disk on process exit."""
+    if LUNA_AGENTS_AVAILABLE and persist_save:
+        try:
+            persist_save()
+        except Exception:
+            pass
 from luna_addressee import should_luna_reply, score_addressee_intent, is_explicit_not_for_luna, _GREETING_TARGET_RE
 from luna_state import get_luna_state
 from luna_continuous_learning import ContinuousLearningEngine
@@ -98,6 +115,9 @@ except ImportError as e:
 # Load environment variables
 load_dotenv()
 
+# Parallel context gathering (recall + brain + global + web_crawl)
+PARALLEL_CONTEXT_ENABLED = os.getenv("LUNA_PARALLEL_CONTEXT", "1").lower() in ("1", "true", "yes")
+
 # Configuration
 OLLAMA_MODEL = "hf.co/subsectmusic/qwriko3-4b-instruct-2507-redux-GGUF:Q4_K_M"
 
@@ -116,6 +136,8 @@ FUSION_AI_DEFAULT_VC_ID = 1387526220882771999  # Fusion AI default voice channel
 PROFILE_COMMANDS = ("profile", "my profile", "my bio", "!profile", "show my profile", "show profile")
 # Admin commands: Discord user IDs who can run admin compile/list profiles
 ADMIN_USER_IDS = {int(x) for x in [CHRIS_DISCORD_USER_ID] if x}  # Add more IDs as needed
+# Luna-chat channel ID for !admin scan channel
+LUNA_CHAT_CHANNEL_ID = 1387526539293233308
 
 
 OLLAMA_CONFIG = {
@@ -125,9 +147,9 @@ OLLAMA_CONFIG = {
     # "num_predict": removed - no token limit for Luna's responses
     "num_gpu": 1,         # Use GPU
     "stop": ["User:", "Chris:", "\n\n\n"],
-    "repeat_penalty": 1.1,  # Prevent repetition
-    "presence_penalty": 0.0,  # No penalty for topics
-    "frequency_penalty": 0.0   # No penalty for words
+    "repeat_penalty": 1.2,    # Stronger penalty for repeating tokens
+    "presence_penalty": 0.5,  # Penalize repeating topics/phrases from context
+    "frequency_penalty": 0.65  # Penalize repeating same words (reduces "Oh? X checking in..." loops)
 }
 
 # TTS Configuration - Edge TTS (Free!) for GUI
@@ -772,6 +794,14 @@ class LunaClean:
         if self.dna_memory:
             for uname in get_user_aliases("discord", "Chris", str(chris_id) if chris_id else None):
                 self.dna_memory.save_user_fact(uname, "name", "Chris")
+
+        # PersistAgent: load brain from disk for continuity across restarts
+        if LUNA_AGENTS_AVAILABLE and persist_load:
+            try:
+                persist_load()
+            except Exception as e:
+                print(f"⚠️ PersistAgent load: {e}")
+        atexit.register(_persist_save_on_exit)
 
         # Initialize global context awareness with user profiles and channel context
         self.global_context = {
@@ -1557,6 +1587,85 @@ class LunaClean:
             print(f"Twitch connection error: {e}")
             return False
     
+    def _scan_channel_and_memorize(self, channel, luna_user_id, limit=2000):
+        """
+        Fetch channel history, extract facts from user messages, store user-Luna pairs
+        as DNA memory strands, then compile profiles. Returns summary dict.
+        """
+        async def _fetch_history(ch, lim):
+            msgs = []
+            async for m in ch.history(limit=lim):
+                msgs.append(m)
+            return msgs
+        
+        try:
+            future = asyncio.run_coroutine_threadsafe(
+                _fetch_history(channel, limit),
+                self.discord_client.loop
+            )
+            raw = future.result(timeout=120)
+        except Exception as e:
+            return {"error": str(e), "messages": 0, "pairs": 0, "facts": 0}
+        
+        # Chronological order (oldest first)
+        msgs = list(reversed(raw))
+        pairs_stored = 0
+        user_messages_processed = 0
+        users_seen = set()
+        
+        for i, msg in enumerate(msgs):
+            content = (msg.content or "").strip()
+            if not content:
+                continue
+            # Skip Luna's own messages for "user message" processing
+            if msg.author.id == luna_user_id:
+                continue
+            # Skip other bots
+            if msg.author.bot:
+                continue
+            
+            username = msg.author.display_name or str(msg.author)
+            user_id = str(msg.author.id)
+            users_seen.add((username, user_id))
+            link_user_identity("discord", username, user_id)
+            
+            # Extract facts from every user message
+            try:
+                if LUNA_AGENTS_AVAILABLE and run_extract:
+                    run_extract(content, "discord", username, user_id)
+                else:
+                    save_facts_from_message(content, "discord", username, user_id)
+                user_messages_processed += 1
+            except Exception:
+                pass
+            
+            # Pair with next message if it's from Luna
+            if i + 1 < len(msgs):
+                next_msg = msgs[i + 1]
+                if next_msg.author.id == luna_user_id:
+                    luna_content = (next_msg.content or "").strip()
+                    if luna_content:
+                        try:
+                            save_dna_memory(content, luna_content, "discord", username, user_id)
+                            pairs_stored += 1
+                        except Exception:
+                            pass
+        
+        # Compile profiles from the new memory strands
+        compile_result = {"processed": 0, "users_updated": 0, "facts_added": 0}
+        try:
+            compile_result = compile_profiles_from_history()
+        except Exception:
+            pass
+        
+        return {
+            "messages": len(msgs),
+            "users": len(users_seen),
+            "pairs": pairs_stored,
+            "user_messages_processed": user_messages_processed,
+            "compile": compile_result,
+        }
+    
     def _process_discord_message(self, message):
         """Process Discord message and generate response"""
         try:
@@ -1585,7 +1694,10 @@ class LunaClean:
             content = (message.content or "").strip()
             if content:
                 try:
-                    save_facts_from_message(content, "discord", message.author.display_name, str(message.author.id))
+                    if LUNA_AGENTS_AVAILABLE and run_extract:
+                        run_extract(content, "discord", message.author.display_name, str(message.author.id))
+                    else:
+                        save_facts_from_message(content, "discord", message.author.display_name, str(message.author.id))
                 except Exception:
                     pass
                 try:
@@ -1628,6 +1740,26 @@ class LunaClean:
                     except Exception as pe:
                         print(f"⚠️ Admin reply error: {pe}")
                     return
+                if msg_lower in ("admin organize", "admin organize memory", "!admin organize"):
+                    try:
+                        if LUNA_AGENTS_AVAILABLE and run_organize:
+                            result = run_organize()
+                            reply = f"✅ **OrganizeAgent complete**\nProcessed {result['processed']} msgs, added {result['facts_added']} facts, removed {result['facts_deleted']} bad facts."
+                        else:
+                            cr = compile_profiles_from_history()
+                            cl = clean_bad_facts()
+                            reply = f"✅ **Organize complete**\nProcessed {cr['processed']} msgs, added {cr['facts_added']} facts, removed {cl['deleted']} bad facts."
+                    except Exception as e:
+                        reply = f"❌ Organize failed: {e}"
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(
+                            message.channel.send(reply),
+                            self.discord_client.loop
+                        )
+                        future.result(timeout=10)
+                    except Exception as pe:
+                        print(f"⚠️ Admin reply error: {pe}")
+                    return
                 if msg_lower in ("admin clean bad facts", "admin clean facts", "!admin clean bad facts"):
                     try:
                         result = clean_bad_facts()
@@ -1636,6 +1768,47 @@ class LunaClean:
                         reply = f"✅ **Clean bad facts complete**\nRemoved {result['deleted']} junk facts.\nBy type: {by_type_str}"
                     except Exception as e:
                         reply = f"❌ Clean failed: {e}"
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(
+                            message.channel.send(reply),
+                            self.discord_client.loop
+                        )
+                        future.result(timeout=10)
+                    except Exception as pe:
+                        print(f"⚠️ Admin reply error: {pe}")
+                    return
+                if "admin scan" in msg_lower:
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            message.channel.send("🔄 Scanning #luna-chat... memorizing past interactions..."),
+                            self.discord_client.loop
+                        ).result(timeout=5)
+                    except Exception:
+                        pass
+                    channel = self.discord_client.get_channel(LUNA_CHAT_CHANNEL_ID)
+                    if channel is None and message.channel.id == LUNA_CHAT_CHANNEL_ID:
+                        channel = message.channel
+                    if channel is None:
+                        reply = "❌ Could not find #luna-chat channel."
+                    else:
+                        try:
+                            luna_id = self.discord_client.user.id if self.discord_client.user else 0
+                            result = self._scan_channel_and_memorize(channel, luna_id, limit=2000)
+                            if "error" in result:
+                                reply = f"❌ Scan failed: {result['error']}"
+                            else:
+                                cr = result.get("compile", {})
+                                reply = (
+                                    f"✅ **Channel scan complete**\n"
+                                    f"📖 Processed {result['messages']} messages from {result['users']} users\n"
+                                    f"🧬 Memorized {result['pairs']} user–Luna conversation pairs\n"
+                                    f"📝 Extracted facts from {result['user_messages_processed']} user messages\n"
+                                    f"👤 Profiles: {cr.get('users_updated', 0)} updated, {cr.get('facts_added', 0)} new facts"
+                                )
+                        except Exception as e:
+                            import traceback
+                            print(f"❌ Scan failed: {e}\n{traceback.format_exc()}")
+                            reply = f"❌ Scan failed: {e}"
                     try:
                         future = asyncio.run_coroutine_threadsafe(
                             message.channel.send(reply),
@@ -2652,6 +2825,14 @@ class LunaClean:
                 for topic, data in trending_topics:
                     context_parts.append(f"  - {topic}: {data['mentions']} mentions across {len(data['platforms'])} platforms")
             
+            # Fallback: if no context yet, include known facts from DB (e.g. after channel scan)
+            if not context_parts:
+                facts = get_user_facts(username, usernames=profile_usernames)
+                if facts:
+                    context_parts.append(f"📋 Known facts about {username}:")
+                    for f in facts[:8]:
+                        context_parts.append(f"  • {f.get('fact_type', 'fact')}: {f.get('fact_value', '')}")
+            
             return "\n".join(context_parts) if context_parts else ""
             
         except Exception as e:
@@ -2920,7 +3101,10 @@ Luna's comment:"""
                     # Extract and save facts (name, location, interests) for all users - no full strand
                     twitch_user_id = tags.get("user-id")
                     try:
-                        save_facts_from_message(chat_message, "twitch", username, twitch_user_id)
+                        if LUNA_AGENTS_AVAILABLE and run_extract:
+                            run_extract(chat_message, "twitch", username, twitch_user_id)
+                        else:
+                            save_facts_from_message(chat_message, "twitch", username, twitch_user_id)
                     except Exception:
                         pass
 
@@ -3027,7 +3211,7 @@ CRITICAL TIME RESPONSE RULE: When asked about time, date, or "what time is it", 
 
 When responding to {username}, be natural and genuine. Keep responses reasonably concise (2-4 sentences), especially on Discord. Use more sentences when the topic requires detailed explanation or when you have something meaningful to add. Be direct, engaging, and authentic - balance brevity with expressiveness.
 
-FOLLOW-UP QUESTIONS: When the user asks a follow-up or clarification (e.g. "did you make that up?", "really?", "what do you mean?"), answer THAT question directly. Do NOT repeat your previous response. Skip the recap—get straight to the new answer.
+CRITICAL - NO REPETITION: NEVER repeat or recap your previous response. Answer ONLY the current message. When the user asks a follow-up, clarification, or new question, respond with the NEW answer only. Do NOT start with "As I said...", "Like I mentioned...", or repeat what you said before. Get straight to the new answer.
 
 FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they said), use quotation marks like "how have you been" - NOT asterisks. Use /slashes/ for emphasis like /this/ - asterisks are for actions only (e.g. *wagging tail*), not for emphasis."""
 
@@ -3063,25 +3247,8 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
         # Update global context awareness (using username only)
         self._update_global_context(username, platform, user_message, channel_id=channel_id)
         
-        # Check for URLs in the message
+        # Extract URLs (crawl runs in parallel with other context later)
         urls = extract_urls_from_text(user_message)
-        web_context = ""
-        
-        if urls:
-            print(f"🌐 Found {len(urls)} URL(s), crawling...")
-            for url in urls[:2]:  # Limit to first 2 URLs to avoid overwhelming
-                try:
-                    print(f"🕷️ Crawling: {url}")
-                    webpage_data = crawl_website(url)
-                    analyzed = analyze_webpage_content(webpage_data, username)
-                    
-                    web_context += f"\n\n📄 Website Analysis for {url}:\n"
-                    web_context += f"Title: {analyzed['title']}\n"
-                    web_context += f"Content: {analyzed['summary']}\n"
-                    
-                except Exception as e:
-                    print(f"❌ Web crawling failed for {url}: {e}")
-                    web_context += f"\n\n❌ Failed to analyze {url}: {str(e)}\n"
         
         # Check for DM commands
         dm_context = ""
@@ -3451,9 +3618,16 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
             
             print(f"🕐 DIRECT TIME RESPONSE: {direct_time_response}")
             
-            # Save to DNA memory
-            save_dna_memory(user_message, direct_time_response, platform, username, user_id=user_id)
-            
+            # StoreAgent: save to DNA memory
+            if LUNA_AGENTS_AVAILABLE and run_store:
+                try:
+                    run_store(user_message, direct_time_response, platform, username,
+                              user_id=user_id, brain_store_turn=brain_store_turn if LUNA_BRAIN_AVAILABLE else None)
+                except Exception:
+                    save_dna_memory(user_message, direct_time_response, platform, username, user_id=user_id)
+            else:
+                save_dna_memory(user_message, direct_time_response, platform, username, user_id=user_id)
+
             # Update autonomous state
             self._update_autonomous_state(user_message, direct_time_response, username)
             
@@ -3485,9 +3659,16 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
             
             print(f"🕐 DIRECT LOCATION RESPONSE: {direct_location_response}")
             
-            # Save to DNA memory
-            save_dna_memory(user_message, direct_location_response, platform, username, user_id=user_id)
-            
+            # StoreAgent: save to DNA memory
+            if LUNA_AGENTS_AVAILABLE and run_store:
+                try:
+                    run_store(user_message, direct_location_response, platform, username,
+                              user_id=user_id, brain_store_turn=brain_store_turn if LUNA_BRAIN_AVAILABLE else None)
+                except Exception:
+                    save_dna_memory(user_message, direct_location_response, platform, username, user_id=user_id)
+            else:
+                save_dna_memory(user_message, direct_location_response, platform, username, user_id=user_id)
+
             # Update autonomous state
             self._update_autonomous_state(user_message, direct_location_response, username)
             
@@ -3528,40 +3709,108 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
             except Exception as e:
                 search_context = f"\n\n❌ Local info error: {str(e)}"
         
-        # Recall relevant DNA memories (dynamic aliases from platform_user_id)
-        if VECTOR_REASONING_AVAILABLE:
-            try:
-                print(f"🧠 Attempting vector reasoning for {username}...")
-                memory_data = recall_dna_memories_with_vector_reasoning(
-                    username, user_message, limit=5, usernames=memory_usernames
-                )
-                memories = memory_data.get("memories", [])
-                vector_reasoning = memory_data.get("vector_reasoning")
-                enhanced = memory_data.get("enhanced", False)
-                print(f"🧠 Vector reasoning result: {len(memories)} memories, enhanced: {enhanced}")
-                if vector_reasoning:
-                    print(f"🧠 Reasoning confidence: {vector_reasoning.confidence:.2f}")
-            except Exception as e:
-                print(f"❌ Vector reasoning error: {e}")
-                memories = recall_dna_memories(username, user_message, limit=5, usernames=memory_usernames)
-                vector_reasoning = None
-                enhanced = False
-        else:
-            print(f"⚠️ Vector reasoning not available (available: {VECTOR_REASONING_AVAILABLE})")
-            memories = recall_dna_memories(username, user_message, limit=5, usernames=memory_usernames)
-            vector_reasoning = None
-            enhanced = False
+        # === PARALLEL CONTEXT GATHERING ===
+        # Run recall, brain, global_context, web_crawl in parallel to reduce latency
+        def _do_recall():
+            if LUNA_AGENTS_AVAILABLE and run_recall:
+                try:
+                    return run_recall(
+                        username=username, user_message=user_message, platform=platform,
+                        usernames=memory_usernames, user_id=user_id,
+                    )
+                except Exception as e:
+                    print(f"❌ RecallAgent error: {e}")
+            if VECTOR_REASONING_AVAILABLE:
+                try:
+                    md = recall_dna_memories_with_vector_reasoning(
+                        username, user_message, limit=5, usernames=memory_usernames
+                    )
+                    mems = md.get("memories", [])
+                    vr = md.get("vector_reasoning")
+                    enh = md.get("enhanced", False)
+                except Exception:
+                    mems = recall_dna_memories(username, user_message, limit=5, usernames=memory_usernames)
+                    vr, enh = None, False
+            else:
+                mems = recall_dna_memories(username, user_message, limit=5, usernames=memory_usernames)
+                vr, enh = None, False
+            block = search_and_inject_memories(
+                username=username, user_message=user_message, platform=platform,
+                usernames=memory_usernames, memories=mems, user_id=user_id,
+            )
+            return (block, vr, enh)
 
-        # Memory search bot: search permanent storage, inject Luna self + user profile + memories + gaps
-        memory_search_block = search_and_inject_memories(
-            username=username,
-            user_message=user_message,
-            platform=platform,
-            usernames=memory_usernames,
-            memories=memories,
-            user_id=user_id,
-        )
-        
+        def _do_brain():
+            if LUNA_BRAIN_AVAILABLE and brain_turn:
+                try:
+                    return brain_turn(user_message, user_id=user_id, channel_id=channel_id, platform=platform)
+                except Exception as e:
+                    print(f"⚠️ Brain turn error: {e}")
+            return ("", "")
+
+        def _do_web_crawl():
+            if not urls:
+                return ""
+            ctx = ""
+            for url in urls[:2]:
+                try:
+                    webpage_data = crawl_website(url)
+                    analyzed = analyze_webpage_content(webpage_data, username)
+                    ctx += f"\n\n📄 Website Analysis for {url}:\n"
+                    ctx += f"Title: {analyzed['title']}\n"
+                    ctx += f"Content: {analyzed['summary']}\n"
+                except Exception as e:
+                    ctx += f"\n\n❌ Failed to analyze {url}: {str(e)}\n"
+            return ctx
+
+        web_context = ""
+        memory_search_block = ""
+        vector_reasoning = None
+        enhanced = False
+        global_context = ""
+        brain_context = ""
+        brain_internal_state = ""
+
+        if PARALLEL_CONTEXT_ENABLED:
+            try:
+                with ThreadPoolExecutor(max_workers=4) as ex:
+                    futures = {
+                        "recall": ex.submit(_do_recall),
+                        "global": ex.submit(self._get_global_context, username, platform, usernames=memory_usernames, channel_id=channel_id),
+                        "brain": ex.submit(_do_brain),
+                    }
+                    if urls:
+                        print(f"🌐 Found {len(urls)} URL(s), crawling in parallel...")
+                        futures["web"] = ex.submit(_do_web_crawl)
+                    future_to_name = {f: n for n, f in futures.items()}
+                    for fut in as_completed(futures.values(), timeout=30):
+                        name = future_to_name[fut]
+                        try:
+                            r = fut.result(timeout=5)
+                            if name == "recall":
+                                memory_search_block, vector_reasoning, enhanced = r
+                            elif name == "global":
+                                global_context = r or ""
+                            elif name == "brain":
+                                brain_context, brain_internal_state = r
+                            elif name == "web":
+                                web_context = r or ""
+                        except Exception as e:
+                            print(f"⚠️ Parallel {name} error: {e}")
+            except Exception as e:
+                print(f"⚠️ Parallel context error: {e}, falling back to sequential")
+                memory_search_block, vector_reasoning, enhanced = _do_recall()
+                global_context = self._get_global_context(username, platform, usernames=memory_usernames, channel_id=channel_id) or ""
+                brain_context, brain_internal_state = _do_brain()
+                if urls:
+                    web_context = _do_web_crawl()
+        else:
+            memory_search_block, vector_reasoning, enhanced = _do_recall()
+            global_context = self._get_global_context(username, platform, usernames=memory_usernames, channel_id=channel_id) or ""
+            brain_context, brain_internal_state = _do_brain()
+            if urls:
+                web_context = _do_web_crawl()
+
         # Add vector reasoning insights if available
         vector_insights_context = ""
         if vector_reasoning and enhanced:
@@ -3609,10 +3858,7 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
         else:
             print("⚠️ Vector reasoning not enhanced or not available")
         
-        # Get global context awareness (dynamic aliases for profile merge)
-        global_context = self._get_global_context(username, platform, usernames=memory_usernames, channel_id=channel_id)
-        
-        # Debug context awareness
+        # Debug context awareness (global_context from parallel block)
         if global_context:
             print(f"🌐 Global context available for {username}: {len(global_context)} characters")
             # Show key context elements
@@ -3634,21 +3880,9 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
         else:
             print(f"⚠️ No global context available for {username}")
         
-        # HIM+JEPA brain: retrieve context and internal state for prompt
-        brain_context = ""
-        brain_internal_state = ""
-        if LUNA_BRAIN_AVAILABLE and brain_turn is not None:
-            try:
-                brain_context, brain_internal_state = brain_turn(
-                    user_message,
-                    user_id=user_id,
-                    channel_id=channel_id,
-                    platform=platform,
-                )
-                if brain_context or brain_internal_state:
-                    print("🧠 Brain context/internal state added to prompt")
-            except Exception as e:
-                print(f"⚠️ Brain turn error: {e}")
+        # Brain context from parallel block
+        if brain_context or brain_internal_state:
+            print("🧠 Brain context/internal state added to prompt")
         
         # Debug: Print search context if it contains time data
         if search_context and ("CURRENT SYSTEM TIME" in search_context or "TIME IN" in search_context):
@@ -3681,14 +3915,20 @@ FORMATTING: When quoting someone's words or a phrase (e.g. repeating what they s
 
         system_content = f"""{system_prompt}{mood_style_block}
 
-Avoid repeating phrases; vary tone and pacing. Track emotional undercurrents across messages and maintain continuity."""
+Avoid repeating phrases; vary tone and pacing. Track emotional undercurrents across messages and maintain continuity.
+
+NEVER REPEAT: The context above may include your past replies. Do NOT repeat them. Your response must be ONLY your answer to the CURRENT message—never recap, never "as I said", never repeat previous content.
+
+NO TEMPLATED OPENINGS: FORBIDDEN—never start with "Oh? [name] checking in", "Oh? [name] checking up on me", "Oh [name] checking", or any variant. Start with something different every time: a direct answer, a question, an observation, or a fresh greeting. Never use that phrase."""
         system_content = system_content.strip()
 
         context_parts = []
         if memory_search_block:
             context_parts.append(f"[MEMORY]\n{memory_search_block}\n[/MEMORY]")
         if brain_context or brain_internal_state:
-            context_parts.append(f"[BRAIN]\n{brain_context}\n{brain_internal_state}\n[/BRAIN]")
+            brain_block = f"[BRAIN]\n{brain_context}\n{brain_internal_state}\n"
+            brain_block += "⚠️ The 'Luna:' lines above are your PAST replies—for context only. Do NOT copy or repeat them. Write a NEW response.\n[/BRAIN]"
+            context_parts.append(brain_block)
         if vector_insights_context:
             context_parts.append(f"[REASONING]\n{vector_insights_context}\n[/REASONING]")
         if global_context:
@@ -3714,6 +3954,7 @@ Avoid repeating phrases; vary tone and pacing. Track emotional undercurrents acr
         if global_context:
             platform_instructions.append("CONTEXT AWARENESS: Use the conversation context, current topic, and channel mood to guide your response. Reference recent messages naturally when relevant.")
         platform_instructions.append("MEMORY: Use the blocks above - your self-knowledge, what you know about the user, and relevant memories. Recall and reference when asked. Stay consistent with your past statements.")
+        platform_instructions.append("NO REPETITION: The memories show past exchanges (They: X → You: Y). Do NOT repeat or recap what You said. Answer ONLY the current message. Never start with your previous reply.")
         if vector_insights_context:
             platform_instructions.append("REASONING INSIGHTS: Use the vector reasoning insights to inform your response. Consider emotional patterns, predictions, and cross-memory connections.")
         if search_context and ("CURRENT TIME" in search_context or "CURRENT WEATHER" in search_context or "LOCAL INFORMATION" in search_context):
@@ -3725,7 +3966,7 @@ Avoid repeating phrases; vary tone and pacing. Track emotional undercurrents acr
         if platform_instructions:
             context_content += "\n\n" + "\n".join(platform_instructions)
 
-        user_content = f"{prompt_username}: {user_message}\nLuna:"
+        user_content = f"{prompt_username}: {user_message}\n[Answer ONLY this question. Do not repeat your previous reply. NEVER start with \"Oh? [name] checking in/up on me\"—use a fresh opener.]\nLuna:"
 
         messages = [{"role": "system", "content": system_content}]
         if context_content.strip():
@@ -3752,6 +3993,12 @@ Avoid repeating phrases; vary tone and pacing. Track emotional undercurrents acr
             # Clean up response
             reply = reply.replace("Luna:", "").strip()
             reply = reply.replace(f"{prompt_username}:", "").strip()
+            # Strip repetitive "Oh? X checking in/up on me" if model still outputs it
+            try:
+                from luna_continuous_learning import strip_repetitive_opening_from_reply
+                reply = strip_repetitive_opening_from_reply(reply)
+            except ImportError:
+                pass
             
             # Fix template placeholders - comprehensive replacement
             # Twitch: use safe replacement for inappropriate usernames
@@ -3828,15 +4075,27 @@ Avoid repeating phrases; vary tone and pacing. Track emotional undercurrents acr
                 if len(reply) > 600:
                     reply = reply[:600].rsplit(' ', 1)[0] + '...'
             
-            # Save to DNA memory
-            save_dna_memory(user_message, reply, platform, username, user_id=user_id)
-            
-            # Store turn in HIM+JEPA brain
-            if LUNA_BRAIN_AVAILABLE and brain_store_turn is not None:
+            # StoreAgent: save to DNA memory and brain
+            if LUNA_AGENTS_AVAILABLE and run_store:
                 try:
-                    brain_store_turn(user_message, reply, user_id=user_id, channel_id=channel_id)
+                    run_store(user_message, reply, platform, username,
+                              user_id=user_id, channel_id=channel_id,
+                              brain_store_turn=brain_store_turn if LUNA_BRAIN_AVAILABLE else None)
                 except Exception as e:
-                    print(f"⚠️ Brain store_turn error: {e}")
+                    print(f"⚠️ StoreAgent error: {e}")
+                    save_dna_memory(user_message, reply, platform, username, user_id=user_id)
+                    if LUNA_BRAIN_AVAILABLE and brain_store_turn:
+                        try:
+                            brain_store_turn(user_message, reply, user_id=user_id, channel_id=channel_id)
+                        except Exception:
+                            pass
+            else:
+                save_dna_memory(user_message, reply, platform, username, user_id=user_id)
+                if LUNA_BRAIN_AVAILABLE and brain_store_turn is not None:
+                    try:
+                        brain_store_turn(user_message, reply, user_id=user_id, channel_id=channel_id)
+                    except Exception as e:
+                        print(f"⚠️ Brain store_turn error: {e}")
             
             # Update autonomous state based on interaction
             self._update_autonomous_state(user_message, reply, username)
@@ -4839,6 +5098,21 @@ class LunaGUI:
             cursor="hand2"
         )
         self.clear_tts_button.pack(side=tk.LEFT, padx=(0, 15))
+
+        # 5. View Agents button (memory agents activity)
+        self.agents_button = tk.Button(
+            control_frame,
+            text="🧠 Agents",
+            command=self._open_agents_window,
+            font=("Segoe UI", 12, "bold"),
+            bg="#2d3748",
+            fg="white",
+            padx=20,
+            pady=8,
+            relief="flat",
+            cursor="hand2"
+        )
+        self.agents_button.pack(side=tk.LEFT, padx=(0, 15))
         
         # TTS status
         self.tts_enabled = False
@@ -5176,6 +5450,47 @@ Unique Users: {stats.get('unique_users', 0)}"""
         # Schedule next update
         self.root.after(2000, self.update_status_display)
     
+    def _open_agents_window(self):
+        """Open Agents GUI window showing memory agent activity."""
+        if not LUNA_AGENTS_AVAILABLE or not AgentLogger:
+            messagebox.showinfo("Agents", "Luna agents not available.")
+            return
+        if getattr(self, "_agents_window", None) and self._agents_window.winfo_exists():
+            self._agents_window.lift()
+            self._agents_window.focus()
+            return
+        top = tk.Toplevel(self.root)
+        self._agents_window = top
+        top.title("Luna Agents — Memory & Recall")
+        top.geometry("700x450")
+        top.configure(bg="#1e1e2e")
+        tk.Label(top, text="Agent activity (Extract | Store | Recall | Organize | Persist)", font=("Segoe UI", 11, "bold"), bg="#1e1e2e", fg="#eaeaea").pack(pady=5)
+        log_text = scrolledtext.ScrolledText(top, wrap=tk.WORD, font=("Consolas", 10), bg="#1e1e1e", fg="#d4d4d4", height=22)
+        log_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        log_text.tag_configure("ok", foreground="#4ec9b0")
+        log_text.tag_configure("error", foreground="#f48771")
+        log_text.tag_configure("skip", foreground="#808080")
+        def refresh():
+            if not top.winfo_exists():
+                return
+            try:
+                events = AgentLogger.get().get_recent(80)
+                log_text.config(state=tk.NORMAL)
+                log_text.delete(1.0, tk.END)
+                for e in events:
+                    tag = {"ok": "ok", "error": "error", "skip": "skip"}.get(e.status, "")
+                    log_text.insert(tk.END, e.to_line() + "\n", tag)
+                log_text.see(tk.END)
+                log_text.config(state=tk.NORMAL)
+            except Exception:
+                pass
+            top.after(2000, refresh)
+        def on_close():
+            self._agents_window = None
+            top.destroy()
+        top.protocol("WM_DELETE_WINDOW", on_close)
+        refresh()
+
     def create_autonomous_window(self):
         """Create a separate window to show Luna's autonomous activities"""
         self.autonomous_window = tk.Toplevel(self.root)

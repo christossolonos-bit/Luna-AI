@@ -38,8 +38,31 @@ def _extract_mentioned_users(message: str) -> List[str]:
     return mentioned
 
 
-def _format_user_facts_explicit(username: str, facts: list, profile: dict) -> str:
-    """Format facts as explicit key=value for exact recall."""
+def _detect_fact_question_type(message: str) -> Optional[str]:
+    """Detect fact type asked (age, name, location, etc.) for surfacing the right answer."""
+    m = message.strip().lower()
+    if re.search(r'\b(age|how old|years old|my age)\b', m):
+        return "age"
+    if re.search(r'\b(my name|what\'?s my name|name\?|who am i)\b', m):
+        return "name"
+    if re.search(r'\b(where (do i|am i) live|from|location|my location)\b', m):
+        return "location"
+    if re.search(r'\b(what do i (do|like)|my job|occupation|work)\b', m):
+        return "occupation"
+    return None
+
+
+def _get_fact_value(facts: list, fact_type: str) -> Optional[str]:
+    """Get first value for fact_type from facts list."""
+    for f in facts:
+        if f.get("fact_type") == fact_type:
+            return f.get("fact_value")
+    return None
+
+
+def _format_user_facts_explicit(username: str, facts: list, profile: dict,
+                                question_type: Optional[str] = None) -> str:
+    """Format facts as explicit key=value for exact recall. Prioritize question_type first."""
     lines = [f"{username}:"]
     by_type = {}
     for f in facts:
@@ -48,7 +71,13 @@ def _format_user_facts_explicit(username: str, facts: list, profile: dict) -> st
             by_type[t] = []
         if v not in by_type[t]:
             by_type[t].append(v)
-    for t, vals in sorted(by_type.items()):
+    # Sort: put question-relevant fact first when detected
+    items = sorted(by_type.items())
+    if question_type and question_type in by_type:
+        items = [(question_type, by_type[question_type])] + [
+            (k, v) for k, v in items if k != question_type
+        ]
+    for t, vals in items:
         lines.append(f"  {t}={', '.join(vals[:3])}")
     if profile:
         if profile.get("interests"):
@@ -92,6 +121,9 @@ def search_and_inject_memories(
     # 2. Username aliases (passed from caller - dynamic from platform_user_id)
     profile_usernames = usernames
 
+    # 2b. Detect fact question type for surfacing the right answer
+    question_type = _detect_fact_question_type(user_message)
+
     # 3. EXACT FACTS block - per-user key=value format for precise recall (no hallucination)
     facts_block = []
     # Current speaker's facts
@@ -106,7 +138,9 @@ def search_and_inject_memories(
                 curr_facts = curr_facts + [{"fact_type": "name", "fact_value": "Chris"}]
     except ImportError:
         pass
-    curr_explicit = _format_user_facts_explicit(username, curr_facts, curr_profile or {})
+    curr_explicit = _format_user_facts_explicit(
+        username, curr_facts, curr_profile or {}, question_type=question_type
+    )
     if curr_explicit:
         facts_block.append(curr_explicit)
     # OTHER users mentioned in the message (e.g. "where is Chris from?" from Travis)
@@ -126,15 +160,24 @@ def search_and_inject_memories(
         if m_explicit:
             facts_block.append(m_explicit)
     if facts_block:
+        # When user asks a fact question and we have the answer, surface it prominently
+        answer_hint = ""
+        if question_type:
+            fact_val = _get_fact_value(curr_facts, question_type)
+            if fact_val:
+                label = {"age": "age", "name": "name", "location": "where they live",
+                        "occupation": "what they do"}.get(question_type, question_type)
+                answer_hint = f"\n⚡ USER IS ASKING ABOUT {label.upper()}: {username}'s {question_type}={fact_val}. USE THIS VALUE in your answer.\n"
         parts.append(f"""
 ═══════════════════════════════════════════════════════════════
 📋 EXACT FACTS (permanent database - GROUND TRUTH ONLY)
 ═══════════════════════════════════════════════════════════════
-
+{answer_hint}
 {chr(10).join(facts_block)}
 
 CRITICAL - FACTUAL ACCURACY:
 - Answer ONLY from the facts above. Never invent details (e.g. snacks, jokes, anecdotes) that are not explicitly listed.
+- When asked about a fact you HAVE above (age, name, location, etc.), you MUST use that value. Never say "I don't know" for a fact that is listed.
 - When asked "what is my name?" use the name= value above, NOT their Discord/Twitch username.
 - When asked "who is X?" or "tell me about X": use ONLY the EXACT FACTS for X. If X has no facts or few facts, say briefly what you know and admit you don't know more. Do NOT make up stories, habits, or details.
 - If a fact is not listed, say "I don't remember" or "I'm not sure"—never guess or hallucinate.
@@ -157,16 +200,21 @@ CRITICAL - FACTUAL ACCURACY:
         username, user_message, limit=5, usernames=profile_usernames
     )
     if mems:
+        try:
+            from luna_continuous_learning import sanitize_repetitive_luna_opening
+        except ImportError:
+            def sanitize_repetitive_luna_opening(x): return x
         mem_lines = []
         for m in mems:
             um = m.get("user_message", "")[:80]
-            lr = m.get("luna_response", "")[:60]
+            lr = sanitize_repetitive_luna_opening(m.get("luna_response", "")[:60])
             mem_lines.append(f"  - They: \"{um}\" → You: \"{lr}\"")
         parts.append(f"""
 📌 RELEVANT MEMORIES (for this message):
 {chr(10).join(mem_lines)}
 
 → Use when directly relevant. WARNING: Past replies may contain errors or inventions. For factual questions about people, rely on EXACT FACTS only—do not repeat unverified details from memories.
+→ CRITICAL: Do NOT repeat or recap your past replies (the "You: ..." lines above) in your response. They are for context only. Answer ONLY the current message.
 """)
 
     # 5. Profile gaps (what to ask)

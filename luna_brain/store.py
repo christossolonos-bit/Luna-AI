@@ -84,12 +84,45 @@ class BrainStore:
         # Fallback: last k turns
         return list(turns[-k:])
 
-    def format_context(self, entries: List[dict], max_chars: int = 1500) -> str:
+    def format_context(self, entries: List[dict], max_chars: int = 1500, exclude_last_luna: bool = True) -> str:
+        """Format entries for prompt. exclude_last_luna=True omits Luna's reply from the most recent turn to prevent echoing."""
         lines = []
-        for e in entries:
-            line = f"User: {e.get('user', '')[:200]} ... Luna: {e.get('luna', '')[:200]}"
-            lines.append(line)
+        for i, e in enumerate(entries):
+            user_part = f"User: {e.get('user', '')[:200]}"
+            if exclude_last_luna and i == len(entries) - 1:
+                lines.append(user_part)  # Last turn: show only user message, not Luna's reply
+            else:
+                luna_part = e.get('luna', '')[:200]
+                lines.append(f"{user_part} ... Luna: {luna_part}")
         text = "\n".join(lines)
         if len(text) > max_chars:
             text = text[-max_chars:]
         return text.strip() or ""
+
+    def export_state(self) -> dict:
+        """Export turns for persistence (no embeddings - restored turns use recency fallback)."""
+        return {
+            "turns": [
+                {
+                    "user": e.get("user", ""),
+                    "luna": e.get("luna", ""),
+                    "channel_id": e.get("channel_id", ""),
+                    "user_id": e.get("user_id", ""),
+                    "ts": e.get("ts", 0),
+                }
+                for e in self._turns
+            ]
+        }
+
+    def import_state(self, data: dict) -> int:
+        """Import turns from persisted data. Returns count loaded."""
+        turns = data.get("turns", [])
+        for t in turns:
+            self.add(
+                user_text=t.get("user", ""),
+                luna_text=t.get("luna", ""),
+                embedding=None,
+                channel_id=t.get("channel_id") or "",
+                user_id=t.get("user_id") or "",
+            )
+        return len(turns)
