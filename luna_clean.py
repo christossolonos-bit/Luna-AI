@@ -2218,14 +2218,32 @@ class LunaClean:
                     print(f"👂 Not for Luna (luna={result['luna_score']:.1f} other={result['other_score']:.1f}) {result.get('luna_reasons', [])} vs {result.get('other_reasons', [])}")
                 return
 
+            # Show typing indicator while Luna thinks (Discord typing lasts ~10 sec, so we loop)
+            typing_stop = threading.Event()
+            async def _typing_loop():
+                try:
+                    while not typing_stop.is_set():
+                        async with message.channel.typing():
+                            for _ in range(10):
+                                await asyncio.sleep(1)
+                                if typing_stop.is_set():
+                                    break
+                except Exception:
+                    pass
+            if self.discord_client:
+                asyncio.run_coroutine_threadsafe(_typing_loop(), self.discord_client.loop)
+
             # Generate response (pass user_id and channel_id for dynamic profile and brain)
-            response = self.generate_response(
-                message.content, 
-                message.author.display_name, 
-                "discord",
-                user_id=str(message.author.id),
-                channel_id=str(message.channel.id),
-            )
+            try:
+                response = self.generate_response(
+                    message.content, 
+                    message.author.display_name, 
+                    "discord",
+                    user_id=str(message.author.id),
+                    channel_id=str(message.channel.id),
+                )
+            finally:
+                typing_stop.set()
             
             # Send response only in target channel
             if self.discord_client and response:

@@ -1,9 +1,9 @@
 # Arlan The Long
 
-> Profile • Last updated: 2026-03-03 03:39
+> Profile • Last updated: 2026-03-03 05:07
 
 ## Name
-—
+Ms6RB
 
 ## Location
 —
@@ -18,7 +18,7 @@
 —
 
 ## Topics Discussed
-https://rella.sa/
+this, say?, ms6rb, https://rella.sa/, bold, consider, actual, something, nickname
 
 ## Relationship
 —
