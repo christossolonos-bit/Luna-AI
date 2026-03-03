@@ -19,6 +19,10 @@ from urllib.request import urlopen, Request
 YOUTUBE_CHANNEL_ID = "UCqIjEHOABb8fwbKbjDhVRuA"
 YOUTUBE_RSS_URL = f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}"
 
+# Credentials path (shared with !comment for YouTube API - OAuth credentials.json)
+YOUTUBE_CREDENTIALS_PATH = Path(__file__).parent / "credentials.json"
+YOUTUBE_TOKEN_PATH = Path(__file__).parent / "youtube_token.json"
+
 # Persistent browser data (saves your X login)
 USER_DATA_DIR = Path(__file__).parent / ".x_browser_data"
 

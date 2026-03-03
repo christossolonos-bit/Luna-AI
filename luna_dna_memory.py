@@ -30,6 +30,24 @@ import random
 # Set via set_known_user_aliases() or from config
 _KNOWN_USER_ALIASES: Dict[str, List[str]] = {}
 
+# Profile MD sync hook: called after save_user_fact/save_user_profile (registered by luna_clean)
+_profile_md_sync_hooks: List = []
+
+
+def register_profile_md_sync_hook(fn):
+    """Register a hook to sync profile to MD after DNA updates."""
+    if fn and fn not in _profile_md_sync_hooks:
+        _profile_md_sync_hooks.append(fn)
+
+
+def _notify_profile_updated(username: str, usernames: List[str] = None):
+    """Notify hooks that profile was updated."""
+    for h in _profile_md_sync_hooks:
+        try:
+            h(username, usernames)
+        except Exception:
+            pass
+
 
 def set_known_user_aliases(mapping: Dict[str, List[str]]):
     """Seed known user aliases (e.g. from config). Key = platform_user_id like 'discord:123'."""
@@ -539,6 +557,7 @@ class LunaDNAMemorySystem:
             VALUES (?, ?, ?, ?, ?)
         ''', (fact_id, uname, ftype, fv[:500], time.time()))
         self.conn.commit()
+        _notify_profile_updated(uname)
 
     def get_user_facts(self, username: str, usernames: List[str] = None) -> List[Dict]:
         """Get all stored facts for user(s). usernames: aliases to merge (e.g. Chris, solonaras)."""
@@ -608,6 +627,7 @@ class LunaDNAMemorySystem:
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', params)
         self.conn.commit()
+        _notify_profile_updated(str(username or ""))
 
     def link_user_identity(self, platform_user_id: str, display_name: str, platform: str):
         """Link a display_name to a platform user ID (e.g. discord:123). Builds dynamic aliases."""

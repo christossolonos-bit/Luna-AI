@@ -1,25 +1,25 @@
 {
   "hormones": {
-    "dopamine": -0.04439973507074735,
-    "serotonin": -0.161809374730872,
-    "cortisol": 0.1280227901978178,
-    "oxytocin": -0.08883064942779377,
-    "melatonin": 0.06802338125156036,
-    "novelty": 0.14952072257403587
+    "dopamine": -0.07694068341325244,
+    "serotonin": -0.13793099624295943,
+    "cortisol": 0.08136738529703023,
+    "oxytocin": -0.009160821166280399,
+    "melatonin": 0.04789908108870898,
+    "novelty": 0.1134320990317757
   },
   "global_state": {
-    "teasing_level": 0.39,
+    "teasing_level": 0.44000000000000006,
     "emoji_rate": 0.35,
     "preferred_length": "medium",
     "vulnerability_level": 0.4,
-    "confidence": 0.62,
-    "playfulness": 0.66,
+    "confidence": 0.63,
+    "playfulness": 0.6900000000000001,
     "verbosity": 0.45599999999999996,
-    "empathy": 0.64,
+    "empathy": 0.66,
     "randomness": 0.33399999999999996,
-    "total_messages_sent": 47,
-    "positive_reactions_count": 10,
+    "total_messages_sent": 56,
+    "positive_reactions_count": 15,
     "negative_reactions_count": 11,
-    "last_updated": 1772406072.6873615
+    "last_updated": 1772478095.203508
   }
 }

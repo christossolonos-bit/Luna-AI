@@ -185,7 +185,20 @@ CRITICAL - FACTUAL ACCURACY:
 ═══════════════════════════════════════════════════════════════
 """)
 
-    # 3b. Full profile analysis (conversations, interests) for context
+    # 3b. Organized profile (MD) — structured sections, Luna asks to fill gaps
+    try:
+        from luna_profile_md import get_profile_md_for_context, get_profile_gaps_from_md
+        profile_md = get_profile_md_for_context(username, usernames=profile_usernames)
+        if profile_md:
+            parts.append(f"""
+📋 ORGANIZED PROFILE FOR {username} (sections to fill when you learn more):
+{profile_md}
+
+→ Use the facts above. Empty sections (—) are gaps: when natural, ask ONE question to fill them. Record their answer.
+""")
+    except ImportError:
+        profile_md = None
+    # 3c. Full profile analysis (conversations, interests) for context
     profile_analysis = get_user_profile_analysis(username, usernames=profile_usernames)
     if profile_analysis:
         parts.append(f"""
@@ -217,12 +230,19 @@ CRITICAL - FACTUAL ACCURACY:
 → CRITICAL: Do NOT repeat or recap your past replies (the "You: ..." lines above) in your response. They are for context only. Answer ONLY the current message.
 """)
 
-    # 5. Profile gaps (what to ask)
-    gaps = get_profile_gaps(username, usernames=profile_usernames)
+    # 5. Profile gaps (what to ask) — prefer MD gaps when available
+    try:
+        from luna_profile_md import get_profile_gaps_from_md, load_profile_md
+        if load_profile_md(username):
+            gaps = get_profile_gaps_from_md(username)
+        else:
+            gaps = get_profile_gaps(username, usernames=profile_usernames)
+    except ImportError:
+        gaps = get_profile_gaps(username, usernames=profile_usernames)
     if gaps and username.lower() not in ["chris", "solonaras"]:
         gaps_str = ", ".join(gaps)
         parts.append(f"""
-💡 LEARN: You don't know their {gaps_str}. When natural, ask ONE question to learn. Record their answer.
+💡 LEARN: Profile sections to fill: {gaps_str}. When natural, ask ONE question to learn. Record their answer—it will be saved to their profile.
 """)
 
     return "\n".join(parts).strip()

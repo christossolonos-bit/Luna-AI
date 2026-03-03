@@ -50,7 +50,7 @@ from urllib.parse import urlparse, urljoin
 from dotenv import load_dotenv
 from luna_dna_memory import (
     initialize_dna_memory, save_dna_memory, save_facts_from_message, link_user_identity,
-    recall_dna_memories, get_dna_memory,
+    recall_dna_memories, get_dna_memory, register_profile_md_sync_hook,
     recall_dna_memories_with_vector_reasoning, get_user_facts,
     save_user_profile, get_user_profile, get_user_aliases,
     set_known_user_aliases, seed_user_identity,
@@ -795,6 +795,17 @@ class LunaClean:
             for uname in get_user_aliases("discord", "Chris", str(chris_id) if chris_id else None):
                 self.dna_memory.save_user_fact(uname, "name", "Chris")
 
+        # Profile MD: sync to markdown files when DNA updates
+        try:
+            from luna_profile_md import sync_profile_from_dna
+            register_profile_md_sync_hook(lambda u, us=None: sync_profile_from_dna(u, usernames=us))
+            # Initial sync for Chris so profile MD exists from start
+            if chris_id:
+                aliases = get_user_aliases("discord", "Chris", str(chris_id))
+                sync_profile_from_dna("Chris", usernames=aliases)
+        except ImportError:
+            pass
+
         # PersistAgent: load brain from disk for continuity across restarts
         if LUNA_AGENTS_AVAILABLE and persist_load:
             try:
@@ -802,6 +813,9 @@ class LunaClean:
             except Exception as e:
                 print(f"⚠️ PersistAgent load: {e}")
         atexit.register(_persist_save_on_exit)
+
+        # Profile interview state for !ask profile (key: (channel_id, user_id) -> {gaps, step, username})
+        self.profile_interview_state = {}
 
         # Initialize global context awareness with user profiles and channel context
         self.global_context = {
@@ -1717,8 +1731,74 @@ class LunaClean:
             
             print(f"💬 Luna responding to {message.author.display_name} in #{message.channel.name}")
             
-            msg_lower = message.content.strip().lower()
+            msg_lower = (message.content or "").strip().lower()
             author_id = message.author.id
+            channel_id = message.channel.id
+            username = message.author.display_name or str(author_id)
+            content = (message.content or "").strip()
+            
+            # !ask profile: interview mode — handle answer or start interview
+            state_key = (channel_id, author_id)
+            if state_key in self.profile_interview_state:
+                state = self.profile_interview_state[state_key]
+                gaps = state.get("gaps", [])
+                step = state.get("step", 0)
+                if content.lower() in ("cancel", "stop", "nevermind", "never mind"):
+                    del self.profile_interview_state[state_key]
+                    reply = "Profile interview cancelled."
+                elif step < len(gaps) and content:
+                    gap = gaps[step]
+                    try:
+                        from luna_profile_md import save_profile_answer, PROFILE_QUESTIONS
+                        save_profile_answer(username, gap, content, str(author_id))
+                    except ImportError:
+                        pass
+                    step += 1
+                    if step >= len(gaps):
+                        del self.profile_interview_state[state_key]
+                        reply = "✅ **Profile updated!** I've saved everything you told me."
+                    else:
+                        state["step"] = step
+                        next_gap = gaps[step]
+                        q = PROFILE_QUESTIONS.get(next_gap, f"What about your {next_gap}?")
+                        reply = q
+                else:
+                    del self.profile_interview_state[state_key]
+                    reply = "Profile interview cancelled."
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        message.channel.send(reply),
+                        self.discord_client.loop
+                    ).result(timeout=10)
+                except Exception:
+                    pass
+                return
+            
+            if msg_lower in ("!ask profile", "ask profile"):
+                try:
+                    from luna_profile_md import (
+                        sync_profile_from_dna, ALL_PROFILE_SECTIONS,
+                        PROFILE_QUESTIONS,
+                    )
+                    from luna_dna_memory import get_user_aliases
+                    aliases = get_user_aliases("discord", username, str(author_id))
+                    sync_profile_from_dna(username, usernames=aliases)
+                    sections = ALL_PROFILE_SECTIONS
+                    self.profile_interview_state[state_key] = {
+                        "gaps": sections, "step": 0, "username": username,
+                    }
+                    q = PROFILE_QUESTIONS.get(sections[0], f"What about your {sections[0]}?")
+                    reply = f"📋 **Profile interview** — I'll ask {len(sections)} questions. You can update any answer.\n\n{q}"
+                except ImportError as e:
+                    reply = f"❌ Profile system not available: {e}"
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        message.channel.send(reply),
+                        self.discord_client.loop
+                    ).result(timeout=10)
+                except Exception:
+                    pass
+                return
             
             # Admin commands (admin compile profiles, admin list profiles)
             if author_id in ADMIN_USER_IDS:
@@ -1864,6 +1944,34 @@ class LunaClean:
                             message.channel.send(f"🎵 Creating song on Suno: **{desc[:80]}{'...' if len(desc) > 80 else ''}**\nBrowser opening..."),
                             self.discord_client.loop
                         ).result(timeout=5)
+                    except Exception:
+                        pass
+                    return
+                if msg_lower.startswith("!comment ") or msg_lower.startswith("comment "):
+                    idx = msg_lower.find("comment ") + len("comment ")
+                    rest = (message.content or "")[idx:].strip()
+                    yt_url = extract_youtube_url(rest)
+                    comment_text = rest
+                    if yt_url:
+                        comment_text = rest.replace(yt_url, "").strip()
+                    if not yt_url:
+                        reply = "❌ Give me a YouTube link! Example: `!comment https://youtube.com/watch?v=xxx Great video!`"
+                    elif not comment_text:
+                        reply = "❌ Give me a comment! Example: `!comment https://youtube.com/watch?v=xxx Great video!`"
+                    else:
+                        try:
+                            from youtube_comment import post_comment
+                            ok, msg = post_comment(yt_url, comment_text)
+                            reply = f"✅ {msg}" if ok else f"❌ {msg}"
+                        except ImportError:
+                            reply = "❌ Install: pip install google-api-python-client google-auth-oauthlib"
+                        except Exception as e:
+                            reply = f"❌ {str(e)[:200]}"
+                    try:
+                        asyncio.run_coroutine_threadsafe(
+                            message.channel.send(reply),
+                            self.discord_client.loop
+                        ).result(timeout=10)
                     except Exception:
                         pass
                     return
