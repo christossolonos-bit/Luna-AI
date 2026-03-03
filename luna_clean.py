@@ -1683,15 +1683,16 @@ class LunaClean:
     def _process_discord_message(self, message):
         """Process Discord message and generate response"""
         try:
-            # Only reply in allowed channels
+            # Only reply in allowed channels (or DMs - friends can message Luna directly)
             allowed_channels = [
                 1387526539293233308   # Primary channel (luna-chat) only
             ]
+            is_dm = isinstance(message.channel, discord.DMChannel)
+            channel_name = f"DM with {message.channel.recipient}" if is_dm else f"#{getattr(message.channel, 'name', '?')}"
             
             # Debug: Print channel info to help identify the correct channel ID
-            print(f"🔍 Channel ID: {message.channel.id}, Channel Name: #{message.channel.name}")
-            print(f"🔍 Allowed channels: {allowed_channels}")
-            print(f"🔍 Is channel allowed: {message.channel.id in allowed_channels}")
+            print(f"🔍 Channel ID: {message.channel.id}, Channel: {channel_name}")
+            print(f"🔍 Allowed channels: {allowed_channels}, Is DM: {is_dm}")
             
             # Check if this is Akane (bot user)
             if message.author.id == 1431703938796748811:
@@ -1723,13 +1724,13 @@ class LunaClean:
                     pass
             
             # Always listen and learn from all messages (for memory/context)
-            # But only respond in allowed channels
-            if message.channel.id not in allowed_channels:
+            # But only respond in allowed channels OR in DMs (friends can message Luna)
+            if not is_dm and message.channel.id not in allowed_channels:
                 # Still process for learning/memory, but don't respond
-                print(f"📖 Luna listening to {message.author.display_name} in #{message.channel.name} (learning only)")
+                print(f"📖 Luna listening to {message.author.display_name} in {channel_name} (learning only)")
                 return
             
-            print(f"💬 Luna responding to {message.author.display_name} in #{message.channel.name}")
+            print(f"💬 Luna responding to {message.author.display_name} in {channel_name}")
             
             msg_lower = (message.content or "").strip().lower()
             author_id = message.author.id
