@@ -1,11 +1,11 @@
 {
   "hormones": {
-    "dopamine": -0.27580788749336643,
-    "serotonin": -0.14480494501859656,
-    "cortisol": 0.07827176326729178,
-    "oxytocin": 0.05051482562259834,
-    "melatonin": 0.02619692569434383,
-    "novelty": 0.008072575559767883
+    "dopamine": -0.3473358728272754,
+    "serotonin": -0.10301548120529902,
+    "cortisol": 0.10387055097684987,
+    "oxytocin": 0.10018990968833415,
+    "melatonin": -0.0017324437089733542,
+    "novelty": -0.015352827692793648
   },
   "global_state": {
     "teasing_level": 0.45000000000000007,
@@ -17,7 +17,7 @@
     "verbosity": 0.45199999999999996,
     "empathy": 0.668,
     "randomness": 0.32799999999999996,
-    "total_messages_sent": 62,
+    "total_messages_sent": 64,
     "positive_reactions_count": 17,
     "negative_reactions_count": 12,
     "last_updated": 1772500557.98442

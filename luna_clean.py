@@ -2189,8 +2189,8 @@ class LunaClean:
                     except Exception as alt_error:
                         print(f"❌ Alternative send method also failed: {alt_error}")
                 
-                # Speak in Discord VC: join Chris's VC if he's in one, else Fusion AI default
-                if self.discord_client and self.audio_available:
+                # Speak in Discord VC: join Chris's VC if he's in one, else Fusion AI default (skip for DMs)
+                if self.discord_client and self.audio_available and not is_dm:
                     def _speak_in_vc():
                         try:
                             loop = self.discord_client.loop
