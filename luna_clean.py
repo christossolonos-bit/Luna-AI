@@ -54,7 +54,7 @@ from luna_dna_memory import (
     recall_dna_memories_with_vector_reasoning, get_user_facts,
     save_user_profile, get_user_profile, get_user_aliases,
     set_known_user_aliases, seed_user_identity,
-    compile_profiles_from_history, get_all_known_profiles, clean_bad_facts,
+    compile_profiles_from_history, get_all_known_profiles, clean_bad_facts, clean_duplicate_memories,
 )
 from luna_memory_search import search_and_inject_memories
 try:
@@ -149,7 +149,7 @@ OLLAMA_CONFIG = {
     "stop": ["User:", "Chris:", "\n\n\n"],
     "repeat_penalty": 1.2,    # Stronger penalty for repeating tokens
     "presence_penalty": 0.5,  # Penalize repeating topics/phrases from context
-    "frequency_penalty": 0.65  # Penalize repeating same words (reduces "Oh? X checking in..." loops)
+    "frequency_penalty": 0.9  # Penalize repeating same words (reduces "Oh? X checking in..." loops)
 }
 
 # TTS Configuration - Edge TTS (Free!) for GUI
@@ -1824,7 +1824,8 @@ class LunaClean:
                     try:
                         if LUNA_AGENTS_AVAILABLE and run_organize:
                             result = run_organize()
-                            reply = f"✅ **OrganizeAgent complete**\nProcessed {result['processed']} msgs, added {result['facts_added']} facts, removed {result['facts_deleted']} bad facts."
+                            dup = result.get('duplicates_deleted', 0)
+                            reply = f"✅ **OrganizeAgent complete**\nProcessed {result['processed']} msgs, added {result['facts_added']} facts, removed {result['facts_deleted']} bad facts, {dup} duplicate memories."
                         else:
                             cr = compile_profiles_from_history()
                             cl = clean_bad_facts()
@@ -1848,6 +1849,21 @@ class LunaClean:
                         reply = f"✅ **Clean bad facts complete**\nRemoved {result['deleted']} junk facts.\nBy type: {by_type_str}"
                     except Exception as e:
                         reply = f"❌ Clean failed: {e}"
+                    try:
+                        future = asyncio.run_coroutine_threadsafe(
+                            message.channel.send(reply),
+                            self.discord_client.loop
+                        )
+                        future.result(timeout=10)
+                    except Exception as pe:
+                        print(f"⚠️ Admin reply error: {pe}")
+                    return
+                if msg_lower in ("admin clean duplicates", "admin clean duplicate memories", "!admin clean duplicates"):
+                    try:
+                        result = clean_duplicate_memories()
+                        reply = f"✅ **Clean duplicate memories complete**\nRemoved {result['deleted']} duplicate strands, kept {result['kept']} unique memories."
+                    except Exception as e:
+                        reply = f"❌ Clean duplicates failed: {e}"
                     try:
                         future = asyncio.run_coroutine_threadsafe(
                             message.channel.send(reply),

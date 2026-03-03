@@ -945,6 +945,44 @@ class LunaDNAMemorySystem:
         self.conn.commit()
         return {"deleted": len(to_delete), "by_type": by_type}
 
+    def clean_duplicate_memories(self) -> Dict:
+        """
+        Remove duplicate memory strands that cause phrase repetition.
+        Groups by (username, user_message[:60], luna_response[:80]) - keeps the strongest/most recent.
+        Returns {deleted: int, kept: int}.
+        """
+        def _norm(s: str, n: int) -> str:
+            if not s:
+                return ""
+            return " ".join((s or "").strip().lower().split())[:n]
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT strand_id, username, user_message, luna_response, strength, timestamp FROM memory_strands"
+        )
+        rows = cursor.fetchall()
+        # Group by (username, norm_user, norm_luna) -> list of (strand_id, strength, timestamp)
+        groups: Dict[Tuple, List[Tuple]] = {}
+        for strand_id, username, um, lr, strength, ts in rows:
+            key = (username or "", _norm(um, 60), _norm(lr, 80))
+            if key not in groups:
+                groups[key] = []
+            groups[key].append((strand_id, strength or 0, ts or 0))
+
+        to_delete = []
+        for key, items in groups.items():
+            if len(items) <= 1:
+                continue
+            # Keep the one with highest strength, then most recent
+            items.sort(key=lambda x: (x[1], x[2]), reverse=True)
+            for item in items[1:]:  # Delete all but the best
+                to_delete.append(item[0])
+
+        for strand_id in to_delete:
+            cursor.execute("DELETE FROM memory_strands WHERE strand_id = ?", (strand_id,))
+        self.conn.commit()
+        return {"deleted": len(to_delete), "kept": len(rows) - len(to_delete)}
+
     def close(self):
         """Close the genome database"""
         self.conn.close()
@@ -1147,6 +1185,13 @@ def clean_bad_facts() -> Dict:
     if _dna_memory_system:
         return _dna_memory_system.clean_bad_facts()
     return {"deleted": 0, "by_type": {}}
+
+
+def clean_duplicate_memories() -> Dict:
+    """Admin: remove duplicate memory strands that cause phrase repetition. Returns {deleted, kept}."""
+    if not _dna_memory_system:
+        return {"deleted": 0, "kept": 0}
+    return _dna_memory_system.clean_duplicate_memories()
 
 
 def get_all_known_profiles() -> List[Dict]:

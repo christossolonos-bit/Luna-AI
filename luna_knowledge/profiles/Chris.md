@@ -1,38 +1,38 @@
 # Chris
 
-> Profile • Last updated: 2026-03-03 02:14
+> Profile • Last updated: 2026-03-03 03:28
 
 ## Name
-Chris
+to be a good boy
 
 ## Location
-Cyprus
+—
 
 ## Interests
-- you wild
-- that
-- wassup
 - it when you try to hide your se
-- test
-- wheather
 - seeing your predator mode
-- pssty
-- the gangsta vibe image
-- anime and Gaming
-- the solo player trope that find
-- psst
+- the sound of that
+- test
+- it when you play hard to get bu
+- the way you made it sound like
+- testing
+- about you
+- that you think im your puppet b
+- even more when you are submisiv
+- your puppy eyes
+- you
+- anime
 - you girl
-- the bitesized productions
-- akane
+- you wild
 
 ## Occupation
 full grown human haha
 
 ## Preferences
-preference_0=you get your claws out, preference_1=play video games
+preference_0=you in my arms cuddling
 
 ## Topics Discussed
-yours, ready, around., time, treat, helena, look, perfect, orgasm, leave.
+something, hands, corner,, stick, warframe, titan, remember, leave., love, underatand
 
 ## Relationship
 —

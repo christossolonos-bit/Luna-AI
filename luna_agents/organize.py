@@ -18,7 +18,7 @@ def run_organize() -> Dict[str, Any]:
     log.log("OrganizeAgent", "run", "organizing memory", "start")
 
     try:
-        from luna_dna_memory import compile_profiles_from_history, clean_bad_facts
+        from luna_dna_memory import compile_profiles_from_history, clean_bad_facts, clean_duplicate_memories
 
         compile_result = compile_profiles_from_history()
         log.log(
@@ -36,11 +36,20 @@ def run_organize() -> Dict[str, Any]:
             "ok",
         )
 
+        dup_result = clean_duplicate_memories()
+        log.log(
+            "OrganizeAgent",
+            "dedupe",
+            f"removed {dup_result['deleted']} duplicate memories",
+            "ok",
+        )
+
         return {
             "processed": compile_result["processed"],
             "users_updated": compile_result["users_updated"],
             "facts_added": compile_result["facts_added"],
             "facts_deleted": clean_result["deleted"],
+            "duplicates_deleted": dup_result["deleted"],
         }
     except Exception as e:
         log.log("OrganizeAgent", "error", str(e), "error")
