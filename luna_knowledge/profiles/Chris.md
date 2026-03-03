@@ -1,35 +1,35 @@
 # Chris
 
-> Profile • Last updated: 2026-03-03 03:28
+> Profile • Last updated: 2026-03-03 04:38
 
 ## Name
-to be a good boy
+Chris
 
 ## Location
-—
+Cyprus
 
 ## Interests
-- it when you try to hide your se
-- seeing your predator mode
-- the sound of that
-- test
-- it when you play hard to get bu
-- the way you made it sound like
-- testing
 - about you
-- that you think im your puppet b
+- wheather
+- fetch
+- it when you try to hide your se
+- psst
+- to play video games
 - even more when you are submisiv
-- your puppy eyes
-- you
-- anime
-- you girl
-- you wild
+- the gangsta vibe image
+- Profile
+- it when you play hard to get bu
+- yeah
+- haha
+- heey
+- dumplings
+- the sound of that
 
 ## Occupation
 full grown human haha
 
 ## Preferences
-preference_0=you in my arms cuddling
+preference_0=you get your claws out, preference_1=play video games
 
 ## Topics Discussed
 something, hands, corner,, stick, warframe, titan, remember, leave., love, underatand

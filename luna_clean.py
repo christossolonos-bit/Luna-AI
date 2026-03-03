@@ -1683,12 +1683,16 @@ class LunaClean:
     def _process_discord_message(self, message):
         """Process Discord message and generate response"""
         try:
+            if not message or not message.author:
+                return
             # Only reply in allowed channels (or DMs - friends can message Luna directly)
             allowed_channels = [
                 1387526539293233308   # Primary channel (luna-chat) only
             ]
+            # DMChannel has no .name; use getattr to avoid AttributeError
             is_dm = isinstance(message.channel, discord.DMChannel)
-            channel_name = f"DM with {message.channel.recipient}" if is_dm else f"#{getattr(message.channel, 'name', '?')}"
+            ch_name = getattr(message.channel, "name", None)
+            channel_name = f"DM with {getattr(message.channel, 'recipient', None) or message.author}" if is_dm else (f"#{ch_name}" if ch_name else "?")
             
             # Debug: Print channel info to help identify the correct channel ID
             print(f"🔍 Channel ID: {message.channel.id}, Channel: {channel_name}")
@@ -1700,7 +1704,7 @@ class LunaClean:
                 # Luna can interact with Akane as a fellow bot
             
             # Check if this is Rinexis (ignored user)
-            if message.author.display_name.lower() == "rinexis":
+            if message.author and (message.author.display_name or "").lower() == "rinexis":
                 print(f"🚫 Ignoring message from Rinexis")
                 return
             
@@ -2116,20 +2120,24 @@ class LunaClean:
                 recent_msgs = ch_data.get("recent_messages", [])
                 ch_topic = ch_data.get("current_topic")
 
-            directed_at_luna = should_luna_reply(
-                content=content,
-                bot_name=bot_name,
-                is_reply_to_luna=is_reply_to_luna,
-                is_reply_to_other=is_reply_to_other,
-                is_mentioned_luna=is_mentioned_luna,
-                mentioned_other_names=mentioned_other,
-                recent_other_names=["sel", "akane"],
-                greeting_target=greeting_target,
-                is_from_other_bot=message.author.bot if message.author else False,
-                recent_messages=recent_msgs,
-                current_topic=ch_topic,
-                current_author=message.author.display_name if message.author else None,
-            )
+            # In DMs, always reply — the message is always for Luna (only recipient)
+            if is_dm:
+                directed_at_luna = True
+            else:
+                directed_at_luna = should_luna_reply(
+                    content=content,
+                    bot_name=bot_name,
+                    is_reply_to_luna=is_reply_to_luna,
+                    is_reply_to_other=is_reply_to_other,
+                    is_mentioned_luna=is_mentioned_luna,
+                    mentioned_other_names=mentioned_other,
+                    recent_other_names=["sel", "akane"],
+                    greeting_target=greeting_target,
+                    is_from_other_bot=message.author.bot if message.author else False,
+                    recent_messages=recent_msgs,
+                    current_topic=ch_topic,
+                    current_author=message.author.display_name if message.author else None,
+                )
             if not directed_at_luna:
                 if is_explicit_not_for_luna(content):
                     print(f"👂 Not for Luna (user explicitly asked Luna not to answer)")
@@ -2202,6 +2210,8 @@ class LunaClean:
                 
         except Exception as e:
             print(f"Discord message processing error: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _build_profile_embed(self, username: str, user_id: str = None, platform: str = "discord",
                             target_display_name: str = None) -> "discord.Embed":
@@ -3072,7 +3082,7 @@ class LunaClean:
                     if ch:
                         future = asyncio.run_coroutine_threadsafe(ch.send(msg), loop)
                         future.result(timeout=10)
-                        print(f"✅ Luna posted Twitch reply to Discord #{ch.name}")
+                        print(f"✅ Luna posted Twitch reply to Discord #{getattr(ch, 'name', ch.id)}")
             except Exception as e:
                 print(f"⚠️ Twitch→Discord post error: {e}")
         threading.Thread(target=_send, daemon=True).start()
