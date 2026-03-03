@@ -1779,6 +1779,69 @@ class LunaClean:
                     pass
                 return
             
+            if msg_lower in ("!help", "help", "!commands", "commands"):
+                help_text = """**🌙 Luna's Discord Commands**
+
+**General**
+`!play <youtube_url>` — Play a YouTube video in voice channel
+`profile` / `!profile` — Show your profile (facts, interests)
+`profile @user` — Show another user's profile
+`!ask profile` — Profile interview (Luna asks questions to learn about you)
+
+**Music & Social** *(admin)*
+`!share song` — Share a random song from your YouTube channel to X
+`!create song [description]` — Create a song on Suno
+`!comment <youtube_url> <your comment>` — Post a comment on YouTube as Luna
+
+**Triggers** *(no prefix)*
+`youtube [query]` / `google [query]` — Search and inject results
+`time` / `date` — Current time and date
+`improve yourself` / `reflect` — Luna reflects and proposes self-improvements
+`curiosity run` — Run curiosity exploration"""
+                if author_id in ADMIN_USER_IDS:
+                    help_text += """
+
+**Admin**
+`!msg <user_id> <message>` — Send a DM to a user by ID
+`admin compile profiles` — Scan chat and build user profiles
+`admin organize` — Compile, clean bad facts, remove duplicates
+`admin clean bad facts` — Remove junk facts
+`admin clean duplicates` — Remove duplicate memories
+`admin list profiles` — List all known users
+`admin scan` — Scan channel history and memorize"""
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        message.channel.send(help_text),
+                        self.discord_client.loop
+                    ).result(timeout=10)
+                except Exception:
+                    pass
+                return
+
+            if msg_lower.startswith("!msg ") and author_id in ADMIN_USER_IDS:
+                try:
+                    rest = message.content[5:].strip()
+                    parts = rest.split(" ", 1)
+                    if len(parts) >= 2:
+                        target_user_id = int(parts[0])
+                        dm_text = parts[1]
+                        ok = self.send_discord_dm(target_user_id, dm_text)
+                        reply = "✅ DM sent." if ok else "❌ Failed to send DM."
+                    else:
+                        reply = "❌ Use: `!msg <user_id> <message>`"
+                except ValueError:
+                    reply = "❌ Invalid user ID. Must be a number."
+                except Exception as e:
+                    reply = f"❌ Error: {str(e)}"
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        message.channel.send(reply),
+                        self.discord_client.loop
+                    ).result(timeout=10)
+                except Exception:
+                    pass
+                return
+
             if msg_lower in ("!ask profile", "ask profile"):
                 try:
                     from luna_profile_md import (
