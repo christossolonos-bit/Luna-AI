@@ -5377,8 +5377,9 @@ Unique Users: {stats.get('unique_users', 0)}"""
         def process_audio():
             try:
                 if self.audio_data:
-                    # Transcribe the audio
-                    text = self.recognizer.recognize_google(self.audio_data)
+                    # Transcribe the audio (use GOOGLE_API_KEY from env if set)
+                    api_key = os.getenv("GOOGLE_API_KEY")
+                    text = self.recognizer.recognize_google(self.audio_data, key=api_key) if api_key else self.recognizer.recognize_google(self.audio_data)
                     
                     if text.strip():
                         # Display transcribed text and send to Luna
@@ -5441,7 +5442,8 @@ Unique Users: {stats.get('unique_users', 0)}"""
                 with self.microphone as source:
                     audio = self.recognizer.listen(source, timeout=10, phrase_time_limit=15)
                 
-                text = self.recognizer.recognize_google(audio)
+                api_key = os.getenv("GOOGLE_API_KEY")
+                text = self.recognizer.recognize_google(audio, key=api_key) if api_key else self.recognizer.recognize_google(audio)
                 self.root.after(0, lambda: self.display_message("Mic Test", f"🎤 Heard: {text}"))
                 self.root.after(0, lambda: self.voice_status.config(text="🎤 Voice Ready", fg="#ff6b9d"))
                 

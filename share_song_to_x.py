@@ -10,6 +10,7 @@ After that, your session is saved and the script will post automatically.
 Requires: pip install playwright && playwright install chromium
 """
 
+import os
 import random
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -20,7 +21,8 @@ YOUTUBE_CHANNEL_ID = "UCqIjEHOABb8fwbKbjDhVRuA"
 YOUTUBE_RSS_URL = f"https://www.youtube.com/feeds/videos.xml?channel_id={YOUTUBE_CHANNEL_ID}"
 
 # Credentials path (shared with !comment for YouTube API - OAuth credentials.json)
-YOUTUBE_CREDENTIALS_PATH = Path(__file__).parent / "credentials.json"
+# Use env GOOGLE_CREDENTIALS_PATH to override; keep credentials.json out of git (use .env for GOOGLE_API_KEY)
+YOUTUBE_CREDENTIALS_PATH = Path(os.getenv("GOOGLE_CREDENTIALS_PATH", str(Path(__file__).parent / "credentials.json")))
 YOUTUBE_TOKEN_PATH = Path(__file__).parent / "youtube_token.json"
 
 # Persistent browser data (saves your X login)

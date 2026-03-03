@@ -53,6 +53,9 @@ if not TWITCH_ACCESS_TOKEN and Path("twitch_config.json").exists():
     except Exception:
         pass
 
+# --- Google API (from env only - never commit) ---
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
 # --- Ollama (from Luna Waifu) ---
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "hf.co/subsectmusic/qwriko3-4b-instruct-2507-redux-GGUF:Q4_K_M")
 
